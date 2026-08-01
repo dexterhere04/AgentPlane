@@ -2,8 +2,13 @@ package config
 
 import "os"
 
-// OpenAIKey returns the OpenAI API key loaded from the environment.
-// For V0 this is read from the OPENAI_API_KEY environment variable.
 func OpenAIKey() string {
 	return os.Getenv("OPENAI_API_KEY")
+}
+
+func OpenAIBaseURL() string {
+	if url := os.Getenv("OPENAI_BASE_URL"); url != "" {
+		return url
+	}
+	return "https://api.openai.com/v1"
 }
