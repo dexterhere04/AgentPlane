@@ -1,0 +1,86 @@
+services:
+  vault:
+    image: hashicorp/vault:1.18
+    container_name: agentplane-vault
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: dev-root-token
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    ports:
+      - "8202:8200"
+    healthcheck:
+      test: ["CMD", "vault", "status", "-address=http://127.0.0.1:8200"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+      start_period: 5s
+    networks:
+      - agentplane
+
+  vault-init:
+    image: hashicorp/vault:1.18
+    container_name: agentplane-vault-init
+    depends_on:
+      vault:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: dev-root-token
+    command:
+      - |
+        vault secrets enable -path=agentplane kv-v2
+
+        vault auth enable approle
+
+        vault policy write agentplane-policy - <<EOF
+        path "agentplane/data/*" {
+          capabilities = ["read"]
+        }
+        EOF
+
+        vault write auth/approle/role/agentplane-role \
+          token_policies="agentplane-policy" \
+          token_ttl=1h \
+          token_max_ttl=4h
+
+        vault kv put agentplane/OPENAI_API_KEY value=sk-test-from-vault
+
+        ROLE_ID=$$(vault read -field=role_id auth/approle/role/agentplane-role/role-id)
+        SECRET_ID=$$(vault write -f -field=secret_id auth/approle/role/agentplane-role/secret-id)
+
+        echo "VAULT_ROLE_ID=$$ROLE_ID"  > /vault-creds/creds.env
+        echo "VAULT_SECRET_ID=$$SECRET_ID" >> /vault-creds/creds.env
+
+        echo "--- AppRole Credentials written to /vault-creds/creds.env ---"
+        # Intentionally not printing credentials to logs
+    volumes:
+      - vault-creds:/vault-creds
+    networks:
+      - agentplane
+
+  gateway:
+    build: .
+    container_name: agentplane-gateway
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: "3001"
+      SECRET_STORE: vault
+      VAULT_ADDR: http://vault:8200
+      VAULT_MOUNT_PATH: agentplane
+      OPENAI_BASE_URL: https://api.openai.com/v1
+    volumes:
+      - vault-creds:/vault-creds
+    depends_on:
+      vault-init:
+        condition: service_completed_successfully
+    networks:
+      - agentplane
+
+networks:
+  agentplane:
+
+volumes:
+  vault-creds:
