@@ -9,6 +9,10 @@ import (
 var Store secrets.SecretStore = secrets.EnvStore{}
 
 func SetStore(s secrets.SecretStore) {
+	if s == nil {
+		Store = secrets.EnvStore{}
+		return
+	}
 	Store = s
 }
 
