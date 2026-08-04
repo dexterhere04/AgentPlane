@@ -14,6 +14,8 @@ type VaultStore struct {
 	Token     string
 	MountPath string
 	KVVersion int
+
+	HTTPClient *http.Client
 }
 
 type vaultResponse struct {
@@ -26,7 +28,10 @@ type vaultAuth struct {
 }
 
 func (v VaultStore) GetSecret(key string) (string, error) {
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := v.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
 
 	base := strings.TrimRight(v.Addr, "/")
 	var url string

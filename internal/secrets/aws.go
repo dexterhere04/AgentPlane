@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -15,31 +16,44 @@ type AWSSecretsManagerStore struct {
 	EndpointURL string
 	SecretID    string
 	JSONKey     string
+
+	client   *secretsmanager.Client
+	initOnce sync.Once
+	initErr  error
 }
 
 func (s *AWSSecretsManagerStore) GetSecret(key string) (string, error) {
+	s.initOnce.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(s.Region))
+		if err != nil {
+			s.initErr = fmt.Errorf("aws: loading config: %w", err)
+			return
+		}
+
+		opts := func(o *secretsmanager.Options) {}
+		if s.EndpointURL != "" {
+			opts = func(o *secretsmanager.Options) {
+				o.BaseEndpoint = &s.EndpointURL
+			}
+		}
+
+		s.client = secretsmanager.NewFromConfig(cfg, opts)
+	})
+	if s.initErr != nil {
+		return "", s.initErr
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(s.Region))
-	if err != nil {
-		return "", fmt.Errorf("aws: loading config: %w", err)
-	}
-
-	opts := func(o *secretsmanager.Options) {}
-	if s.EndpointURL != "" {
-		opts = func(o *secretsmanager.Options) {
-			o.BaseEndpoint = &s.EndpointURL
-		}
-	}
-
-	client := secretsmanager.NewFromConfig(cfg, opts)
 
 	input := &secretsmanager.GetSecretValueInput{
 		SecretId: &s.SecretID,
 	}
 
-	output, err := client.GetSecretValue(ctx, input)
+	output, err := s.client.GetSecretValue(ctx, input)
 	if err != nil {
 		return "", fmt.Errorf("aws: getting secret %q: %w", s.SecretID, err)
 	}
