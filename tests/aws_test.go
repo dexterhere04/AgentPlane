@@ -13,10 +13,10 @@ import (
 )
 
 func setupAWSEnv() func() {
-	prevAccessKey := os.Getenv("AWS_ACCESS_KEY_ID")
-	prevSecretKey := os.Getenv("AWS_SECRET_ACCESS_KEY")
-	prevSessionToken := os.Getenv("AWS_SESSION_TOKEN")
-	prevRegion := os.Getenv("AWS_REGION")
+	prevAccessKey, hadAccessKey := os.LookupEnv("AWS_ACCESS_KEY_ID")
+	prevSecretKey, hadSecretKey := os.LookupEnv("AWS_SECRET_ACCESS_KEY")
+	prevSessionToken, hadSessionToken := os.LookupEnv("AWS_SESSION_TOKEN")
+	prevRegion, hadRegion := os.LookupEnv("AWS_REGION")
 
 	os.Setenv("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE")
 	os.Setenv("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY")
@@ -24,19 +24,19 @@ func setupAWSEnv() func() {
 	os.Setenv("AWS_REGION", "us-east-1")
 
 	return func() {
-		restoreEnv("AWS_ACCESS_KEY_ID", prevAccessKey)
-		restoreEnv("AWS_SECRET_ACCESS_KEY", prevSecretKey)
-		restoreEnv("AWS_SESSION_TOKEN", prevSessionToken)
-		restoreEnv("AWS_REGION", prevRegion)
+		restoreEnv("AWS_ACCESS_KEY_ID", prevAccessKey, hadAccessKey)
+		restoreEnv("AWS_SECRET_ACCESS_KEY", prevSecretKey, hadSecretKey)
+		restoreEnv("AWS_SESSION_TOKEN", prevSessionToken, hadSessionToken)
+		restoreEnv("AWS_REGION", prevRegion, hadRegion)
 	}
 }
 
-func restoreEnv(key, prev string) {
-	if prev == "" {
+func restoreEnv(key, prev string, wasSet bool) {
+	if !wasSet {
 		os.Unsetenv(key)
-	} else {
-		os.Setenv(key, prev)
+		return
 	}
+	os.Setenv(key, prev)
 }
 
 func newAWSHandler(t *testing.T, handler http.HandlerFunc) *httptest.Server {
