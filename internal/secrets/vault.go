@@ -73,7 +73,11 @@ func extractKV1Data(data json.RawMessage) (string, error) {
 	if err := json.Unmarshal(data, &m); err != nil {
 		return "", fmt.Errorf("vault: parsing kv1 data: %w", err)
 	}
-	return fmt.Sprintf("%v", m["value"]), nil
+	val, ok := m["value"]
+	if !ok || val == nil {
+		return "", fmt.Errorf("vault: key 'value' not found in secret data")
+	}
+	return fmt.Sprintf("%v", val), nil
 }
 
 func extractKV2Data(data json.RawMessage) (string, error) {
