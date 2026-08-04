@@ -53,8 +53,8 @@ services:
         echo "VAULT_ROLE_ID=$$ROLE_ID"  > /vault-creds/creds.env
         echo "VAULT_SECRET_ID=$$SECRET_ID" >> /vault-creds/creds.env
 
-        echo "--- AppRole Credentials ---"
-        cat /vault-creds/creds.env
+        echo "--- AppRole Credentials written to /vault-creds/creds.env ---"
+        # Intentionally not printing credentials to logs
     volumes:
       - vault-creds:/vault-creds
     networks:
