@@ -193,7 +193,7 @@ curl -X POST http://localhost:3001/chat \
   -d '{"model":"gpt-4","messages":[{"role":"user","content":"hello"}]}'
 ```
 
-The response will include `sk-test-from-vault` in the error message (if reaching real OpenAI) or stream back a mock response (if `OPENAI_BASE_URL` points to a mock API), confirming the secret was fetched from Vault via AppRole.
+The response should succeed (or fail) without ever including the secret value in client-visible errors. To confirm Vault/AppRole wiring, verify via Vault audit/logs or by temporarily pointing `OPENAI_BASE_URL` at a local mock and checking that requests are authorized (without printing `OPENAI_API_KEY`).
 
 ## Production Notes
 
