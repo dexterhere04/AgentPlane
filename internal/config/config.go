@@ -1,9 +1,19 @@
 package config
 
-import "os"
+import (
+	"os"
 
-func OpenAIKey() string {
-	return os.Getenv("OPENAI_API_KEY")
+	"github.com/dexterhere04/AgentPlane/internal/secrets"
+)
+
+var Store secrets.SecretStore = secrets.EnvStore{}
+
+func SetStore(s secrets.SecretStore) {
+	Store = s
+}
+
+func OpenAIKey() (string, error) {
+	return Store.GetSecret("OPENAI_API_KEY")
 }
 
 func OpenAIBaseURL() string {
