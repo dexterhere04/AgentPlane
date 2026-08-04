@@ -99,13 +99,15 @@ func VaultAppRoleLogin(addr, roleID, secretID string) (string, error) {
 
 	url := strings.TrimRight(addr, "/") + "/v1/auth/approle/login"
 
-	body := fmt.Sprintf(`{"role_id":"%s","secret_id":"%s"}`, roleID, secretID)
-	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(body))
+	payload, err := json.Marshal(map[string]string{"role_id": roleID, "secret_id": secretID})
+	if err != nil {
+		return "", fmt.Errorf("vault approle: building request body: %w", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(string(payload)))
 	if err != nil {
 		return "", fmt.Errorf("vault approle: building request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("vault approle: %w", err)
