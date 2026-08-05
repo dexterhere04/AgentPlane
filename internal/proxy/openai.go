@@ -20,11 +20,17 @@ func ForwardChat(body []byte, requestID string) ([]byte, error) {
 	bus := observability.DefaultBus
 	url := chatURL()
 
-	apiKey := config.OpenAIKey()
-	if apiKey == "" {
-		bus.Publish(observability.NewMessageEvent(requestID, observability.StageLoadingAPIKey, "error", "OPENAI_API_KEY is not set"))
-		return nil, fmt.Errorf("OPENAI_API_KEY is not set")
+	apiKey, err := config.OpenAIKey()
+	if err != nil {
+		bus.Publish(observability.NewMessageEvent(requestID, observability.StageLoadingAPIKey, "error", err.Error()))
+		return nil, fmt.Errorf("loading OPENAI_API_KEY: %w", err)
 	}
+
+	if apiKey == "" {
+		bus.Publish(observability.NewMessageEvent(requestID, observability.StageLoadingAPIKey, "error", "OPENAI_API_KEY is empty"))
+		return nil, fmt.Errorf("OPENAI_API_KEY is empty")
+	}
+
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageLoadingAPIKey, "completed", "API key loaded"))
 
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageBuildingRequest, "started", fmt.Sprintf("POST %s", url)))
