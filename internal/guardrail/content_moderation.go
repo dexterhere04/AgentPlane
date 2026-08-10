@@ -75,7 +75,10 @@ func (g *ContentModerationGuardrail) Evaluate(_ context.Context, _ Direction, bo
 
 	for _, cat := range contentModerationCategories {
 		for _, pat := range cat.patterns {
-			matches := pat.FindAllStringIndex(bodyLower, -1)
+			if !pat.MatchString(bodyLower) {
+				continue
+			}
+			matches := pat.FindAllStringIndex(bodyStr, -1)
 			for _, loc := range matches {
 				start, end := loc[0], loc[1]
 				findings = append(findings, Finding{
