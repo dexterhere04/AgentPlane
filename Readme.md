@@ -60,6 +60,14 @@ agentplane/
 │   ├── handlers/
 │   │   └── chat.go
 │   │
+│   ├── guardrail/
+│   │   ├── guardrail.go
+│   │   ├── pipeline.go
+│   │   ├── prompt_injection.go
+│   │   ├── secrets.go
+│   │   ├── pii.go
+│   │   └── content_moderation.go
+│   │
 │   └── proxy/
 │       └── openai.go
 │
@@ -420,6 +428,7 @@ Each package owns exactly one concern.
 | `cmd/server` | Application startup      |
 | `config`     | Configuration management |
 | `handlers`   | HTTP request handling    |
+| `guardrail`  | Policy enforcement       |
 | `proxy`      | Provider communication   |
 
 Because responsibilities are isolated, changing one package should not require changes to others.
@@ -445,6 +454,9 @@ Rate Limiting
 Logging
         │
         ▼
+Guardrails (Input)
+        │
+        ▼
 Agent Routing
         │
         ▼
@@ -455,6 +467,9 @@ API Key Injection
         │
         ▼
 Provider Proxy
+        │
+        ▼
+Guardrails (Output)
         │
         ▼
 Response

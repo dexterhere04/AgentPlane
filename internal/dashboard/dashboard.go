@@ -30,7 +30,7 @@ const HTML = `<!DOCTYPE html>
 }
 body{
   font-family:'JetBrains Mono','Cascadia Code','Fira Code','SF Mono','Consolas','Menlo',monospace;
-  background-color:var(--bg);
+  background:var(--bg);
   background-image:
     radial-gradient(ellipse at 50% 0%,rgba(104,136,240,0.04) 0%,transparent 55%),
     radial-gradient(circle at 1px 1px,rgba(255,255,255,0.018) 1px,transparent 1px);
@@ -40,17 +40,11 @@ body{
   -webkit-font-smoothing:antialiased;
 }
 header{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  padding:14px 28px;
-  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 28px;border-bottom:1px solid var(--border);
   background:rgba(13,16,24,0.85);
-  -webkit-backdrop-filter:blur(8px);
-  backdrop-filter:blur(8px);
-  position:sticky;
-  top:0;
-  z-index:20;
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+  position:sticky;top:0;z-index:20;
 }
 .logo{font-size:16px;font-weight:700;color:var(--text-bright);letter-spacing:-0.01em}
 .logo i{color:var(--accent);font-style:normal}
@@ -61,360 +55,238 @@ header{
 .status-dot.on{background:var(--green);box-shadow:0 0 6px var(--green)}
 .status-dot.off{background:var(--red);box-shadow:0 0 6px var(--red)}
 main{padding:20px 28px 40px;max-width:1440px;margin:0 auto}
-.stats-bar{
-  display:grid;
-  grid-template-columns:repeat(4,1fr);
-  gap:12px;
-  margin-bottom:18px;
-}
+.stats-bar{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:18px}
 .stat-card{
-  background:var(--surface);
-  border:1px solid var(--border);
-  border-radius:8px;
-  padding:14px 18px;
-  display:flex;
-  flex-direction:column;
-  gap:4px;
-  transition:border-color 0.25s;
+  background:var(--surface);border:1px solid var(--border);border-radius:8px;
+  padding:14px 18px;display:flex;flex-direction:column;gap:4px;transition:border-color 0.25s;
 }
 .stat-card:hover{border-color:var(--border-light)}
 .stat-card .stat-label{font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-dim);font-weight:600}
 .stat-card .stat-value{font-size:22px;font-weight:700;color:var(--text-bright);font-variant-numeric:tabular-nums;letter-spacing:-0.02em}
 .stat-card .stat-sub{font-size:10px;color:var(--text-dim);margin-top:2px}
+.block-stat{border-color:var(--red);background:rgba(224,80,80,0.05)}
+.block-stat .stat-value{color:var(--red)}
+
 .pipeline-card{
-  background:var(--surface);
-  border:1px solid var(--border);
-  border-radius:10px;
-  padding:20px 24px;
-  margin-bottom:18px;
-  position:relative;
-  overflow:hidden;
+  background:var(--surface);border:1px solid var(--border);border-radius:10px;
+  padding:20px 24px;margin-bottom:18px;
 }
-.pipeline-card::before{
-  content:'';
-  position:absolute;
-  inset:0;
-  border-radius:10px;
-  padding:1px;
-  background:linear-gradient(135deg,rgba(255,255,255,0.03),transparent 50%,rgba(104,136,240,0.05));
-  -webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);
-  -webkit-mask-composite:xor;
-  mask-composite:exclude;
-  pointer-events:none;
-}
-.pipeline-card h2{
-  font-size:11px;
-  text-transform:uppercase;
-  letter-spacing:0.1em;
-  color:var(--text-dim);
-  margin-bottom:16px;
-  font-weight:600;
-}
+.pipeline-card h2{font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-dim);margin-bottom:14px;font-weight:600}
 .pipeline{
-  display:flex;
-  align-items:flex-start;
-  gap:0;
-  overflow-x:auto;
-  padding:8px 0 4px;
+  display:flex;align-items:flex-start;gap:0;overflow-x:auto;padding:8px 0 4px;
 }
 .stage-wrap{display:flex;align-items:center;flex-shrink:0}
 .stage{
-  width:122px;
-  padding:12px 6px;
-  border-radius:8px;
-  border:1px solid var(--border);
-  background:var(--surface2);
-  text-align:center;
-  transition:all 0.35s cubic-bezier(0.4,0,0.2,1);
-  position:relative;
-  overflow:hidden;
+  width:110px;padding:10px 4px;border-radius:8px;border:1px solid var(--border);
+  background:var(--surface2);text-align:center;transition:all 0.35s cubic-bezier(0.4,0,0.2,1);
+  position:relative;overflow:hidden;
 }
-.stage::after{
-  content:'';
-  position:absolute;
-  top:0;left:0;right:0;
-  height:2px;
-  background:transparent;
-  transition:background 0.3s,box-shadow 0.3s;
-  border-radius:2px;
-}
+.stage .icon{font-size:16px;margin-bottom:4px;display:block;transition:transform 0.35s}
+.stage .label{font-size:9px;font-weight:600;color:var(--text-dim);transition:color 0.3s}
+.stage .detail{font-size:8px;color:var(--text-dim);min-height:10px}
+.stage .time{font-size:8px;color:var(--accent);opacity:0;margin-top:2px}
+.stage.completed .time{opacity:1}
 @keyframes blinkPulse{
   0%{box-shadow:0 0 0 rgba(212,160,48,0);border-color:rgba(212,160,48,0.15)}
-  30%{box-shadow:0 0 18px rgba(212,160,48,0.45),0 0 36px rgba(212,160,48,0.15);border-color:rgba(212,160,48,0.7)}
+  30%{box-shadow:0 0 18px rgba(212,160,48,0.45);border-color:rgba(212,160,48,0.7)}
   100%{box-shadow:0 0 0 rgba(212,160,48,0);border-color:rgba(212,160,48,0)}
 }
-.stage.in-progress{animation:blinkPulse 0.15s ease-out}
-.stage.in-progress::after{background:var(--amber);box-shadow:0 0 12px var(--amber)}
-.stage.in-progress .icon{transform:scale(1.2)}
-.stage.completed::after{background:var(--green);box-shadow:0 0 6px rgba(76,184,104,0.4)}
-.stage.completed{border-color:rgba(76,184,104,0.25);background:rgba(76,184,104,0.04)}
-.stage.error::after{background:var(--red);box-shadow:0 0 6px rgba(224,80,80,0.4)}
-.stage.error{border-color:rgba(224,80,80,0.3);background:rgba(224,80,80,0.04)}
-.stage .icon{font-size:20px;margin-bottom:5px;display:block;transition:transform 0.35s}
-.stage .label{font-size:10px;font-weight:600;color:var(--text-dim);margin-bottom:2px;transition:color 0.3s}
+.stage.in-progress{animation:blinkPulse 0.15s ease-out;border-color:rgba(212,160,48,0.7)}
 .stage.in-progress .label{color:var(--amber)}
+.stage.completed{border-color:rgba(76,184,104,0.25);background:rgba(76,184,104,0.04)}
 .stage.completed .label{color:var(--green)}
+.stage.error{border-color:rgba(224,80,80,0.3);background:rgba(224,80,80,0.04)}
 .stage.error .label{color:var(--red)}
-.stage .detail{font-size:9px;color:var(--text-dim);min-height:12px;transition:color 0.3s}
-.stage .time{font-size:9px;color:var(--accent);opacity:0;transition:opacity 0.3s;margin-top:3px}
-.stage.completed .time,.stage.error .time{opacity:1}
 .connector{
-  width:22px;
-  height:1.5px;
-  background:var(--border);
-  flex-shrink:0;
-  align-self:center;
-  margin:0 3px;
-  position:relative;
-  transition:background 0.3s;
+  width:16px;height:1.5px;background:var(--border);flex-shrink:0;
+  align-self:center;margin:0 2px;
 }
 .connector.flow{background:var(--accent);box-shadow:0 0 6px rgba(104,136,240,0.5)}
-.connector.flow::after{
-  content:'';
-  position:absolute;
-  top:-2px;right:-3px;
-  width:5px;height:5px;
-  border-radius:50%;
-  background:var(--accent);
-  box-shadow:0 0 6px var(--accent);
-  animation:connectorPulse 0.5s ease-out;
+
+.chat-section{margin-bottom:18px;display:grid;grid-template-columns:2fr 1fr;gap:16px}
+
+.chat-panel{
+  background:var(--surface);border:1px solid var(--border);border-radius:10px;
+  display:flex;flex-direction:column;min-height:420px;
 }
-.pipeline-progress{
-  margin-top:14px;
-  height:2px;
-  background:var(--border);
-  border-radius:1px;
-  overflow:hidden;
+.chat-panel h2{
+  font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-dim);
+  font-weight:600;padding:16px 20px 12px;border-bottom:1px solid var(--border);
 }
-.pipeline-progress-fill{
-  height:100%;
-  background:var(--accent);
-  border-radius:1px;
-  width:0%;
-  transition:width 0.4s cubic-bezier(0.4,0,0.2,1);
-  box-shadow:0 0 8px rgba(104,136,240,0.5);
+.chat-messages{
+  flex:1;overflow-y:auto;padding:14px 18px;display:flex;flex-direction:column;gap:10px;
+  max-height:400px;
 }
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.card{
-  background:var(--surface);
-  border:1px solid var(--border);
-  border-radius:10px;
-  padding:18px 20px;
-  position:relative;
+.chat-msg{
+  max-width:90%;padding:10px 14px;border-radius:8px;font-size:11px;line-height:1.55;
+  word-break:break-word;animation:slideIn 0.25s ease-out;
 }
-.card h2{
-  font-size:11px;
-  text-transform:uppercase;
-  letter-spacing:0.1em;
-  color:var(--text-dim);
-  margin-bottom:14px;
-  font-weight:600;
+.chat-msg.user{
+  align-self:flex-end;background:var(--accent-dim);border:1px solid rgba(104,136,240,0.2);
+  color:var(--text-bright);
 }
-pre.payload{
-  background:var(--bg);
-  border:1px solid var(--border);
-  border-radius:6px;
-  padding:14px 16px;
-  font-size:11px;
-  line-height:1.65;
-  overflow-x:auto;
-  max-height:280px;
-  overflow-y:auto;
-  white-space:pre-wrap;
-  word-break:break-all;
+.chat-msg.assistant{
+  align-self:flex-start;background:var(--surface2);border:1px solid var(--border-light);
   color:var(--text);
 }
-pre.payload .key{color:var(--accent)}
-pre.payload .str{color:var(--green)}
-pre.payload .bool{color:var(--purple)}
-pre.payload .num{color:var(--amber)}
-pre.payload .null{color:var(--red)}
-.card-scroll{display:flex;flex-direction:column;min-height:0}
-.card-scroll .event-log{max-height:560px;overflow-y:auto;font-size:11px}
-.event-log{max-height:560px;overflow-y:auto;font-size:11px}
+.chat-msg.error{
+  align-self:flex-start;background:var(--red-dim);border:1px solid rgba(224,80,80,0.3);
+  color:var(--red);
+}
+.chat-msg .msg-tag{
+  font-size:8px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-dim);
+  margin-bottom:4px;font-weight:700;
+}
+.chat-input-wrap{
+  border-top:1px solid var(--border);padding:12px 16px;display:flex;gap:8px;
+}
+.chat-input-wrap input{
+  flex:1;padding:9px 12px;background:var(--bg);border:1px solid var(--border);
+  border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;
+  transition:border-color 0.2s,box-shadow 0.2s;outline:none;
+}
+.chat-input-wrap input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-dim)}
+.chat-input-wrap button{
+  padding:9px 18px;background:var(--accent);border:none;border-radius:6px;
+  color:#fff;font-weight:600;font-family:inherit;font-size:12px;cursor:pointer;
+  transition:background 0.2s,box-shadow 0.2s;outline:none;letter-spacing:0.03em;
+}
+.chat-input-wrap button:hover{background:#5a78e0;box-shadow:0 2px 12px rgba(104,136,240,0.3)}
+.chat-input-wrap button:active{transform:scale(0.98)}
+.chat-input-wrap button:disabled{opacity:0.5;cursor:not-allowed}
+
+.guardrail-summary{
+  background:var(--surface);border:1px solid var(--border);border-radius:10px;
+  display:flex;flex-direction:column;min-height:420px;
+}
+.guardrail-summary h2{
+  font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-dim);
+  font-weight:600;padding:16px 20px 12px;border-bottom:1px solid var(--border);
+  display:flex;justify-content:space-between;align-items:center;
+}
+.guardrail-summary h2 .dir-badge{
+  font-size:9px;background:var(--accent-dim);color:var(--accent);padding:2px 8px;
+  border-radius:3px;font-weight:600;
+}
+.guardrail-list{
+  flex:1;overflow-y:auto;padding:10px 16px;display:flex;flex-direction:column;gap:6px;
+  max-height:400px;
+}
+.guardrail-row{
+  display:flex;align-items:center;gap:10px;padding:8px 10px;
+  border-radius:6px;border:1px solid var(--border);background:var(--surface2);
+  font-size:10px;animation:slideIn 0.2s ease-out;
+}
+.guardrail-row .gr-indicator{
+  width:8px;height:8px;border-radius:50%;flex-shrink:0;
+}
+.gr-pass{background:var(--green);box-shadow:0 0 6px var(--green)}
+.gr-block{background:var(--red);box-shadow:0 0 6px var(--red)}
+.gr-warn{background:var(--amber);box-shadow:0 0 6px var(--amber)}
+.gr-redact{background:var(--purple);box-shadow:0 0 6px var(--purple)}
+.gr-pending{background:var(--border-light)}
+.guardrail-row .gr-name{font-weight:600;color:var(--text-bright);min-width:100px}
+.guardrail-row .gr-decision{font-weight:600;min-width:50px}
+.guardrail-row .gr-msg{color:var(--text-dim);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.guardrail-row .gr-time{color:var(--text-dim);font-size:9px;white-space:nowrap}
+.dec-pass{color:var(--green)}
+.dec-block{color:var(--red)}
+.dec-warn{color:var(--amber)}
+.dec-redact{color:var(--purple)}
+
+.guardrails-grid{
+  display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px;
+}
+.guardrail-panel{
+  background:var(--surface);border:1px solid var(--border);border-radius:10px;
+  overflow:hidden;
+}
+.guardrail-panel h2{
+  font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-dim);
+  font-weight:600;padding:14px 18px 10px;border-bottom:1px solid var(--border);
+  display:flex;justify-content:space-between;align-items:center;
+}
+.guardrail-panel h2 .panel-count{
+  font-size:9px;color:var(--text-dim);font-weight:400;
+}
+.guardrail-panel .panel-items{
+  padding:10px 14px;max-height:280px;overflow-y:auto;
+}
+.guardrail-item{
+  padding:10px 12px;margin-bottom:6px;border-radius:6px;
+  border:1px solid var(--border);background:var(--surface2);
+  font-size:10px;animation:slideIn 0.2s ease-out;
+}
+.guardrail-item .gi-header{
+  display:flex;align-items:center;gap:8px;margin-bottom:4px;
+}
+.guardrail-item .gi-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.gi-pass .gi-dot{background:var(--green)}
+.gi-block .gi-dot{background:var(--red)}
+.gi-warn .gi-dot{background:var(--amber)}
+.gi-redact .gi-dot{background:var(--purple)}
+.gi-block{border-color:rgba(224,80,80,0.3);background:rgba(224,80,80,0.04)}
+.guardrail-item .gi-name{font-weight:700;color:var(--text-bright)}
+.guardrail-item .gi-decision{font-weight:600;margin-left:auto}
+.guardrail-item .gi-msg{color:var(--text-dim)}
+.guardrail-item .gi-findings{margin-top:6px}
+.guardrail-item .gi-finding{
+  padding:4px 8px;margin:3px 0;border-radius:3px;background:var(--bg);
+  border:1px solid var(--border);font-size:9px;
+  display:flex;align-items:center;gap:6px;
+}
+.guardrail-item .gi-finding .gf-sev{font-weight:600;text-transform:uppercase;font-size:8px}
+.sev-critical{color:var(--red)}
+.sev-high{color:var(--amber)}
+.sev-medium{color:var(--amber)}
+.sev-low{color:var(--text-dim)}
+.sev-info{color:var(--text-dim)}
+.guardrail-item .gi-finding .gf-type{color:var(--accent);font-weight:600}
+.guardrail-item .gi-finding .gf-entity{color:var(--text-dim)}
+
+.event-section{margin-bottom:18px}
+.event-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:10px;
+}
+.event-card h2{
+  font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-dim);
+  font-weight:600;padding:14px 18px 10px;border-bottom:1px solid var(--border);
+}
+.event-log{max-height:320px;overflow-y:auto;font-size:11px;padding:0 14px 10px}
 .event-row{
-  display:flex;
-  gap:10px;
-  padding:5px 8px;
+  display:flex;gap:10px;padding:5px 8px;
   border-bottom:1px solid rgba(28,32,48,0.5);
-  align-items:baseline;
-  transition:background 0.2s;
-  border-radius:3px;
+  align-items:baseline;transition:background 0.2s;border-radius:3px;
+  font-family:'JetBrains Mono','Cascadia Code','Fira Code','SF Mono','Consolas','Menlo',monospace;
 }
 .event-row:hover{background:rgba(255,255,255,0.015)}
 .event-row:first-child{animation:slideIn 0.3s ease-out}
-.event-time{color:var(--text-dim);white-space:nowrap;min-width:68px;font-size:10px}
-.event-stage{min-width:100px;white-space:nowrap;font-weight:600;font-size:10px}
+.event-time{color:var(--text-dim);white-space:nowrap;min-width:72px;font-size:10px}
+.event-stage{min-width:105px;white-space:nowrap;font-weight:600;font-size:10px}
 .event-status{min-width:60px}
 .event-msg{color:var(--text-dim);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.event-stage.s-RECEIVED{color:var(--accent)}
+.event-stage.s-GUARD{color:var(--purple)}
+.event-stage.s-BLOCKED{color:var(--red)}
+.event-stage.s-PASSED{color:var(--green)}
+.event-stage.s-RECD{color:var(--accent)}
 .event-stage.s-READ{color:var(--purple)}
 .event-stage.s-VALID{color:var(--cyan)}
 .event-stage.s-PROXY{color:var(--amber)}
-.event-stage.s-COMPLETE{color:var(--green)}
+.event-stage.s-DONE{color:var(--green)}
 .event-stage.s-ERROR{color:var(--red)}
 .badge{
-  display:inline-block;
-  padding:1px 7px;
-  border-radius:3px;
-  font-size:9px;
-  font-weight:700;
-  text-transform:uppercase;
-  letter-spacing:0.04em;
+  display:inline-block;padding:1px 7px;border-radius:3px;font-size:9px;
+  font-weight:700;text-transform:uppercase;letter-spacing:0.04em;
 }
 .badge.started{background:var(--amber-dim);color:var(--amber)}
 .badge.completed{background:var(--green-dim);color:var(--green)}
+.badge.block{background:var(--red-dim);color:var(--red)}
 .badge.error{background:var(--red-dim);color:var(--red)}
 .badge.info{background:var(--accent-dim);color:var(--accent)}
-.req-list{max-height:230px;overflow-y:auto}
-.req-item{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  padding:8px 12px;
-  border-bottom:1px solid var(--border);
-  font-size:11px;
-  cursor:pointer;
-  border-radius:4px;
-  transition:background 0.2s;
-}
-.req-item:hover{background:var(--surface2)}
-.req-item.active{background:var(--accent-dim);border-left:3px solid var(--accent);padding-left:13px}
-.req-id{color:var(--accent);font-weight:600}
-.req-time{color:var(--text-dim);font-size:10px}
-.tabs{display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:14px}
-.tab{
-  padding:7px 14px;
-  font-size:11px;
-  font-weight:600;
-  color:var(--text-dim);
-  cursor:pointer;
-  border-bottom:2px solid transparent;
-  margin-bottom:-2px;
-  transition:all 0.2s;
-  text-transform:uppercase;
-  letter-spacing:0.05em;
-}
-.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
-.tab:hover{color:var(--text)}
-.empty-state{text-align:center;padding:36px 20px;color:var(--text-dim);font-size:12px}
-.empty-state .em{font-size:32px;margin-bottom:10px;display:block;opacity:0.5}
-#send-form{display:flex;gap:8px;margin-bottom:14px}
-#send-form input{
-  flex:1;
-  padding:9px 12px;
-  background:var(--bg);
-  border:1px solid var(--border);
-  border-radius:6px;
-  color:var(--text);
-  font-family:inherit;
-  font-size:12px;
-  transition:border-color 0.2s,box-shadow 0.2s;
-  outline:none;
-}
-#send-form input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-dim)}
-#send-form button,.btn{
-  padding:9px 18px;
-  background:var(--accent);
-  border:none;
-  border-radius:6px;
-  color:#fff;
-  font-weight:600;
-  font-family:inherit;
-  font-size:12px;
-  cursor:pointer;
-  transition:background 0.2s,box-shadow 0.2s;
-  outline:none;
-  letter-spacing:0.03em;
-}
-#send-form button:hover,.btn:hover{background:#5a78e0;box-shadow:0 2px 12px rgba(104,136,240,0.3)}
-#send-form button:active,.btn:active{transform:scale(0.98)}
-.concurrent-section{border-top:1px solid var(--border);margin-top:14px;padding-top:14px}
-.concurrent-section h2{margin-bottom:10px!important}
-.concurrent-form{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
-.concurrent-form input[type="number"]{
-  width:60px;
-  padding:7px 8px;
-  background:var(--bg);
-  border:1px solid var(--border);
-  border-radius:6px;
-  color:var(--text);
-  font-family:inherit;
-  font-size:11px;
-  outline:none;
-  transition:border-color 0.2s;
-}
-.concurrent-form input[type="number"]:focus{border-color:var(--accent)}
-.concurrent-form input[type="text"]{
-  flex:1;
-  min-width:80px;
-  padding:7px 10px;
-  background:var(--bg);
-  border:1px solid var(--border);
-  border-radius:6px;
-  color:var(--text);
-  font-family:inherit;
-  font-size:11px;
-  outline:none;
-  transition:border-color 0.2s;
-}
-.concurrent-form input[type="text"]:focus{border-color:var(--accent)}
-.concurrent-form label{
-  font-size:10px;
-  color:var(--text-dim);
-  display:flex;
-  align-items:center;
-  gap:4px;
-  white-space:nowrap;
-  cursor:pointer;
-  text-transform:uppercase;
-  letter-spacing:0.04em;
-}
-.concurrent-form label input{cursor:pointer;accent-color:var(--accent)}
-.concurrent-form .btn{background:var(--purple);padding:7px 16px;font-size:11px}
-.concurrent-form .btn:hover{background:#8658d0;box-shadow:0 2px 12px rgba(152,120,216,0.3)}
-.concurrent-form .btn:disabled{opacity:0.4;cursor:not-allowed;box-shadow:none}
-.concurrent-progress{display:none;margin-top:10px}
-.concurrent-progress-bar-wrap{
-  width:100%;
-  height:4px;
-  background:var(--bg);
-  border-radius:2px;
-  overflow:hidden;
-  margin-bottom:6px;
-}
-.concurrent-progress-bar{
-  height:100%;
-  background:var(--purple);
-  border-radius:2px;
-  width:0%;
-  transition:width 0.25s ease;
-  box-shadow:0 0 8px rgba(152,120,216,0.5);
-}
-.concurrent-progress-text{font-size:10px;color:var(--text-dim);margin-bottom:7px}
-.concurrent-dots{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px}
-.concurrent-dot{
-  width:8px;
-  height:8px;
-  border-radius:50%;
-  background:var(--border);
-  transition:all 0.3s;
-}
-.concurrent-dot.success{background:var(--green);box-shadow:0 0 5px var(--green)}
-.concurrent-dot.error{background:var(--red);box-shadow:0 0 5px var(--red)}
-.concurrent-summary{
-  width:100%;
-  font-size:11px;
-  border-collapse:collapse;
-  margin-top:6px;
-}
-.concurrent-summary td{padding:3px 10px;border-bottom:1px solid rgba(28,32,48,0.4)}
-.concurrent-summary td:first-child{color:var(--text-dim)}
-.concurrent-summary td:last-child{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
-@keyframes connectorPulse{
-  0%{transform:scale(0);opacity:1}
-  100%{transform:scale(1.5);opacity:0}
-}
+.badge.warn{background:var(--amber-dim);color:var(--amber)}
+.badge.pass{background:var(--green-dim);color:var(--green)}
+.empty-state{text-align:center;padding:30px 20px;color:var(--text-dim);font-size:12px}
+.empty-state .em{font-size:28px;margin-bottom:8px;display:block;opacity:0.5}
 @keyframes slideIn{
   from{opacity:0;transform:translateY(-6px)}
   to{opacity:1;transform:translateY(0)}
@@ -424,9 +296,9 @@ pre.payload .null{color:var(--red)}
 ::-webkit-scrollbar-thumb{background:var(--border-light);border-radius:3px}
 ::-webkit-scrollbar-thumb:hover{background:var(--text-dim)}
 @media(max-width:900px){
-  .grid{grid-template-columns:1fr}
   .stats-bar{grid-template-columns:repeat(2,1fr)}
-  .header-right{gap:10px}
+  .chat-section{grid-template-columns:1fr}
+  .guardrails-grid{grid-template-columns:1fr}
 }
 </style>
 </head>
@@ -436,10 +308,12 @@ pre.payload .null{color:var(--red)}
   <div class="header-right">
     <span id="connection-status"><span class="status-dot off"></span> Offline</span>
     <span class="stat">Req<span class="stat-val" id="request-count">0</span></span>
+    <span class="stat">Block<span class="stat-val" id="block-count" style="color:var(--red)">0</span></span>
     <span class="stat">Evt<span class="stat-val" id="event-count">0</span></span>
   </div>
 </header>
 <main>
+
   <div class="stats-bar">
     <div class="stat-card">
       <span class="stat-label">Requests</span>
@@ -450,6 +324,11 @@ pre.payload .null{color:var(--red)}
       <span class="stat-label">Active</span>
       <span class="stat-value" id="stat-active">0</span>
       <span class="stat-sub">in progress</span>
+    </div>
+    <div class="stat-card block-stat">
+      <span class="stat-label">Blocked</span>
+      <span class="stat-value" id="stat-blocked">0</span>
+      <span class="stat-sub">guardrail blocks</span>
     </div>
     <div class="stat-card">
       <span class="stat-label">Events</span>
@@ -464,60 +343,65 @@ pre.payload .null{color:var(--red)}
   </div>
 
   <div class="pipeline-card">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
       <h2 style="margin:0">Request Pipeline</h2>
       <span style="font-size:10px;color:var(--text-dim)" id="pipeline-req-id"></span>
     </div>
     <div id="pipeline-container" class="pipeline"></div>
-    <div class="pipeline-progress">
-      <div class="pipeline-progress-fill" id="pipeline-progress-fill"></div>
+  </div>
+
+  <div class="chat-section">
+    <div class="chat-panel" id="chat-panel">
+      <h2>Chat</h2>
+      <div class="chat-messages" id="chat-messages">
+        <div class="empty-state"><span class="em">&#x1F4AC;</span>Send a message to get started</div>
+      </div>
+      <div class="chat-input-wrap">
+        <input type="text" id="chat-input" placeholder="Type a message..." value="Hello, how are you?" autocomplete="off" onkeydown="if(event.key==='Enter')sendChatMessage()">
+        <button onclick="sendChatMessage()" id="chat-send-btn">Send</button>
+      </div>
+    </div>
+
+    <div class="guardrail-summary" id="gr-summary">
+      <h2>
+        Guardrails
+        <span class="dir-badge" id="gr-current-dir">waiting</span>
+      </h2>
+      <div class="guardrail-list" id="gr-summary-list">
+        <div class="empty-state"><span class="em">&#x1F6E1;</span>No guardrail data yet</div>
+      </div>
     </div>
   </div>
 
-  <div class="grid">
-    <div class="card">
-      <h2>Sent Request</h2>
-      <div id="request-payload"><div class="empty-state"><span class="em">&#x2191;</span>Send a request to see payload</div></div>
-    </div>
-    <div class="card">
-      <h2>Response</h2>
-      <div id="response-payload"><div class="empty-state"><span class="em">&#x2193;</span>Response will appear here</div></div>
-    </div>
-    <div class="card card-scroll">
-      <h2>Live Events</h2>
-      <div class="event-log" id="event-log"><div class="empty-state">Waiting for events&#8230;</div></div>
-    </div>
-    <div class="card">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-        <h2 style="margin:0">Quick Request</h2>
+  <div class="guardrails-grid">
+    <div class="guardrail-panel">
+      <h2>
+        Input Guardrails
+        <span class="panel-count" id="input-gr-count">0 checks</span>
+      </h2>
+      <div class="panel-items" id="input-gr-items">
+        <div class="empty-state"><span class="em">&#x2B06;</span>Awaiting request</div>
       </div>
-      <form id="send-form" onsubmit="sendRequest(event)">
-        <input type="text" id="prompt-input" placeholder="Type a message&#8230;" value="Hello, how are you?" autocomplete="off">
-        <button type="submit">Send</button>
-      </form>
-      <div class="tabs">
-        <div class="tab active" id="tab-normal" onclick="setStreaming(false)">Normal</div>
-        <div class="tab" id="tab-stream" onclick="setStreaming(true)">Streaming</div>
-      </div>
-      <div class="req-list" id="req-list"><div class="empty-state">No requests yet</div></div>
-      <div class="concurrent-section">
-        <h2>Concurrent Test</h2>
-        <div class="concurrent-form">
-          <input type="number" id="concurrent-count" min="1" max="100" value="10" placeholder="N">
-          <input type="text" id="concurrent-prompt" value="Hello" placeholder="Prompt" autocomplete="off">
-          <label><input type="checkbox" id="concurrent-stream"> Stream</label>
-          <button type="button" class="btn" id="concurrent-fire-btn" onclick="sendConcurrent()">Fire</button>
-        </div>
-        <div class="concurrent-progress" id="concurrent-progress">
-          <div class="concurrent-progress-bar-wrap"><div class="concurrent-progress-bar" id="concurrent-progress-bar"></div></div>
-          <div class="concurrent-progress-text" id="concurrent-progress-text"></div>
-          <div class="concurrent-dots" id="concurrent-dots"></div>
-        </div>
-        <div id="concurrent-results"></div>
+    </div>
+    <div class="guardrail-panel">
+      <h2>
+        Output Guardrails
+        <span class="panel-count" id="output-gr-count">0 checks</span>
+      </h2>
+      <div class="panel-items" id="output-gr-items">
+        <div class="empty-state"><span class="em">&#x2B07;</span>Awaiting response</div>
       </div>
     </div>
   </div>
+
+  <div class="event-section">
+    <div class="event-card">
+      <h2>Live Events</h2>
+      <div class="event-log" id="event-log"><div class="empty-state" style="padding:20px">Waiting for events&#8230;</div></div>
+    </div>
+  </div>
 </main>
+
 <script>
 var STAGES=[
   {id:'request_received',label:'RECEIVED',icon:'\u2B06',short:'RECD'},
@@ -531,28 +415,24 @@ var STAGES=[
   {id:'validating_status',label:'STATUS',icon:'\u2714',short:'STAT'},
   {id:'response_sent',label:'DONE',icon:'\uD83C\uDF89',short:'DONE'}
 ];
+
 var bus=new EventSource('/events');
-var eventCount=0,requestCount=0,activeCount=0;
+var eventCount=0,requestCount=0,activeCount=0,blockCount=0;
 var currentRequestId=null;
 var requests={};
-var streaming=false;
 var lastRequestTimestamps={};
 var blinkQueue=[],blinking=false;
 
-function setStreaming(s){
-  streaming=s;
-  document.getElementById('tab-normal').className=s?'tab':'tab active';
-  document.getElementById('tab-stream').className=s?'tab active':'tab';
-}
+var chatMessages=[];
+var currentInputGuards=[];
+var currentOutputGuards=[];
 
 bus.onopen=function(){
   document.getElementById('connection-status').innerHTML='<span class="status-dot on"></span> Online';
 };
-
 bus.onerror=function(){
   document.getElementById('connection-status').innerHTML='<span class="status-dot off"></span> Offline';
 };
-
 bus.onmessage=function(e){
   var evt=JSON.parse(e.data);
   handleEvent(evt);
@@ -563,7 +443,7 @@ function handleEvent(evt){
   document.getElementById('event-count').textContent=eventCount;
   document.getElementById('stat-events').textContent=eventCount;
 
-  var stageName=STAGES.find(function(s){return s.id===evt.stage;});
+  var stageName=STAGES.find(function(s){return s.id===evt.stage});
   var shortName=stageName?stageName.short:evt.stage;
 
   if(!requests[evt.request_id]){
@@ -574,18 +454,10 @@ function handleEvent(evt){
     document.getElementById('request-count').textContent=requestCount;
     document.getElementById('stat-requests').textContent=requestCount;
     document.getElementById('stat-active').textContent=activeCount;
-    addRequestToList(evt.request_id);
   }
 
   requests[evt.request_id].events.push(evt);
   lastRequestTimestamps[evt.request_id]=evt.timestamp;
-
-  if(evt.status==='started'&&(
-    evt.stage==='sending_request'||evt.stage==='reading_response'||
-    evt.stage==='loading_api_key'||evt.stage==='validating_status'||
-    evt.stage==='building_request'||evt.stage==='setting_headers')){
-    requests[evt.request_id].proxyActive=true;
-  }
 
   if(evt.stage==='response_sent'&&(evt.status==='completed'||evt.status==='error')){
     if(!requests[evt.request_id].ended){
@@ -596,7 +468,6 @@ function handleEvent(evt){
     var latency=evt.duration||(evt.timestamp-requests[evt.request_id].startTime);
     if(latency)document.getElementById('stat-latency').textContent=latency+'ms';
   }
-
   if(evt.stage==='error'){
     if(!requests[evt.request_id].ended){
       requests[evt.request_id].ended=true;
@@ -608,20 +479,199 @@ function handleEvent(evt){
   if(!currentRequestId||currentRequestId===evt.request_id){
     updatePipeline(evt);
   }
-
   addEventLog(evt,shortName);
 
   if(evt.stage==='body_read'&&evt.status==='completed'&&evt.data){
-    document.getElementById('request-payload').innerHTML='<pre class="payload">'+syntaxHighlight(evt.data)+'</pre>';
-  }
-  if(evt.stage==='response_sent'&&evt.status==='completed'&&evt.data){
-    document.getElementById('response-payload').innerHTML='<pre class="payload">'+syntaxHighlight(evt.data)+'</pre>';
-  }
-  if(evt.stage==='error'&&evt.message){
-    document.getElementById('response-payload').innerHTML='<pre class="payload" style="color:var(--red)">'+escHtml(evt.message)+'</pre>';
+    try{
+      var data=JSON.parse(evt.data);
+      var content=data.messages?data.messages[data.messages.length-1].content:'';
+      if(content)addChatMessage('user',content);
+    }catch(_){}
+    resetGuardrails(evt.request_id);
   }
 
-  updatePipelineProgress(evt.request_id);
+  if(evt.stage==='guardrail_input'&&evt.request_id===currentRequestId){
+    handleGuardrailEvent(evt,'input');
+  }
+  if(evt.stage==='guardrail_output'&&evt.request_id===currentRequestId){
+    handleGuardrailEvent(evt,'output');
+  }
+  if(evt.stage==='guardrail_blocked'){
+    blockCount++;
+    document.getElementById('block-count').textContent=blockCount;
+    document.getElementById('stat-blocked').textContent=blockCount;
+    handleGuardrailBlocked(evt);
+  }
+  if(evt.stage==='guardrail_passed'){
+    handleGuardrailPassed(evt);
+  }
+
+  if(evt.stage==='response_sent'&&evt.status==='completed'&&evt.data){
+    try{
+      var resp=JSON.parse(evt.data);
+      var reply=resp.choices?resp.choices[0].message.content:'';
+      if(reply)addChatMessage('assistant',reply);
+    }catch(_){}
+  }
+  if(evt.stage==='response_sent'&&evt.status==='error'||evt.stage==='error'){
+    if(evt.message)addChatMessage('error',evt.message);
+  }
+}
+
+function resetGuardrails(reqId){
+  currentRequestId=reqId;
+  document.getElementById('pipeline-req-id').textContent='#'+reqId.replace('req-','').slice(-8);
+  currentInputGuards=[];
+  currentOutputGuards=[];
+  document.getElementById('input-gr-items').innerHTML='<div class="empty-state"><span class="em">&#x2B06;</span>Scanning...</div>';
+  document.getElementById('output-gr-items').innerHTML='<div class="empty-state"><span class="em">&#x2B07;</span>Awaiting response</div>';
+  document.getElementById('input-gr-count').textContent='0 checks';
+  document.getElementById('output-gr-count').textContent='0 checks';
+  document.getElementById('gr-summary-list').innerHTML='<div class="empty-state"><span class="em">&#x1F6E1;</span>Scanning input...</div>';
+  document.getElementById('gr-current-dir').textContent='input';
+  buildPipeline();
+}
+
+function handleGuardrailEvent(evt,dir){
+  document.getElementById('gr-current-dir').textContent=dir;
+
+  var name=extractGuardName(evt.message);
+  var decision=extractDecision(evt.message);
+  var msg=evt.message||'';
+
+  var item=document.createElement('div');
+  var decClass=decision==='block'?'gi-block':decision==='warn'?'gi-warn':decision==='redact'?'gi-redact':'gi-pass';
+  item.className='guardrail-item '+decClass;
+  item.innerHTML=buildGuardrailItemHTML(name,decision,msg,evt.timestamp);
+
+  var panelId=dir==='input'?'input-gr-items':'output-gr-items';
+  var panel=document.getElementById(panelId);
+  var empty=panel.querySelector('.empty-state');
+  if(empty)panel.innerHTML='';
+  panel.insertBefore(item,panel.firstChild);
+
+  if(dir==='input'){
+    currentInputGuards.push({name:name,decision:decision,time:evt.timestamp});
+    document.getElementById('input-gr-count').textContent=currentInputGuards.length+' checks';
+  }else{
+    currentOutputGuards.push({name:name,decision:decision,time:evt.timestamp});
+    document.getElementById('output-gr-count').textContent=currentOutputGuards.length+' checks';
+  }
+  updateSummaryList();
+}
+
+function handleGuardrailBlocked(evt){
+  var name=extractGuardName(evt.message);
+  var item=document.createElement('div');
+  item.className='guardrail-item gi-block';
+  item.innerHTML=buildGuardrailItemHTML(name,'block',evt.message||'',evt.timestamp);
+  var panel=document.getElementById('input-gr-items');
+  var empty=panel.querySelector('.empty-state');
+  if(empty)panel.innerHTML='';
+  panel.insertBefore(item,panel.firstChild);
+  updateSummaryList();
+  document.getElementById('gr-current-dir').textContent='blocked';
+}
+
+function handleGuardrailPassed(evt){
+  updateSummaryList();
+}
+
+function extractGuardName(msg){
+  if(!msg)return'unknown';
+  var parts=msg.split(':');
+  return parts[0].trim();
+}
+
+function extractDecision(msg){
+  if(!msg)return'pass';
+  var lower=msg.toLowerCase();
+  if(lower.indexOf('block')>=0)return'block';
+  if(lower.indexOf('warn')>=0)return'warn';
+  if(lower.indexOf('redact')>=0)return'redact';
+  return'pass';
+}
+
+function buildGuardrailItemHTML(name,decision,msg,ts){
+  var decClass='dec-'+decision;
+  var dotClass=decision==='block'?'gi-dot':(decision==='warn'?'gi-dot':(decision==='redact'?'gi-dot':'gi-dot'));
+  var decBadge='<span class="badge '+decision+'">'+decision.toUpperCase()+'</span>';
+  var time=ts?new Date(ts).toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'}):'';
+  return '<div class="gi-header">'+
+    '<span class="'+dotClass+'"></span>'+
+    '<span class="gi-name">'+escHtml(name)+'</span>'+
+    '<span class="gi-decision '+decClass+'">'+decBadge+'</span>'+
+    '<span style="font-size:9px;color:var(--text-dim);margin-left:auto">'+time+'</span>'+
+    '</div>'+
+    '<div class="gi-msg">'+escHtml(msg)+'</div>';
+}
+
+function updateSummaryList(){
+  var list=document.getElementById('gr-summary-list');
+  var all=[];
+  currentInputGuards.forEach(function(g){all.push({dir:'in',name:g.name,decision:g.decision,time:g.time});});
+  currentOutputGuards.forEach(function(g){all.push({dir:'out',name:g.name,decision:g.decision,time:g.time});});
+  if(all.length===0){
+    list.innerHTML='<div class="empty-state"><span class="em">&#x1F6E1;</span>No guardrail data yet</div>';
+    return;
+  }
+  list.innerHTML=all.map(function(g){
+    var dot=g.decision==='pass'?'gr-pass':g.decision==='block'?'gr-block':g.decision==='warn'?'gr-warn':'gr-redact';
+    var dec=g.decision==='pass'?'dec-pass':g.decision==='block'?'dec-block':g.decision==='warn'?'dec-warn':'dec-redact';
+    var time=g.time?new Date(g.time).toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'}):'';
+    return '<div class="guardrail-row">'+
+      '<span class="gr-indicator '+dot+'"></span>'+
+      '<span style="font-size:9px;color:var(--text-dim);width:18px">'+g.dir+'</span>'+
+      '<span class="gr-name">'+escHtml(g.name)+'</span>'+
+      '<span class="gr-decision '+dec+'">'+g.decision.toUpperCase()+'</span>'+
+      '<span class="gr-time">'+time+'</span>'+
+      '</div>';
+  }).join('');
+}
+
+function addChatMessage(role,content){
+  chatMessages.push({role:role,content:content,time:Date.now()});
+  var msgs=document.getElementById('chat-messages');
+  var empty=msgs.querySelector('.empty-state');
+  if(empty)msgs.innerHTML='';
+  var div=document.createElement('div');
+  div.className='chat-msg '+role;
+  var tag='';
+  if(role==='user')tag='<div class="msg-tag">YOU</div>';
+  else if(role==='assistant')tag='<div class="msg-tag">ASSISTANT</div>';
+  else if(role==='error')tag='<div class="msg-tag">ERROR</div>';
+  div.innerHTML=tag+escHtml(content);
+  msgs.appendChild(div);
+  msgs.scrollTop=msgs.scrollHeight;
+}
+
+function sendChatMessage(){
+  var input=document.getElementById('chat-input');
+  var prompt=input.value.trim();
+  if(!prompt)return;
+  input.value='';
+  addChatMessage('user',prompt);
+
+  var btn=document.getElementById('chat-send-btn');
+  btn.disabled=true;
+  btn.textContent='...';
+
+  fetch('/chat',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({model:'gpt-4o',messages:[{role:'user',content:prompt}],stream:false})
+  }).then(function(r){
+    if(!r.ok)return r.text().then(function(t){throw new Error(t)});
+    return r.json().then(function(data){
+      var content=data.choices?data.choices[0].message.content:'';
+      if(content)addChatMessage('assistant',content);
+    });
+  }).catch(function(err){
+    addChatMessage('error','Error: '+err.message);
+  }).finally(function(){
+    btn.disabled=false;
+    btn.textContent='Send';
+  });
 }
 
 function buildPipeline(){
@@ -650,31 +700,24 @@ function updatePipeline(evt){
   if(!stageEl)return;
   var detailEl=stageEl.querySelector('.detail');
   var timeEl=stageEl.querySelector('.time');
-
   if(evt.status==='error'){
     stageEl.classList.remove('in-progress','completed');
     stageEl.classList.add('error');
-    if(evt.message)detailEl.textContent=evt.message;
+    if(evt.message)detailEl.textContent=evt.message.substring(0,30);
     return;
   }
-
   if(evt.status==='started'||evt.status==='info'){
-    if(evt.message)detailEl.textContent=evt.message;
+    if(evt.message)detailEl.textContent=evt.message.substring(0,28);
   }else if(evt.status==='completed'){
-    if(evt.message)detailEl.textContent=evt.message;
+    if(evt.message)detailEl.textContent=evt.message.substring(0,28);
     if(evt.duration)timeEl.textContent=evt.duration+'ms';
   }
-
   var isCompleted=evt.status==='completed';
   enqueueBlink(stageEl,isCompleted);
-
-  var idx=STAGES.findIndex(function(s){return s.id===evt.stage;});
+  var idx=STAGES.findIndex(function(s){return s.id===evt.stage});
   if(idx>0){
     var conn=document.getElementById('conn-'+(idx-1));
-    if(conn){
-      conn.classList.add('flow');
-      setTimeout(function(){conn.classList.remove('flow')},500);
-    }
+    if(conn){conn.classList.add('flow');setTimeout(function(){conn.classList.remove('flow')},500);}
   }
 }
 
@@ -682,7 +725,6 @@ function enqueueBlink(el,isCompleted){
   blinkQueue.push({el:el,completed:isCompleted});
   if(!blinking)processBlink();
 }
-
 function processBlink(){
   if(blinkQueue.length===0){blinking=false;return}
   blinking=true;
@@ -697,246 +739,53 @@ function processBlink(){
   },25);
 }
 
-function updatePipelineProgress(reqId){
-  var req=requests[reqId];
-  if(!req)return;
-  var completedStages=0;
-  var completedSet={};
-  req.events.forEach(function(evt){
-    if(evt.status==='completed'&&!completedSet[evt.stage]){
-      completedSet[evt.stage]=true;
-      completedStages++;
-    }
-    if(evt.stage==='error'){
-      completedSet[evt.stage]=true;
-      completedStages++;
-    }
-  });
-  var pct=Math.min(100,(completedStages/STAGES.length)*100);
-  document.getElementById('pipeline-progress-fill').style.width=pct+'%';
-}
-
 function addEventLog(evt,stageName){
   var log=document.getElementById('event-log');
   var emptyState=log.querySelector('.empty-state');
   if(emptyState)log.innerHTML='';
 
   var clsMap={
-    'request_received':'s-RECEIVED',
-    'body_read':'s-READ',
-    'json_validated':'s-VALID',
-    'loading_api_key':'s-PROXY',
-    'building_request':'s-PROXY',
-    'setting_headers':'s-PROXY',
-    'sending_request':'s-PROXY',
-    'reading_response':'s-PROXY',
-    'validating_status':'s-PROXY',
-    'response_sent':'s-COMPLETE',
-    'error':'s-ERROR',
-    'token_stream':'s-PROXY',
-    'info':'s-RECEIVED'
+    'guardrail_input':'s-GUARD','guardrail_output':'s-GUARD',
+    'guardrail_blocked':'s-BLOCKED','guardrail_passed':'s-PASSED',
+    'request_received':'s-RECD','body_read':'s-READ',
+    'json_validated':'s-VALID','loading_api_key':'s-PROXY',
+    'building_request':'s-PROXY','setting_headers':'s-PROXY',
+    'sending_request':'s-PROXY','reading_response':'s-PROXY',
+    'validating_status':'s-PROXY','response_sent':'s-DONE',
+    'error':'s-ERROR','token_stream':'s-PROXY','info':'s-RECD'
   };
-  var cls=clsMap[evt.stage]||'s-RECEIVED';
+  var cls=clsMap[evt.stage]||'s-RECD';
 
   var d=new Date(evt.timestamp);
   var time=d.toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'})+'.'+String(evt.timestamp%1000).padStart(3,'0');
-  var badgeClass=evt.status==='started'?'started':evt.status==='completed'?'completed':evt.status==='error'?'error':'info';
+
+  var badgeClass;
+  if(evt.status==='started')badgeClass='started';
+  else if(evt.status==='completed')badgeClass='completed';
+  else if(evt.status==='error')badgeClass='error';
+  else if(evt.status==='block')badgeClass='block';
+  else if(evt.status==='warn')badgeClass='warn';
+  else if(evt.status==='pass')badgeClass='pass';
+  else badgeClass='info';
 
   var row=document.createElement('div');
   row.className='event-row';
   row.innerHTML='<span class="event-time">'+time+'</span><span class="event-stage '+cls+'">'+stageName+'</span><span class="event-status"><span class="badge '+badgeClass+'">'+evt.status+'</span></span><span class="event-msg" title="'+escAttr(evt.message||'')+'">'+(evt.message||'')+'</span>';
-
   log.insertBefore(row,log.firstChild);
-  if(log.children.length>200)log.removeChild(log.lastChild);
+  if(log.children.length>300)log.removeChild(log.lastChild);
 }
 
-function addRequestToList(reqId){
-  var list=document.getElementById('req-list');
-  var emptyState=list.querySelector('.empty-state');
-  if(emptyState)list.innerHTML='';
-  var item=document.createElement('div');
-  item.className='req-item';
-  item.id='req-item-'+reqId;
-  item.onclick=function(){selectRequest(reqId);};
-  var short=reqId.replace('req-','').slice(-8);
-  item.innerHTML='<span class="req-id">#'+short+'</span><span class="req-time">just now</span>';
-  list.insertBefore(item,list.firstChild);
-
-  var items=list.querySelectorAll('.req-item');
-  for(var i=0;i<items.length;i++){
-    if(items[i].id!=='req-item-'+reqId){
-      var ts=lastRequestTimestamps[items[i].id.replace('req-item-','')];
-      if(ts){
-        var ago=Math.round((Date.now()-ts)/1000);
-        var timeEl=items[i].querySelector('.req-time');
-        if(timeEl)timeEl.textContent=ago<60?ago+'s ago':Math.round(ago/60)+'m ago';
-      }
-    }
-  }
-}
-
-function selectRequest(reqId){
-  currentRequestId=reqId;
-  var items=document.querySelectorAll('.req-item');
-  items.forEach(function(el){el.classList.remove('active');});
-  var item=document.getElementById('req-item-'+reqId);
-  if(item)item.classList.add('active');
-
-  document.getElementById('pipeline-req-id').textContent='#'+reqId.replace('req-','').slice(-8);
-
-  buildPipeline();
-  var req=requests[reqId];
-  if(req){
-    req.events.forEach(function(evt){updatePipeline(evt);});
-    updatePipelineProgress(reqId);
-  }
-}
-
-var concurrencyRunning=false;
-
-async function sendConcurrent(){
-  if(concurrencyRunning)return;
-  concurrencyRunning=true;
-
-  var btn=document.getElementById('concurrent-fire-btn');
-  btn.disabled=true;
-  btn.textContent='Firing\u2026';
-
-  var countInput=document.getElementById('concurrent-count');
-  var count=Math.min(Math.max(parseInt(countInput.value)||10,1),100);
-  countInput.value=count;
-
-  var prompt=document.getElementById('concurrent-prompt').value||'Hello';
-  var stream=document.getElementById('concurrent-stream').checked;
-  var resultsDiv=document.getElementById('concurrent-results');
-  var progressBar=document.getElementById('concurrent-progress-bar');
-  var progressText=document.getElementById('concurrent-progress-text');
-  var dotsDiv=document.getElementById('concurrent-dots');
-  var progressWrap=document.getElementById('concurrent-progress');
-
-  resultsDiv.innerHTML='';
-  progressBar.style.width='0%';
-  dotsDiv.innerHTML='';
-  progressWrap.style.display='block';
-
-  var startTime=performance.now();
-  var completed=0;
-  var succeeded=0;
-  var failed=0;
-  var times=[];
-
-  for(var i=0;i<count;i++){
-    var dot=document.createElement('span');
-    dot.className='concurrent-dot';
-    dot.title='Request #'+(i+1);
-    dotsDiv.appendChild(dot);
-  }
-
-  for(var i=0;i<count;i++){
-    var idx=i;
-    var body={model:'gpt-4o',messages:[{role:'user',content:prompt+' #'+(idx+1)}],stream:stream};
-
-    fetch('/chat',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(body)
-    }).then(async function(r){
-      var elapsed=performance.now()-startTime;
-      if(!r.ok){
-        var text=await r.text();
-        failed++;
-        var d=dotsDiv.children[idx];
-        if(d){d.className='concurrent-dot error';d.title='Request #'+(idx+1)+': '+text.substring(0,100);}
-        return{ok:false,error:text,time:elapsed,index:idx};
-      }
-      var data=await r.json();
-      succeeded++;
-      var d=dotsDiv.children[idx];
-      if(d){d.className='concurrent-dot success';d.title='Request #'+(idx+1)+': OK';}
-      return{ok:true,data:data,time:elapsed,index:idx};
-    }).catch(function(err){
-      var elapsed=performance.now()-startTime;
-      failed++;
-      var d=dotsDiv.children[idx];
-      if(d){d.className='concurrent-dot error';d.title='Request #'+(idx+1)+': '+err.message;}
-      return{ok:false,error:err.message,time:elapsed,index:idx};
-    }).then(function(r){
-      completed++;
-      times.push(r.time);
-      var pct=(completed/count)*100;
-      progressBar.style.width=pct+'%';
-      progressText.textContent=completed+'/'+count+'  OK: '+succeeded+'  Fail: '+failed;
-      if(completed===count){
-        var sorted=times.slice().sort(function(a,b){return a-b;});
-        var avgTime=times.length?(times.reduce(function(a,b){return a+b},0)/times.length).toFixed(0):'-';
-        var minTime=times.length?sorted[0].toFixed(0):'-';
-        var maxTime=times.length?sorted[sorted.length-1].toFixed(0):'-';
-        var p50=sorted.length?sorted[Math.floor(sorted.length*0.5)].toFixed(0):'-';
-        var p95=sorted.length?sorted[Math.floor(sorted.length*0.95)].toFixed(0):'-';
-        var totalTime=(sorted.length?sorted[sorted.length-1]:0).toFixed(0);
-
-        resultsDiv.innerHTML=
-          '<table class="concurrent-summary">'+
-          '<tr><td>Total</td><td><b>'+count+'</b></td></tr>'+
-          '<tr><td>OK</td><td style="color:var(--green)"><b>'+succeeded+'</b></td></tr>'+
-          '<tr><td>Failed</td><td style="color:var(--red)"><b>'+failed+'</b></td></tr>'+
-          '<tr><td>Avg</td><td><b>'+avgTime+'ms</b></td></tr>'+
-          '<tr><td>P50</td><td><b>'+p50+'ms</b></td></tr>'+
-          '<tr><td>P95</td><td><b>'+p95+'ms</b></td></tr>'+
-          '<tr><td>Min</td><td><b>'+minTime+'ms</b></td></tr>'+
-          '<tr><td>Max</td><td><b>'+maxTime+'ms</b></td></tr>'+
-          '</table>';
-
-        concurrencyRunning=false;
-        btn.disabled=false;
-        btn.textContent='Fire';
-      }
-    });
-  }
-}
-
-function sendRequest(e){
-  e.preventDefault();
-  var prompt=document.getElementById('prompt-input').value||'Hello';
-  var body={model:'gpt-4o',messages:[{role:'user',content:prompt}],stream:streaming};
-  fetch('/chat',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(body)
-  }).then(function(r){
-    if(!r.ok)return r.text().then(function(t){throw new Error(t)});
-    if(streaming)return r.text().then(function(){
-      document.getElementById('response-payload').innerHTML='<pre class="payload">[Streaming \u2014 see events for token data]</pre>';
-    });
-    return r.json().then(function(data){
-      document.getElementById('response-payload').innerHTML='<pre class="payload">'+syntaxHighlight(JSON.stringify(data))+'</pre>';
-    });
-  }).catch(function(err){
-    document.getElementById('response-payload').innerHTML='<pre class="payload" style="color:var(--red)">'+escHtml(err.message)+'</pre>';
-  });
-}
-
-function syntaxHighlight(json){
-  json=json.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  return json.replace(/("(\\u[a-fA-F0-9]{4}|\\[^u]|[^"\\])*"(\s*:)?|\b(true|false|null)\b|\b-?\d+(\.\d+)?([eE][+-]?\d+)?\b)/g,function(match){
-    if(/^"/.test(match)){
-      return /:$/.test(match)?'<span class="key">'+match+'</span>':'<span class="str">'+match+'</span>';
-    }
-    if(/true|false/.test(match))return'<span class="bool">'+match+'</span>';
-    if(/null/.test(match))return'<span class="null">'+match+'</span>';
-    return'<span class="num">'+match+'</span>';
-  });
-}
-
-function escHtml(s){
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
-function escAttr(s){
-  return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
+function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function escAttr(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 
 buildPipeline();
+
+setInterval(function(){
+  Object.keys(lastRequestTimestamps).forEach(function(id){
+    var items=document.querySelectorAll('.req-item');
+    if(items.length===0)return;
+  });
+},5000);
 </script>
 </body>
 </html>`
