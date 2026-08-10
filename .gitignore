@@ -2,3 +2,5 @@
 build/
 bin/
 logs/
+server
+agentplane
