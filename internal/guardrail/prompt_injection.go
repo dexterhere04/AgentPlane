@@ -52,7 +52,10 @@ func (g *PromptInjectionGuardrail) Evaluate(_ context.Context, dir Direction, bo
 	for _, content := range contents {
 		textLower := strings.ToLower(content.Text)
 		for _, pat := range promptInjectionPatterns {
-			if loc := pat.FindStringIndex(textLower); loc != nil {
+			if !pat.MatchString(textLower) {
+				continue
+			}
+			if loc := pat.FindStringIndex(content.Text); loc != nil {
 				start, end := loc[0], loc[1]
 				finding := Finding{
 					Guardrail: g.Name(),
