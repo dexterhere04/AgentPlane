@@ -9,8 +9,16 @@ import (
 	"github.com/dexterhere04/AgentPlane/internal/config"
 	"github.com/dexterhere04/AgentPlane/internal/dashboard"
 	"github.com/dexterhere04/AgentPlane/internal/guardrail"
+	guardaim "github.com/dexterhere04/AgentPlane/internal/guardrail/providers/aim"
+	guardfunctions "github.com/dexterhere04/AgentPlane/internal/guardrail/providers/functions"
+	guardlakera "github.com/dexterhere04/AgentPlane/internal/guardrail/providers/lakera"
+	guardlumigator "github.com/dexterhere04/AgentPlane/internal/guardrail/providers/lumigator"
+	guardnvidia "github.com/dexterhere04/AgentPlane/internal/guardrail/providers/nvidia_content"
+	guardopenaimod "github.com/dexterhere04/AgentPlane/internal/guardrail/providers/openai_moderation"
 	guardpii "github.com/dexterhere04/AgentPlane/internal/guardrail/providers/pii"
+	guardprisma "github.com/dexterhere04/AgentPlane/internal/guardrail/providers/prisma_airs"
 	guardsecrets "github.com/dexterhere04/AgentPlane/internal/guardrail/providers/secrets"
+	guardzscaler "github.com/dexterhere04/AgentPlane/internal/guardrail/providers/zscaler"
 	"github.com/dexterhere04/AgentPlane/internal/handlers"
 	"github.com/dexterhere04/AgentPlane/internal/observability"
 	"github.com/dexterhere04/AgentPlane/internal/proxy"
@@ -96,6 +104,35 @@ func main() {
 	registry.Register(guardsecrets.New(cfg.Strategy("secrets")))
 	registry.Register(guardpii.New(cfg.Strategy("pii")))
 	registry.Register(guardrail.NewContentModerationGuardrail(cfg.Strategy("content_moderation")))
+	registry.Register(guardaim.New(cfg.Strategy("aim")))
+	registry.Register(guardlakera.New(cfg.Strategy("lakera")))
+	registry.Register(guardlumigator.New(cfg.Strategy("lumigator")))
+	registry.Register(guardprisma.New(cfg.Strategy("prisma_airs")))
+	registry.Register(guardnvidia.New(cfg.Strategy("nvidia_content")))
+	registry.Register(guardopenaimod.New(cfg.Strategy("openai_moderation")))
+	registry.Register(guardzscaler.New(cfg.Strategy("zscaler")))
+	registry.Register(guardfunctions.NewRegexMatch(cfg.Strategy("regex_match")))
+	registry.Register(guardfunctions.NewContains(cfg.Strategy("contains")))
+	registry.Register(guardfunctions.NewContainsCode(cfg.Strategy("contains_code")))
+	registry.Register(guardfunctions.NewEndsWith(cfg.Strategy("ends_with")))
+	registry.Register(guardfunctions.NewValidUrls(cfg.Strategy("valid_urls")))
+	registry.Register(guardfunctions.NewJsonSchema(cfg.Strategy("json_schema")))
+	registry.Register(guardfunctions.NewJsonKeys(cfg.Strategy("json_keys")))
+	registry.Register(guardfunctions.NewJWT(cfg.Strategy("jwt")))
+	registry.Register(guardfunctions.NewWordCount(cfg.Strategy("word_count")))
+	registry.Register(guardfunctions.NewSentenceCount(cfg.Strategy("sentence_count")))
+	registry.Register(guardfunctions.NewCharacterCount(cfg.Strategy("character_count")))
+	registry.Register(guardfunctions.NewAllUppercase(cfg.Strategy("all_uppercase")))
+	registry.Register(guardfunctions.NewAllLowercase(cfg.Strategy("all_lowercase")))
+	registry.Register(guardfunctions.NewModelWhitelist(cfg.Strategy("model_whitelist")))
+	registry.Register(guardfunctions.NewModelRules(cfg.Strategy("model_rules")))
+	registry.Register(guardfunctions.NewRequiredMetadataKeys(cfg.Strategy("required_metadata_keys")))
+	registry.Register(guardfunctions.NewAllowedRequestTypes(cfg.Strategy("allowed_request_types")))
+	registry.Register(guardfunctions.NewNotNull(cfg.Strategy("not_null")))
+	registry.Register(guardfunctions.NewWebhook(cfg.Strategy("webhook")))
+	registry.Register(guardfunctions.NewLog(cfg.Strategy("log")))
+	registry.Register(guardfunctions.NewAddPrefix(cfg.Strategy("add_prefix")))
+	registry.Register(guardfunctions.NewRegexReplace(cfg.Strategy("regex_replace")))
 
 	enforcement := guardrail.NewEnforcementPoint(registry, cfg, bus)
 
@@ -104,12 +141,59 @@ func main() {
 			{Name: "prompt_injection"},
 			{Name: "secrets"},
 			{Name: "pii"},
+			{Name: "aim"},
+			{Name: "lakera"},
+			{Name: "lumigator"},
+			{Name: "prisma_airs"},
+			{Name: "nvidia_content"},
+			{Name: "openai_moderation"},
+			{Name: "zscaler"},
+			{Name: "regex_match"},
+			{Name: "contains"},
+			{Name: "contains_code"},
+			{Name: "ends_with"},
+			{Name: "valid_urls"},
+			{Name: "json_schema"},
+			{Name: "json_keys"},
+			{Name: "jwt"},
+			{Name: "word_count"},
+			{Name: "sentence_count"},
+			{Name: "character_count"},
+			{Name: "all_uppercase"},
+			{Name: "all_lowercase"},
+			{Name: "model_whitelist"},
+			{Name: "model_rules"},
+			{Name: "required_metadata_keys"},
+			{Name: "allowed_request_types"},
+			{Name: "not_null"},
+			{Name: "webhook"},
+			{Name: "log"},
+			{Name: "add_prefix"},
+			{Name: "regex_replace"},
 		},
 	}
 	mandatoryOutput := guardrail.GuardrailSet{
 		Guards: []guardrail.GuardrailSpec{
 			{Name: "secrets"},
 			{Name: "pii"},
+			{Name: "aim"},
+			{Name: "lakera"},
+			{Name: "nvidia_content"},
+			{Name: "openai_moderation"},
+			{Name: "zscaler"},
+			{Name: "regex_match"},
+			{Name: "contains"},
+			{Name: "contains_code"},
+			{Name: "valid_urls"},
+			{Name: "word_count"},
+			{Name: "sentence_count"},
+			{Name: "character_count"},
+			{Name: "all_uppercase"},
+			{Name: "all_lowercase"},
+			{Name: "webhook"},
+			{Name: "log"},
+			{Name: "add_prefix"},
+			{Name: "regex_replace"},
 		},
 	}
 
