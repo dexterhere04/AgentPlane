@@ -8,8 +8,12 @@ import (
 
 	"github.com/dexterhere04/AgentPlane/internal/config"
 	"github.com/dexterhere04/AgentPlane/internal/dashboard"
+	"github.com/dexterhere04/AgentPlane/internal/guardrail"
+	guardpii "github.com/dexterhere04/AgentPlane/internal/guardrail/providers/pii"
+	guardsecrets "github.com/dexterhere04/AgentPlane/internal/guardrail/providers/secrets"
 	"github.com/dexterhere04/AgentPlane/internal/handlers"
 	"github.com/dexterhere04/AgentPlane/internal/observability"
+	"github.com/dexterhere04/AgentPlane/internal/proxy"
 	"github.com/dexterhere04/AgentPlane/internal/secrets"
 )
 
@@ -83,18 +87,49 @@ func main() {
 		port = "3001"
 	}
 
+	provider := proxy.NewOpenAIProviderFromEnv()
+
+	cfg := guardrail.LoadConfig()
+
+	registry := guardrail.NewRegistry()
+	registry.Register(guardrail.NewPromptInjectionGuardrail(cfg.Strategy("prompt_injection")))
+	registry.Register(guardsecrets.New(cfg.Strategy("secrets")))
+	registry.Register(guardpii.New(cfg.Strategy("pii")))
+	registry.Register(guardrail.NewContentModerationGuardrail(cfg.Strategy("content_moderation")))
+
+	enforcement := guardrail.NewEnforcementPoint(registry, cfg, bus)
+
+	mandatoryInput := guardrail.GuardrailSet{
+		Guards: []guardrail.GuardrailSpec{
+			{Name: "prompt_injection"},
+			{Name: "secrets"},
+			{Name: "pii"},
+		},
+	}
+	mandatoryOutput := guardrail.GuardrailSet{
+		Guards: []guardrail.GuardrailSpec{
+			{Name: "secrets"},
+			{Name: "pii"},
+		},
+	}
+
 	mux := http.NewServeMux()
-	mux.HandleFunc("/chat", handlers.Chat)
+	mux.HandleFunc("/chat", func(w http.ResponseWriter, r *http.Request) {
+		handlers.Chat(w, r, enforcement, mandatoryInput, mandatoryOutput, provider)
+	})
 	mux.HandleFunc("/events", observability.SSEHandler(bus))
 	mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(dashboard.HTML))
 	})
 
+	mux.HandleFunc("/metrics", handlers.MetricsHandler())
+
 	log.Printf("AgentPlane Dev Mode")
-	log.Printf("  Gateway   → http://localhost:%s/chat", port)
+	log.Printf("  Gateway   → http://localhost:%s/chat (%s)", port, provider.Name())
 	log.Printf("  Events    → http://localhost:%s/events", port)
 	log.Printf("  Dashboard → http://localhost:%s/dashboard", port)
+	log.Printf("  Metrics   → http://localhost:%s/metrics", port)
 	log.Printf("  Mock API  → http://localhost:%s (set OPENAI_BASE_URL)", port)
 
 	err := http.ListenAndServe(":"+port, mux)

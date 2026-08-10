@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -8,11 +9,19 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/dexterhere04/AgentPlane/internal/guardrail"
 	"github.com/dexterhere04/AgentPlane/internal/observability"
 	"github.com/dexterhere04/AgentPlane/internal/proxy"
 )
 
-func Chat(w http.ResponseWriter, r *http.Request) {
+func Chat(
+	w http.ResponseWriter,
+	r *http.Request,
+	enforcement *guardrail.EnforcementPoint,
+	inputSet guardrail.GuardrailSet,
+	outputSet guardrail.GuardrailSet,
+	provider proxy.Provider,
+) {
 	bus := observability.DefaultBus
 	requestID := fmt.Sprintf("req-%d", time.Now().UnixNano())
 	startTime := time.Now()
@@ -56,14 +65,93 @@ func Chat(w http.ResponseWriter, r *http.Request) {
 	}
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageJSONValidated, "completed", "JSON valid"))
 
-	respBody, err := proxy.ForwardChat(body, requestID)
+	ctx := context.Background()
+
+	if enforcement != nil && len(inputSet.Guards) > 0 {
+		result, err := enforcement.Evaluate(ctx, requestID, guardrail.DirectionInput, body, inputSet)
+		if err != nil {
+			log.Printf("guardrail input error: %v", err)
+			writeGuardrailError(w, err, requestID)
+			return
+		}
+
+		switch result.Decision {
+		case guardrail.DecisionBlock:
+			bus.Publish(observability.NewMessageEvent(requestID, observability.StageGuardrailBlocked, "error", result.Message))
+			writeGuardrailBlock(w, result, requestID)
+			return
+		case guardrail.DecisionRedact:
+			if result.Redacted != nil {
+				body = result.Redacted
+			}
+		case guardrail.DecisionWarn:
+			bus.Publish(observability.NewMessageEvent(requestID, observability.StageGuardrailPassed, "warn", result.Message))
+		}
+	}
+
+	var respBody []byte
+	if provider != nil {
+		respBody, err = provider.Forward(ctx, body, requestID)
+	} else {
+		respBody, err = proxy.NewOpenAIProviderFromEnv().Forward(ctx, body, requestID)
+	}
 	if err != nil {
 		log.Printf("error forwarding to provider: %v", err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 
+	if enforcement != nil && len(outputSet.Guards) > 0 {
+		result, err := enforcement.Evaluate(ctx, requestID, guardrail.DirectionOutput, respBody, outputSet)
+		if err != nil {
+			log.Printf("guardrail output error: %v", err)
+			writeGuardrailError(w, err, requestID)
+			return
+		}
+
+		switch result.Decision {
+		case guardrail.DecisionBlock:
+			bus.Publish(observability.NewMessageEvent(requestID, observability.StageGuardrailBlocked, "error", result.Message))
+			writeGuardrailBlock(w, result, requestID)
+			return
+		case guardrail.DecisionRedact:
+			if result.Redacted != nil {
+				respBody = result.Redacted
+			}
+		case guardrail.DecisionWarn:
+			bus.Publish(observability.NewMessageEvent(requestID, observability.StageGuardrailPassed, "warn", result.Message))
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(respBody)
+}
+
+func writeGuardrailBlock(w http.ResponseWriter, result *guardrail.Result, requestID string) {
+	errResp := map[string]interface{}{
+		"error": map[string]interface{}{
+			"type":      "guardrail_blocked",
+			"message":   fmt.Sprintf("guardrail blocked: %s", result.Message),
+			"guardrail": result.Guardrail,
+		},
+	}
+	if len(result.Findings) > 0 {
+		errResp["error"].(map[string]interface{})["findings"] = result.Findings
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusForbidden)
+	json.NewEncoder(w).Encode(errResp)
+}
+
+func writeGuardrailError(w http.ResponseWriter, err error, requestID string) {
+	errResp := map[string]interface{}{
+		"error": map[string]interface{}{
+			"type":    "guardrail_unavailable",
+			"message": "Request could not be evaluated by mandatory security controls",
+		},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusServiceUnavailable)
+	json.NewEncoder(w).Encode(errResp)
 }
