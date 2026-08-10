@@ -21,6 +21,7 @@
 | `cmd/server` | `cmd/server/main.go` | [docs](packages/cmd-server.md) |
 | `config` | `internal/config/config.go` | [docs](packages/config.md) |
 | `handlers` | `internal/handlers/chat.go` | [docs](packages/handlers.md) |
+| `guardrail` | `internal/guardrail/` | [docs](packages/guardrail.md) |
 | `proxy` | `internal/proxy/openai.go` | [docs](packages/proxy.md) |
 
 ## Quick Links
