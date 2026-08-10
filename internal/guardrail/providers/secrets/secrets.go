@@ -146,7 +146,7 @@ var gitleaksPatterns = []struct {
 	{
 		name:     "twilio_auth_token",
 		severity: guardrail.SeverityCritical,
-		pattern:  regexp.MustCompile(`[0-9a-fA-F]{32}`),
+		pattern:  regexp.MustCompile(`(?i)twilio.{0,20}(?:auth.?token|key).{0,20}["\s:=]+['"]?([0-9a-fA-F]{32})['"]?`),
 	},
 	{
 		name:     "password_assignment",

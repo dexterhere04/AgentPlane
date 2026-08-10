@@ -59,10 +59,10 @@ func (p *OpenAIProvider) Forward(ctx context.Context, body []byte, requestID str
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageLoadingAPIKey, "completed", "API key loaded"))
 
 	if p.isStreaming(body) {
-		return p.forwardStreaming(body, requestID, url, bus)
+		return p.forwardStreaming(ctx, body, requestID, url, bus)
 	}
 
-	return p.forwardNonStreaming(body, requestID, url, bus)
+	return p.forwardNonStreaming(ctx, body, requestID, url, bus)
 }
 
 func (p *OpenAIProvider) isStreaming(body []byte) bool {
@@ -75,11 +75,11 @@ func (p *OpenAIProvider) isStreaming(body []byte) bool {
 	return req.Stream
 }
 
-func (p *OpenAIProvider) forwardNonStreaming(body []byte, requestID, url string, bus *observability.EventBus) ([]byte, error) {
+func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, requestID, url string, bus *observability.EventBus) ([]byte, error) {
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageBuildingRequest, "started", fmt.Sprintf("POST %s", url)))
 	buildStart := time.Now()
 
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		bus.Publish(observability.NewMessageEvent(requestID, observability.StageBuildingRequest, "error", err.Error()))
 		return nil, fmt.Errorf("creating request: %w", err)
@@ -130,10 +130,10 @@ func (p *OpenAIProvider) forwardNonStreaming(body []byte, requestID, url string,
 	return respBody, nil
 }
 
-func (p *OpenAIProvider) forwardStreaming(body []byte, requestID, url string, bus *observability.EventBus) ([]byte, error) {
+func (p *OpenAIProvider) forwardStreaming(ctx context.Context, body []byte, requestID, url string, bus *observability.EventBus) ([]byte, error) {
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageBuildingRequest, "started", fmt.Sprintf("POST %s (stream)", url)))
 
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}

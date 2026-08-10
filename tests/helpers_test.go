@@ -18,7 +18,16 @@ import (
 func ctx() context.Context { return context.Background() }
 
 func assertDecision(t interface{ Fatal(...interface{}) }, result *guardrail.Result, expected guardrail.Decision) {
-	_ = t
+	type tester interface {
+		Helper()
+		Fatalf(string, ...interface{})
+	}
+	if tt, ok := t.(tester); ok {
+		tt.Helper()
+		if result.Decision != expected {
+			tt.Fatalf("expected decision %s, got %s (message: %s)", expected, result.Decision, result.Message)
+		}
+	}
 }
 
 func assertNoError(t interface{ Fatal(...interface{}) }, err error) {

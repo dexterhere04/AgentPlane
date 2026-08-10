@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"regexp"
@@ -24,7 +25,11 @@ func NewRegexMatch(s guardrail.Strategy) *RegexMatchGuardrail {
 	}
 	var r *regexp.Regexp
 	if pat != "" {
-		r = regexp.MustCompile(pat)
+		var err error
+		r, err = regexp.Compile(pat)
+		if err != nil {
+			log.Printf("regex_match: invalid pattern %q: %v", pat, err)
+		}
 	}
 	return &RegexMatchGuardrail{name: s.Name, pattern: r}
 }

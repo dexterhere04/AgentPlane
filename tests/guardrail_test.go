@@ -376,7 +376,9 @@ func TestEnforcementFailClosedOnMandatoryError(t *testing.T) {
 	set := guardrail.GuardrailSet{Guards: []guardrail.GuardrailSpec{{Name: "failing_mandatory"}}}
 
 	result, err := ep.Evaluate(ctx(), "req-fail-closed", guardrail.DirectionInput, []byte(`test`), set)
-	assertNoError(t, err)
+	if err == nil {
+		t.Error("expected non-nil error for mandatory guardrail failure")
+	}
 	if result.Decision != guardrail.DecisionBlock {
 		t.Errorf("expected DecisionBlock on mandatory error, got %s", result.Decision)
 	}

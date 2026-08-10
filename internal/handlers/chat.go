@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -65,7 +64,7 @@ func Chat(
 	}
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageJSONValidated, "completed", "JSON valid"))
 
-	ctx := context.Background()
+	ctx := r.Context()
 
 	if enforcement != nil && len(inputSet.Guards) > 0 {
 		result, err := enforcement.Evaluate(ctx, requestID, guardrail.DirectionInput, body, inputSet)

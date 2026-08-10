@@ -1,6 +1,7 @@
 package guardrail
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -74,7 +75,7 @@ func (ep *EnforcementPoint) Evaluate(
 					Guardrail: g.Name(),
 					Decision:  DecisionBlock,
 					Message:   ErrGuardrailUnavailable.Error(),
-				}, nil
+				}, err
 			}
 			ep.publishEvent(requestID, g.Name(), dir, &Result{
 				Guardrail: g.Name(),
@@ -107,7 +108,7 @@ func (ep *EnforcementPoint) Evaluate(
 		}
 	}
 
-	if len(currentBody) != len(body) {
+	if !bytes.Equal(currentBody, body) {
 		return &Result{
 			Decision: DecisionRedact,
 			Redacted: currentBody,

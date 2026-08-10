@@ -141,6 +141,7 @@ func main() {
 			{Name: "prompt_injection"},
 			{Name: "secrets"},
 			{Name: "pii"},
+			{Name: "content_moderation"},
 			{Name: "aim"},
 			{Name: "lakera"},
 			{Name: "lumigator"},
@@ -176,6 +177,7 @@ func main() {
 		Guards: []guardrail.GuardrailSpec{
 			{Name: "secrets"},
 			{Name: "pii"},
+			{Name: "content_moderation"},
 			{Name: "aim"},
 			{Name: "lakera"},
 			{Name: "nvidia_content"},

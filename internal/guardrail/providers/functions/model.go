@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"regexp"
@@ -373,7 +374,11 @@ func NewRegexReplace(s guardrail.Strategy) *RegexReplaceGuardrail {
 	}
 	var r *regexp.Regexp
 	if pat != "" {
-		r = regexp.MustCompile(pat)
+		var err error
+		r, err = regexp.Compile(pat)
+		if err != nil {
+			log.Printf("regex_replace: invalid pattern %q: %v", pat, err)
+		}
 	}
 	return &RegexReplaceGuardrail{name: s.Name, searchPat: r, replacement: repl}
 }
