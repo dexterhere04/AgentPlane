@@ -45,7 +45,7 @@ var piiRules = []struct {
 	{
 		name:      "phone_us",
 		severity:  guardrail.SeverityMedium,
-		pattern:   regexp.MustCompile(`\b(\+?1[-\s.]?)?\(?\d{3}\)?[-\s.]?\d{3}[-\s.]?\d{4}\b`),
+		pattern:   regexp.MustCompile(`\b(\+?1[-\s.]?)?\(?\d{3}\)?[-\s.]\d{3}[-\s.]\d{4}\b`),
 		entity:    "phone_number",
 		redactStr: "[PHONE REDACTED]",
 	},
