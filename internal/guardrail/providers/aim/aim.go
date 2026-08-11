@@ -37,10 +37,6 @@ func (g *AIMGuardrail) Name() string {
 	return "aim"
 }
 
-func (g *AIMGuardrail) Type() guardrail.GuardrailType {
-	return guardrail.TypePolicy
-}
-
 func (g *AIMGuardrail) Evaluate(ctx context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	if g.apiKey == "" {
 		return &guardrail.Result{Guardrail: g.Name(), Decision: guardrail.DecisionPass}, nil

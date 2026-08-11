@@ -37,10 +37,6 @@ func (g *ZscalerGuardrail) Name() string {
 	return "zscaler"
 }
 
-func (g *ZscalerGuardrail) Type() guardrail.GuardrailType {
-	return guardrail.TypePolicy
-}
-
 func (g *ZscalerGuardrail) Evaluate(ctx context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	if g.apiKey == "" {
 		return &guardrail.Result{Guardrail: g.Name(), Decision: guardrail.DecisionPass}, nil

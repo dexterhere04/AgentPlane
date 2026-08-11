@@ -165,10 +165,6 @@ func (g *SecretsGuardrail) Name() string {
 	return "secrets"
 }
 
-func (g *SecretsGuardrail) Type() guardrail.GuardrailType {
-	return guardrail.TypeMandatory
-}
-
 func (g *SecretsGuardrail) Evaluate(_ context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	return g.Detect(context.Background(), string(body))
 }

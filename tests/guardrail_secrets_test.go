@@ -112,13 +112,6 @@ func TestSecretsAllowsNormalText(t *testing.T) {
 	assertDecision(t, result, guardrail.DecisionPass)
 }
 
-func TestSecretsIsMandatory(t *testing.T) {
-	g := guardsecrets.New(guardrail.Strategy{})
-	if g.Type() != guardrail.TypeMandatory {
-		t.Error("secrets should be TypeMandatory")
-	}
-}
-
 func TestSecretsOutputDetection(t *testing.T) {
 	g := guardsecrets.New(guardrail.Strategy{})
 	result, err := g.Evaluate(ctx(), guardrail.DirectionOutput, []byte(`My API key is sk-proj-test123456789012345678901234`))

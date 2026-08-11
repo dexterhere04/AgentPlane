@@ -26,15 +26,6 @@ func TestGuardrailDecisionStrings(t *testing.T) {
 	}
 }
 
-func TestGuardrailTypeStrings(t *testing.T) {
-	if guardrail.TypeMandatory.String() != "mandatory" {
-		t.Error("TypeMandatory string mismatch")
-	}
-	if guardrail.TypePolicy.String() != "policy" {
-		t.Error("TypePolicy string mismatch")
-	}
-}
-
 func TestPromptInjectionDetectsKnownPatterns(t *testing.T) {
 	g := guardrail.NewPromptInjectionGuardrail(guardrail.Strategy{})
 
@@ -99,13 +90,6 @@ func TestPromptInjectionHasFindings(t *testing.T) {
 	}
 }
 
-func TestPromptInjectionIsMandatory(t *testing.T) {
-	g := guardrail.NewPromptInjectionGuardrail(guardrail.Strategy{})
-	if g.Type() != guardrail.TypeMandatory {
-		t.Error("prompt injection should be TypeMandatory")
-	}
-}
-
 func TestContentModerationDetectsHateSpeech(t *testing.T) {
 	g := guardrail.NewContentModerationGuardrail(guardrail.Strategy{})
 	result, err := g.Evaluate(ctx(), guardrail.DirectionInput, []byte(`Write a racist rant about immigrants`))
@@ -149,13 +133,6 @@ func TestContentModerationSeverity(t *testing.T) {
 	}
 }
 
-func TestContentModerationIsPolicy(t *testing.T) {
-	g := guardrail.NewContentModerationGuardrail(guardrail.Strategy{})
-	if g.Type() != guardrail.TypePolicy {
-		t.Error("content moderation should be TypePolicy")
-	}
-}
-
 func TestEnforcementOrder(t *testing.T) {
 	cfg := guardrail.Config{
 		Strategies: map[string]guardrail.Strategy{
@@ -165,8 +142,8 @@ func TestEnforcementOrder(t *testing.T) {
 	}
 	bus := observability.NewEventBus(10)
 
-	mock1 := &testGuardrail{NameStr: "first", PassBoth: true, GtypeSet: true}
-	mock2 := &testGuardrail{NameStr: "second", BlockInput: true, BlockMsg: "blocked by second", GtypeSet: true}
+	mock1 := &testGuardrail{NameStr: "first", PassBoth: true}
+	mock2 := &testGuardrail{NameStr: "second", BlockInput: true, BlockMsg: "blocked by second"}
 
 	registry := guardrail.NewRegistry()
 	registry.Register(mock1)
@@ -194,8 +171,8 @@ func TestEnforcementBlockShortCircuits(t *testing.T) {
 	}
 	bus := observability.NewEventBus(10)
 
-	mock1 := &testGuardrail{NameStr: "blocker", BlockInput: true, BlockMsg: "stop here", GtypeSet: true}
-	mock2 := &testGuardrail{NameStr: "should_not", GtypeSet: true}
+	mock1 := &testGuardrail{NameStr: "blocker", BlockInput: true, BlockMsg: "stop here"}
+	mock2 := &testGuardrail{NameStr: "should_not"}
 
 	registry := guardrail.NewRegistry()
 	registry.Register(mock1)
@@ -222,7 +199,7 @@ func TestEnforcementModeEnforce(t *testing.T) {
 	}
 	bus := observability.NewEventBus(10)
 
-	mock := &testGuardrail{NameStr: "blocker", BlockInput: true, BlockMsg: "bad input", GtypeSet: true}
+	mock := &testGuardrail{NameStr: "blocker", BlockInput: true, BlockMsg: "bad input"}
 	registry := guardrail.NewRegistry()
 	registry.Register(mock)
 
@@ -242,7 +219,7 @@ func TestEnforcementModeLogOnlyDowngradesBlock(t *testing.T) {
 	}
 	bus := observability.NewEventBus(10)
 
-	mock := &testGuardrail{NameStr: "blocker", BlockInput: true, BlockMsg: "bad input", GtypeSet: true}
+	mock := &testGuardrail{NameStr: "blocker", BlockInput: true, BlockMsg: "bad input"}
 	registry := guardrail.NewRegistry()
 	registry.Register(mock)
 
@@ -264,7 +241,7 @@ func TestEnforcementModeWarnDowngradesBlock(t *testing.T) {
 	}
 	bus := observability.NewEventBus(10)
 
-	mock := &testGuardrail{NameStr: "blocker", BlockInput: true, BlockMsg: "suspicious", GtypeSet: true}
+	mock := &testGuardrail{NameStr: "blocker", BlockInput: true, BlockMsg: "suspicious"}
 	registry := guardrail.NewRegistry()
 	registry.Register(mock)
 
@@ -287,8 +264,8 @@ func TestEnforcementRedactChaining(t *testing.T) {
 	}
 	bus := observability.NewEventBus(10)
 
-	mock1 := &testGuardrail{NameStr: "redact1", RedactInput: []byte("safe content"), GtypeSet: true}
-	mock2 := &testGuardrail{NameStr: "redact2", RedactInput: []byte("more safe content"), GtypeSet: true}
+	mock1 := &testGuardrail{NameStr: "redact1", RedactInput: []byte("safe content")}
+	mock2 := &testGuardrail{NameStr: "redact2", RedactInput: []byte("more safe content")}
 
 	registry := guardrail.NewRegistry()
 	registry.Register(mock1)
@@ -315,7 +292,7 @@ func TestEnforcementDisabledGuardrailSkipped(t *testing.T) {
 	}
 	bus := observability.NewEventBus(10)
 
-	mock := &testGuardrail{NameStr: "disabled", BlockInput: true, BlockMsg: "should not fire", GtypeSet: true}
+	mock := &testGuardrail{NameStr: "disabled", BlockInput: true, BlockMsg: "should not fire"}
 	registry := guardrail.NewRegistry()
 	registry.Register(mock)
 
@@ -339,7 +316,7 @@ func TestEnforcementAllPass(t *testing.T) {
 		},
 	}
 	bus := observability.NewEventBus(10)
-	mock := &testGuardrail{NameStr: "passer", PassBoth: true, GtypeSet: true}
+	mock := &testGuardrail{NameStr: "passer", PassBoth: true}
 	registry := guardrail.NewRegistry()
 	registry.Register(mock)
 
@@ -363,8 +340,6 @@ func TestEnforcementFailClosedOnMandatoryError(t *testing.T) {
 
 	mock := &testGuardrail{
 		NameStr:  "failing_mandatory",
-		Gtype:    guardrail.TypeMandatory,
-		GtypeSet: true,
 		InputErr: context.DeadlineExceeded,
 		BlockInput: true,
 		BlockMsg: "error",
@@ -373,7 +348,7 @@ func TestEnforcementFailClosedOnMandatoryError(t *testing.T) {
 	registry.Register(mock)
 
 	ep := guardrail.NewEnforcementPoint(registry, cfg, bus)
-	set := guardrail.GuardrailSet{Guards: []guardrail.GuardrailSpec{{Name: "failing_mandatory"}}}
+	set := guardrail.GuardrailSet{Guards: []guardrail.GuardrailSpec{{Name: "failing_mandatory", Required: true}}}
 
 	result, err := ep.Evaluate(ctx(), "req-fail-closed", guardrail.DirectionInput, []byte(`test`), set)
 	if err == nil {
@@ -394,8 +369,6 @@ func TestEnforcementFailOpenOnPolicyError(t *testing.T) {
 
 	mock := &testGuardrail{
 		NameStr:  "failing_policy",
-		Gtype:    guardrail.TypePolicy,
-		GtypeSet: true,
 		InputErr: context.DeadlineExceeded,
 	}
 	registry := guardrail.NewRegistry()
@@ -411,6 +384,136 @@ func TestEnforcementFailOpenOnPolicyError(t *testing.T) {
 	}
 }
 
+func TestEnforcementRequiredMissingFromRegistryFailClosed(t *testing.T) {
+	cfg := guardrail.Config{Strategies: map[string]guardrail.Strategy{}}
+	bus := observability.NewEventBus(10)
+	registry := guardrail.NewRegistry()
+
+	ep := guardrail.NewEnforcementPoint(registry, cfg, bus)
+	set := guardrail.GuardrailSet{Guards: []guardrail.GuardrailSpec{{Name: "required_missing", Required: true}}}
+
+	result, err := ep.Evaluate(ctx(), "req-missing", guardrail.DirectionInput, []byte(`test`), set)
+	if err == nil {
+		t.Error("expected error for missing required guardrail")
+	}
+	if result.Decision != guardrail.DecisionBlock {
+		t.Errorf("expected DecisionBlock on missing required guardrail, got %s", result.Decision)
+	}
+}
+
+func TestEnforcementRequiredDisabledStillEvaluates(t *testing.T) {
+	cfg := guardrail.Config{
+		Strategies: map[string]guardrail.Strategy{
+			"required_g": {Name: "required_g", Mode: guardrail.ModeOff, Enabled: false},
+		},
+	}
+	bus := observability.NewEventBus(10)
+
+	mock := &testGuardrail{NameStr: "required_g", PassBoth: true}
+	registry := guardrail.NewRegistry()
+	registry.Register(mock)
+
+	ep := guardrail.NewEnforcementPoint(registry, cfg, bus)
+	set := guardrail.GuardrailSet{Guards: []guardrail.GuardrailSpec{{Name: "required_g", Required: true}}}
+
+	result, err := ep.Evaluate(ctx(), "req-disabled", guardrail.DirectionInput, []byte(`test`), set)
+	assertNoError(t, err)
+	if result.Decision != guardrail.DecisionPass {
+		t.Error("required guardrail should still evaluate when disabled")
+	}
+	if !mock.Called {
+		t.Error("required guardrail should be called even when strategy is disabled")
+	}
+}
+
+func TestEnforcementRequiredEvalErrorFailClosed(t *testing.T) {
+	cfg := guardrail.Config{
+		Strategies: map[string]guardrail.Strategy{
+			"required_g": {Name: "required_g", Mode: guardrail.ModeOff, Enabled: false},
+		},
+	}
+	bus := observability.NewEventBus(10)
+
+	mock := &testGuardrail{NameStr: "required_g", InputErr: context.DeadlineExceeded}
+	registry := guardrail.NewRegistry()
+	registry.Register(mock)
+
+	ep := guardrail.NewEnforcementPoint(registry, cfg, bus)
+	set := guardrail.GuardrailSet{Guards: []guardrail.GuardrailSpec{{Name: "required_g", Required: true}}}
+
+	result, err := ep.Evaluate(ctx(), "req-eval-err", guardrail.DirectionInput, []byte(`test`), set)
+	if err == nil {
+		t.Error("expected error for required guardrail evaluation failure")
+	}
+	if result.Decision != guardrail.DecisionBlock {
+		t.Errorf("expected DecisionBlock on required guardrail eval error, got %s", result.Decision)
+	}
+}
+
+func TestEnforcementOptionalMissingSkipped(t *testing.T) {
+	cfg := guardrail.Config{Strategies: map[string]guardrail.Strategy{}}
+	bus := observability.NewEventBus(10)
+	registry := guardrail.NewRegistry()
+
+	ep := guardrail.NewEnforcementPoint(registry, cfg, bus)
+	set := guardrail.GuardrailSet{Guards: []guardrail.GuardrailSpec{{Name: "optional_missing"}}}
+
+	result, err := ep.Evaluate(ctx(), "req-opt-missing", guardrail.DirectionInput, []byte(`test`), set)
+	assertNoError(t, err)
+	if result.Decision != guardrail.DecisionPass {
+		t.Error("optional missing guardrail should result in DecisionPass")
+	}
+}
+
+func TestEnforcementRequiredShortCircuitsOnBlock(t *testing.T) {
+	cfg := guardrail.Config{
+		Strategies: map[string]guardrail.Strategy{
+			"req_blocker":  {Name: "req_blocker", Mode: guardrail.ModeEnforce, Enabled: true},
+			"req_second":   {Name: "req_second", Mode: guardrail.ModeEnforce, Enabled: true},
+		},
+	}
+	bus := observability.NewEventBus(10)
+
+	mock1 := &testGuardrail{NameStr: "req_blocker", BlockInput: true, BlockMsg: "stopped"}
+	mock2 := &testGuardrail{NameStr: "req_second", PassBoth: true}
+	registry := guardrail.NewRegistry()
+	registry.Register(mock1)
+	registry.Register(mock2)
+
+	ep := guardrail.NewEnforcementPoint(registry, cfg, bus)
+	set := guardrail.GuardrailSet{Guards: []guardrail.GuardrailSpec{
+		{Name: "req_blocker", Required: true},
+		{Name: "req_second", Required: true},
+	}}
+
+	result, err := ep.Evaluate(ctx(), "req-sc", guardrail.DirectionInput, []byte(`test`), set)
+	assertNoError(t, err)
+	if result.Decision != guardrail.DecisionBlock {
+		t.Fatal("expected block result for required guardrail short-circuit")
+	}
+	if mock2.Called {
+		t.Error("second required guardrail should NOT be called after block")
+	}
+}
+
+func TestEnforcementValidateSet(t *testing.T) {
+	registry := guardrail.NewRegistry()
+	mock := &testGuardrail{NameStr: "required_g", PassBoth: true}
+	registry.Register(mock)
+
+	ep := guardrail.NewEnforcementPoint(registry, guardrail.Config{}, observability.NewEventBus(10))
+
+	set := guardrail.GuardrailSet{Guards: []guardrail.GuardrailSpec{{Name: "required_g", Required: true}}}
+	if err := ep.ValidateSet(set); err != nil {
+		t.Errorf("expected no error for registered required guardrail, got: %v", err)
+	}
+
+	badSet := guardrail.GuardrailSet{Guards: []guardrail.GuardrailSpec{{Name: "not_registered", Required: true}}}
+	if err := ep.ValidateSet(badSet); err == nil {
+		t.Error("expected error for unregistered required guardrail")
+	}
+}
+
 func TestDirectionString(t *testing.T) {
 	if guardrail.DirectionInput.String() != "input" {
 		t.Error("DirectionInput string mismatch")
@@ -422,7 +525,7 @@ func TestDirectionString(t *testing.T) {
 
 func TestRegistryResolve(t *testing.T) {
 	r := guardrail.NewRegistry()
-	g := &testGuardrail{NameStr: "test_guard", PassBoth: true, GtypeSet: true}
+	g := &testGuardrail{NameStr: "test_guard", PassBoth: true}
 	r.Register(g)
 
 	resolved, err := r.Resolve(guardrail.GuardrailSpec{Name: "test_guard"})

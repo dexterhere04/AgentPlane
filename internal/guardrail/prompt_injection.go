@@ -34,10 +34,6 @@ func (g *PromptInjectionGuardrail) Name() string {
 	return "prompt_injection"
 }
 
-func (g *PromptInjectionGuardrail) Type() GuardrailType {
-	return TypeMandatory
-}
-
 func (g *PromptInjectionGuardrail) Evaluate(_ context.Context, dir Direction, body []byte) (*Result, error) {
 	if dir == DirectionOutput {
 		return &Result{Guardrail: g.Name(), Decision: DecisionPass}, nil

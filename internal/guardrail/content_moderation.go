@@ -62,10 +62,6 @@ func (g *ContentModerationGuardrail) Name() string {
 	return "content_moderation"
 }
 
-func (g *ContentModerationGuardrail) Type() GuardrailType {
-	return TypePolicy
-}
-
 func (g *ContentModerationGuardrail) Evaluate(_ context.Context, _ Direction, body []byte) (*Result, error) {
 	bodyStr := string(body)
 	bodyLower := strings.ToLower(bodyStr)

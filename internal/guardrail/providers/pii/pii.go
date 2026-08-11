@@ -148,10 +148,6 @@ func (g *PIIGuardrail) Name() string {
 	return "pii"
 }
 
-func (g *PIIGuardrail) Type() guardrail.GuardrailType {
-	return guardrail.TypeMandatory
-}
-
 func (g *PIIGuardrail) RegisterDetector(d Detector) {
 	g.mu.Lock()
 	defer g.mu.Unlock()

@@ -41,10 +41,6 @@ func (g *OpenAIModerationGuardrail) Name() string {
 	return "openai_moderation"
 }
 
-func (g *OpenAIModerationGuardrail) Type() guardrail.GuardrailType {
-	return guardrail.TypePolicy
-}
-
 func (g *OpenAIModerationGuardrail) Evaluate(ctx context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	if g.apiKey == "" {
 		return &guardrail.Result{Guardrail: g.Name(), Decision: guardrail.DecisionPass}, nil

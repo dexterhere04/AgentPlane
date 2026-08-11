@@ -93,7 +93,6 @@ func NewWordCount(s guardrail.Strategy) *WordCountGuardrail {
 }
 
 func (g *WordCountGuardrail) Name() string               { return g.name }
-func (g *WordCountGuardrail) Type() guardrail.GuardrailType { return guardrail.TypePolicy }
 
 func (g *WordCountGuardrail) Evaluate(_ context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	words := strings.Fields(string(body))
@@ -134,7 +133,6 @@ func NewSentenceCount(s guardrail.Strategy) *SentenceCountGuardrail {
 }
 
 func (g *SentenceCountGuardrail) Name() string               { return g.name }
-func (g *SentenceCountGuardrail) Type() guardrail.GuardrailType { return guardrail.TypePolicy }
 
 var sentenceEnd = regexp.MustCompile(`[.!?]+`)
 
@@ -180,7 +178,6 @@ func NewCharacterCount(s guardrail.Strategy) *CharacterCountGuardrail {
 }
 
 func (g *CharacterCountGuardrail) Name() string               { return g.name }
-func (g *CharacterCountGuardrail) Type() guardrail.GuardrailType { return guardrail.TypePolicy }
 
 func (g *CharacterCountGuardrail) Evaluate(_ context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	count := len(body)
@@ -210,7 +207,6 @@ func NewAllUppercase(s guardrail.Strategy) *AllUppercaseGuardrail {
 }
 
 func (g *AllUppercaseGuardrail) Name() string               { return g.name }
-func (g *AllUppercaseGuardrail) Type() guardrail.GuardrailType { return guardrail.TypePolicy }
 
 func (g *AllUppercaseGuardrail) Evaluate(_ context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	text := strings.TrimSpace(string(body))
@@ -245,7 +241,6 @@ func NewAllLowercase(s guardrail.Strategy) *AllLowercaseGuardrail {
 }
 
 func (g *AllLowercaseGuardrail) Name() string               { return g.name }
-func (g *AllLowercaseGuardrail) Type() guardrail.GuardrailType { return guardrail.TypePolicy }
 
 func (g *AllLowercaseGuardrail) Evaluate(_ context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	text := strings.TrimSpace(string(body))
@@ -290,7 +285,6 @@ func NewJsonKeys(s guardrail.Strategy) *JsonKeysGuardrail {
 }
 
 func (g *JsonKeysGuardrail) Name() string               { return g.name }
-func (g *JsonKeysGuardrail) Type() guardrail.GuardrailType { return guardrail.TypeMandatory }
 
 func (g *JsonKeysGuardrail) Evaluate(_ context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	if len(g.required) == 0 || !json.Valid(body) {
@@ -333,7 +327,6 @@ func NewNotNull(s guardrail.Strategy) *NotNullGuardrail {
 }
 
 func (g *NotNullGuardrail) Name() string               { return g.name }
-func (g *NotNullGuardrail) Type() guardrail.GuardrailType { return guardrail.TypeMandatory }
 
 func (g *NotNullGuardrail) Evaluate(_ context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	if len(g.fields) == 0 || !json.Valid(body) {
@@ -377,7 +370,6 @@ func NewRequiredMetadataKeys(s guardrail.Strategy) *RequiredMetadataKeysGuardrai
 }
 
 func (g *RequiredMetadataKeysGuardrail) Name() string               { return g.name }
-func (g *RequiredMetadataKeysGuardrail) Type() guardrail.GuardrailType { return guardrail.TypeMandatory }
 
 func (g *RequiredMetadataKeysGuardrail) Evaluate(_ context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	if len(g.keys) == 0 || !json.Valid(body) {

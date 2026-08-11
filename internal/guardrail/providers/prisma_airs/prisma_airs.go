@@ -37,10 +37,6 @@ func (g *PrismaAIRSGuardrail) Name() string {
 	return "prisma_airs"
 }
 
-func (g *PrismaAIRSGuardrail) Type() guardrail.GuardrailType {
-	return guardrail.TypePolicy
-}
-
 func (g *PrismaAIRSGuardrail) Evaluate(ctx context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	if g.apiKey == "" {
 		return &guardrail.Result{Guardrail: g.Name(), Decision: guardrail.DecisionPass}, nil

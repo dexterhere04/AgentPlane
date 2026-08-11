@@ -37,10 +37,6 @@ func (g *LakeraGuardrail) Name() string {
 	return "lakera"
 }
 
-func (g *LakeraGuardrail) Type() guardrail.GuardrailType {
-	return guardrail.TypePolicy
-}
-
 func (g *LakeraGuardrail) Evaluate(ctx context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	if g.apiKey == "" {
 		return &guardrail.Result{Guardrail: g.Name(), Decision: guardrail.DecisionPass}, nil

@@ -42,24 +42,6 @@ const (
 	ModeOff     Mode = "off"
 )
 
-type GuardrailType int
-
-const (
-	TypeMandatory GuardrailType = iota
-	TypePolicy
-)
-
-func (t GuardrailType) String() string {
-	switch t {
-	case TypeMandatory:
-		return "mandatory"
-	case TypePolicy:
-		return "policy"
-	default:
-		return "unknown"
-	}
-}
-
 type Strategy struct {
 	Name    string
 	Mode    Mode
@@ -82,7 +64,6 @@ func (r *Result) AddFinding(f Finding) {
 
 type Guardrail interface {
 	Name() string
-	Type() GuardrailType
 	Evaluate(ctx context.Context, dir Direction, body []byte) (*Result, error)
 }
 

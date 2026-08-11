@@ -37,10 +37,6 @@ func (g *NvidiaContentGuardrail) Name() string {
 	return "nvidia_content"
 }
 
-func (g *NvidiaContentGuardrail) Type() guardrail.GuardrailType {
-	return guardrail.TypePolicy
-}
-
 func (g *NvidiaContentGuardrail) Evaluate(ctx context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	if g.apiKey == "" {
 		return &guardrail.Result{Guardrail: g.Name(), Decision: guardrail.DecisionPass}, nil
