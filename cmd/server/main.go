@@ -5,12 +5,14 @@ import (
 	"net/http"
 	"os"
 	"time"
-
+	"context"
 	"github.com/dexterhere04/AgentPlane/internal/config"
 	"github.com/dexterhere04/AgentPlane/internal/dashboard"
 	"github.com/dexterhere04/AgentPlane/internal/handlers"
 	"github.com/dexterhere04/AgentPlane/internal/observability"
 	"github.com/dexterhere04/AgentPlane/internal/secrets"
+	"github.com/dexterhere04/AgentPlane/internal/db"
+	"github.com/joho/godotenv"
 )
 
 func envOrDefault(key, fallback string) string {
@@ -46,6 +48,22 @@ func newVaultStore() secrets.VaultStore {
 }
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Printf("No .env file loaded: %v", err)
+	}
+
+	databaseURL, err := config.DatabaseURL()
+	if err != nil {
+		log.Fatalf("Database configuration: %v", err)
+	}
+
+	ctx := context.Background()
+
+	pool, err := db.NewPool(ctx, databaseURL)
+	if err != nil {
+		log.Fatalf("Database connection: %v", err)
+	}
+	defer pool.Close()
 	bus := observability.DefaultBus
 
 	switch os.Getenv("SECRET_STORE") {
@@ -97,7 +115,7 @@ func main() {
 	log.Printf("  Dashboard → http://localhost:%s/dashboard", port)
 	log.Printf("  Mock API  → http://localhost:%s (set OPENAI_BASE_URL)", port)
 
-	err := http.ListenAndServe(":"+port, mux)
+	err = http.ListenAndServe(":"+port, mux)
 	if err != nil {
 		log.Fatal(err)
 	}

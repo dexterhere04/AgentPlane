@@ -1,7 +1,6 @@
 package api
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -11,22 +10,9 @@ func TestGenerateAPIKey_Format(t *testing.T) {
 		t.Fatalf("GenerateAPIKey returned error: %v", err)
 	}
 
-	if !strings.HasPrefix(key.FullKey, "ap_live_") {
-		t.Errorf("expected FullKey to start with 'ap_live_', got %q", key.FullKey)
-	}
-
-	parts := strings.Split(key.FullKey, "_")
-	// "ap", "live", key_id, secret
-	if len(parts) != 4 {
-		t.Fatalf("expected FullKey to have 4 underscore-separated parts, got %d: %q", len(parts), key.FullKey)
-	}
-
-	if parts[2] != key.KeyID {
-		t.Errorf("key_id embedded in FullKey (%q) does not match returned KeyID (%q)", parts[2], key.KeyID)
-	}
-
-	if parts[3] != key.Secret {
-		t.Errorf("secret embedded in FullKey (%q) does not match returned Secret (%q)", parts[3], key.Secret)
+	expected := "ap_live_" + key.KeyID + "_" + key.Secret
+	if key.FullKey != expected {
+		t.Errorf("FullKey does not match expected format, got %q, expected %q", key.FullKey, expected)
 	}
 }
 
