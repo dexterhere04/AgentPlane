@@ -35,7 +35,6 @@ func NewRegexMatch(s guardrail.Strategy) *RegexMatchGuardrail {
 }
 
 func (g *RegexMatchGuardrail) Name() string              { return g.name }
-func (g *RegexMatchGuardrail) Type() guardrail.GuardrailType { return guardrail.TypeMandatory }
 
 func (g *RegexMatchGuardrail) Evaluate(_ context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	if g.pattern == nil {
@@ -70,7 +69,6 @@ func NewContains(s guardrail.Strategy) *ContainsGuardrail {
 }
 
 func (g *ContainsGuardrail) Name() string              { return g.name }
-func (g *ContainsGuardrail) Type() guardrail.GuardrailType { return guardrail.TypeMandatory }
 
 func (g *ContainsGuardrail) Evaluate(_ context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	if len(g.words) == 0 {
@@ -111,7 +109,6 @@ func NewContainsCode(s guardrail.Strategy) *ContainsCodeGuardrail {
 }
 
 func (g *ContainsCodeGuardrail) Name() string              { return g.name }
-func (g *ContainsCodeGuardrail) Type() guardrail.GuardrailType { return guardrail.TypeMandatory }
 
 func (g *ContainsCodeGuardrail) Evaluate(_ context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	text := string(body)
@@ -145,7 +142,6 @@ func NewEndsWith(s guardrail.Strategy) *EndsWithGuardrail {
 }
 
 func (g *EndsWithGuardrail) Name() string              { return g.name }
-func (g *EndsWithGuardrail) Type() guardrail.GuardrailType { return guardrail.TypeMandatory }
 
 func (g *EndsWithGuardrail) Evaluate(_ context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	if g.suffix == "" {
@@ -171,7 +167,6 @@ func NewValidUrls(s guardrail.Strategy) *ValidUrlsGuardrail {
 }
 
 func (g *ValidUrlsGuardrail) Name() string              { return g.name }
-func (g *ValidUrlsGuardrail) Type() guardrail.GuardrailType { return guardrail.TypeMandatory }
 
 var urlPattern = regexp.MustCompile(`https?://[^\s<>"{}|\\^` + "`" + `\[\]]+`)
 
@@ -215,7 +210,6 @@ func NewJsonSchema(s guardrail.Strategy) *JsonSchemaGuardrail {
 }
 
 func (g *JsonSchemaGuardrail) Name() string              { return g.name }
-func (g *JsonSchemaGuardrail) Type() guardrail.GuardrailType { return guardrail.TypeMandatory }
 
 func (g *JsonSchemaGuardrail) Evaluate(_ context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	if g.schema == nil || !json.Valid(body) {

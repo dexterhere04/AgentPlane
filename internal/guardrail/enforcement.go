@@ -42,6 +42,44 @@ func (ep *EnforcementPoint) Evaluate(
 	for _, spec := range set.Guards {
 		g, err := ep.registry.Resolve(spec)
 		if err != nil {
+			if spec.Required {
+				return ep.failClosed(requestID, spec.Name, dir, fmt.Errorf("%s: %w", ErrGuardrailUnavailable, err))
+			}
+			continue
+		}
+
+		if spec.Required {
+			strategy := ep.config.Strategy(g.Name())
+
+			result, err := g.Evaluate(ctx, dir, currentBody)
+			if err != nil {
+				if ep.metrics != nil {
+					ep.metrics.RecordError()
+				}
+				return ep.failClosed(requestID, g.Name(), dir, err)
+			}
+
+			if ep.metrics != nil {
+				ep.metrics.RecordEvaluation(result.Decision, time.Duration(0))
+			}
+
+			if result.Decision == DecisionPass {
+				ep.publishEvent(requestID, g.Name(), dir, result)
+				continue
+			}
+
+			ep.publishEvent(requestID, g.Name(), dir, result)
+
+			effective := ep.resolve(strategy, result)
+
+			if effective.Decision == DecisionBlock {
+				ep.publishBlocked(requestID, effective)
+				return effective, nil
+			}
+
+			if effective.Decision == DecisionRedact && effective.Redacted != nil {
+				currentBody = effective.Redacted
+			}
 			continue
 		}
 
@@ -59,23 +97,6 @@ func (ep *EnforcementPoint) Evaluate(
 		if err != nil {
 			if ep.metrics != nil {
 				ep.metrics.RecordError()
-			}
-			if g.Type() == TypeMandatory {
-				ep.publishEvent(requestID, g.Name(), dir, &Result{
-					Guardrail: g.Name(),
-					Decision:  DecisionBlock,
-					Message:   fmt.Sprintf("%s: %v", ErrGuardrailUnavailable, err),
-				})
-				ep.publishBlocked(requestID, &Result{
-					Guardrail: g.Name(),
-					Decision:  DecisionBlock,
-					Message:   ErrGuardrailUnavailable.Error(),
-				})
-				return &Result{
-					Guardrail: g.Name(),
-					Decision:  DecisionBlock,
-					Message:   ErrGuardrailUnavailable.Error(),
-				}, err
 			}
 			ep.publishEvent(requestID, g.Name(), dir, &Result{
 				Guardrail: g.Name(),
@@ -116,6 +137,36 @@ func (ep *EnforcementPoint) Evaluate(
 	}
 
 	return &Result{Decision: DecisionPass}, nil
+}
+
+func (ep *EnforcementPoint) failClosed(requestID, name string, dir Direction, err error) (*Result, error) {
+	ep.publishEvent(requestID, name, dir, &Result{
+		Guardrail: name,
+		Decision:  DecisionBlock,
+		Message:   fmt.Sprintf("%s: %v", ErrGuardrailUnavailable, err),
+	})
+	ep.publishBlocked(requestID, &Result{
+		Guardrail: name,
+		Decision:  DecisionBlock,
+		Message:   ErrGuardrailUnavailable.Error(),
+	})
+	return &Result{
+		Guardrail: name,
+		Decision:  DecisionBlock,
+		Message:   ErrGuardrailUnavailable.Error(),
+	}, err
+}
+
+func (ep *EnforcementPoint) ValidateSet(set GuardrailSet) error {
+	for _, spec := range set.Guards {
+		if !spec.Required {
+			continue
+		}
+		if _, err := ep.registry.Resolve(spec); err != nil {
+			return fmt.Errorf("required guardrail %q is not registered: %w", spec.Name, err)
+		}
+	}
+	return nil
 }
 
 func (ep *EnforcementPoint) resolve(strategy Strategy, result *Result) *Result {

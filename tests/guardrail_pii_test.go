@@ -73,13 +73,6 @@ func TestPIIOutputRedaction(t *testing.T) {
 	assertDecision(t, result, guardrail.DecisionRedact)
 }
 
-func TestPIIIsMandatory(t *testing.T) {
-	g := guardpii.New(guardrail.Strategy{})
-	if g.Type() != guardrail.TypeMandatory {
-		t.Error("pii should be TypeMandatory")
-	}
-}
-
 func TestPIIFindingsHavePositions(t *testing.T) {
 	g := guardpii.New(guardrail.Strategy{})
 	result, err := g.Evaluate(ctx(), guardrail.DirectionInput, []byte(`Email: test@example.com`))

@@ -91,6 +91,14 @@ func enforcementSet(guards ...guardrail.Guardrail) guardrail.GuardrailSet {
 	return guardrail.GuardrailSet{Guards: specs}
 }
 
+func requiredEnforcementSet(guards ...guardrail.Guardrail) guardrail.GuardrailSet {
+	specs := make([]guardrail.GuardrailSpec, len(guards))
+	for i, g := range guards {
+		specs[i] = guardrail.GuardrailSpec{Name: g.Name(), Required: true}
+	}
+	return guardrail.GuardrailSet{Guards: specs}
+}
+
 func doChat(body []byte, guards ...guardrail.Guardrail) *httptest.ResponseRecorder {
 	provider := &stubProvider{NameStr: "test", Response: []byte(`{"choices":[{"message":{"content":"ok"}}]}`)}
 	w := httptest.NewRecorder()
@@ -155,8 +163,6 @@ func wrapInChat(content string) []byte {
 
 type testGuardrail struct {
 	NameStr     string
-	Gtype       guardrail.GuardrailType
-	GtypeSet    bool
 	PassBoth    bool
 	BlockInput  bool
 	BlockMsg    string
@@ -173,12 +179,6 @@ type testGuardrail struct {
 }
 
 func (m *testGuardrail) Name() string { return m.NameStr }
-func (m *testGuardrail) Type() guardrail.GuardrailType {
-	if m.GtypeSet {
-		return m.Gtype
-	}
-	return guardrail.TypePolicy
-}
 
 func (m *testGuardrail) Evaluate(_ context.Context, dir guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	m.Called = true
@@ -252,7 +252,6 @@ type streamSecretGuard struct {
 }
 
 func (m *streamSecretGuard) Name() string                  { return "stream_secret" }
-func (m *streamSecretGuard) Type() guardrail.GuardrailType { return guardrail.TypeMandatory }
 func (m *streamSecretGuard) Evaluate(_ context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	if m.Marker == "" {
 		return &guardrail.Result{Guardrail: "secrets", Decision: guardrail.DecisionPass}, nil

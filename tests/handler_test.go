@@ -17,7 +17,7 @@ func TestHandlerChatCleanRequest(t *testing.T) {
 	provider := &testCallingProvider{NameStr: "mock", Response: []byte(`{"choices":[{"message":{"content":"Hello back"}}]}`)}
 
 	enforcement := newTestEnforcement(&testGuardrail{
-		NameStr: "passer", Gtype: guardrail.TypePolicy, GtypeSet: true,
+		NameStr: "passer",
 		InputDec: guardrail.DecisionPass, OutputDec: guardrail.DecisionPass,
 	})
 
@@ -75,7 +75,7 @@ func TestHandlerChatInputGuardrailBlock(t *testing.T) {
 	provider := &testCallingProvider{NameStr: "mock", Response: []byte(`{}`)}
 
 	g := &testGuardrail{
-		NameStr: "blocker", Gtype: guardrail.TypeMandatory, GtypeSet: true,
+		NameStr: "blocker",
 		InputDec: guardrail.DecisionBlock, InputMsg: "detected secret",
 		Findings: []guardrail.Finding{
 			{Guardrail: "blocker", Type: "aws_key", Severity: guardrail.SeverityCritical},
@@ -113,7 +113,7 @@ func TestHandlerChatInputGuardrailBlock(t *testing.T) {
 func TestHandlerChatInputRedact(t *testing.T) {
 	provider := &testCallingProvider{NameStr: "mock", Response: []byte(`{"ok":true}`)}
 	g := &testGuardrail{
-		NameStr: "pii", Gtype: guardrail.TypeMandatory, GtypeSet: true,
+		NameStr: "pii",
 		RedactInput: []byte(`{"messages":[{"role":"user","content":"[EMAIL REDACTED]"}]}`),
 		OutputDec: guardrail.DecisionPass,
 	}
@@ -142,7 +142,7 @@ func TestHandlerChatOutputGuardrailBlock(t *testing.T) {
 		Response: []byte(`{"choices":[{"message":{"content":"bad output"}}]}`),
 	}
 	g := &testGuardrail{
-		NameStr: "secrets", Gtype: guardrail.TypeMandatory, GtypeSet: true,
+		NameStr: "secrets",
 		InputDec:  guardrail.DecisionPass,
 		OutputDec: guardrail.DecisionBlock, OutputMsg: "bad content",
 		Findings: []guardrail.Finding{
@@ -171,7 +171,7 @@ func TestHandlerChatOutputRedact(t *testing.T) {
 		Response: []byte(`{"choices":[{"message":{"content":"call 555-123-4567"}}]}`),
 	}
 	g := &testGuardrail{
-		NameStr: "pii", Gtype: guardrail.TypeMandatory, GtypeSet: true,
+		NameStr: "pii",
 		InputDec:  guardrail.DecisionPass,
 		RedactOut: []byte(`{"choices":[{"message":{"content":"call [PHONE REDACTED]"}}]}`),
 	}
@@ -194,7 +194,7 @@ func TestHandlerChatOutputRedact(t *testing.T) {
 func TestHandlerChatProviderError(t *testing.T) {
 	provider := &testCallingProvider{NameStr: "mock", Err: fmt.Errorf("downstream failure")}
 	enforcement := newTestEnforcement(&testGuardrail{
-		NameStr: "passer", GtypeSet: true,
+		NameStr: "passer",
 		InputDec: guardrail.DecisionPass, OutputDec: guardrail.DecisionPass,
 	})
 
@@ -209,7 +209,7 @@ func TestHandlerChatProviderError(t *testing.T) {
 
 func TestHandlerChatNilProvider(t *testing.T) {
 	enforcement := newTestEnforcement(&testGuardrail{
-		NameStr: "passer", GtypeSet: true,
+		NameStr: "passer",
 		InputDec: guardrail.DecisionPass, OutputDec: guardrail.DecisionPass,
 	})
 
@@ -225,7 +225,7 @@ func TestHandlerChatNilProvider(t *testing.T) {
 func TestHandlerChatContentTypeHeader(t *testing.T) {
 	provider := &testCallingProvider{NameStr: "mock", Response: []byte(`{"ok":true}`)}
 	enforcement := newTestEnforcement(&testGuardrail{
-		NameStr: "passer", GtypeSet: true,
+		NameStr: "passer",
 		InputDec: guardrail.DecisionPass, OutputDec: guardrail.DecisionPass,
 	})
 
@@ -242,7 +242,7 @@ func TestHandlerChatContentTypeHeader(t *testing.T) {
 func TestHandlerChatWarnContinues(t *testing.T) {
 	provider := &testCallingProvider{NameStr: "mock", Response: []byte(`{"ok":true}`)}
 	g := &testGuardrail{
-		NameStr: "policy", Gtype: guardrail.TypePolicy, GtypeSet: true,
+		NameStr: "policy",
 		InputDec: guardrail.DecisionWarn, InputMsg: "potentially harmful",
 		OutputDec: guardrail.DecisionWarn, OutputMsg: "potentially harmful",
 	}
@@ -278,7 +278,7 @@ func TestHandlerChatReadBodyError(t *testing.T) {
 func TestHandlerChatEmptyBodyPasses(t *testing.T) {
 	provider := &testCallingProvider{NameStr: "mock", Response: []byte(`{}`)}
 	enforcement := newTestEnforcement(&testGuardrail{
-		NameStr: "passer", GtypeSet: true,
+		NameStr: "passer",
 		InputDec: guardrail.DecisionPass, OutputDec: guardrail.DecisionPass,
 	})
 
@@ -294,7 +294,7 @@ func TestHandlerChatEmptyBodyPasses(t *testing.T) {
 func TestHandlerChatErrorResponseFormat(t *testing.T) {
 	provider := &testCallingProvider{NameStr: "mock", Response: []byte(`{}`)}
 	g := &testGuardrail{
-		NameStr: "blocker", Gtype: guardrail.TypeMandatory, GtypeSet: true,
+		NameStr: "blocker",
 		InputDec: guardrail.DecisionBlock, InputMsg: "secret found",
 		Findings: []guardrail.Finding{{Type: "aws_key", Severity: guardrail.SeverityCritical}},
 		OutputDec: guardrail.DecisionPass,
@@ -318,12 +318,12 @@ func TestHandlerChatErrorResponseFormat(t *testing.T) {
 func TestHandlerChatMultipleGuardrailsOrder(t *testing.T) {
 	provider := &testCallingProvider{NameStr: "mock", Response: []byte(`{"ok":true}`)}
 	g1 := &testGuardrail{
-		NameStr: "first", Gtype: guardrail.TypeMandatory, GtypeSet: true,
+		NameStr: "first",
 		RedactInput: []byte(`redacted content`),
 		OutputDec: guardrail.DecisionPass,
 	}
 	g2 := &testGuardrail{
-		NameStr: "second", Gtype: guardrail.TypeMandatory, GtypeSet: true,
+		NameStr: "second",
 		InputDec: guardrail.DecisionPass, OutputDec: guardrail.DecisionPass,
 	}
 
@@ -345,7 +345,7 @@ func TestHandlerChatMultipleGuardrailsOrder(t *testing.T) {
 func TestHandlerChatStreamingGuardrailsApply(t *testing.T) {
 	provider := &testCallingProvider{NameStr: "mock", Response: []byte(`{"stream_result":"ok"}`)}
 	enforcement := newTestEnforcement(&testGuardrail{
-		NameStr: "output", Gtype: guardrail.TypeMandatory, GtypeSet: true,
+		NameStr: "output",
 		InputDec: guardrail.DecisionPass, OutputDec: guardrail.DecisionPass,
 	})
 

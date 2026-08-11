@@ -25,7 +25,6 @@ func NewJWT(s guardrail.Strategy) *JWTGuardrail {
 }
 
 func (g *JWTGuardrail) Name() string               { return g.name }
-func (g *JWTGuardrail) Type() guardrail.GuardrailType { return guardrail.TypePolicy }
 
 func (g *JWTGuardrail) Evaluate(_ context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	jwts := jwtPattern.FindAllString(string(body), -1)
@@ -110,7 +109,6 @@ func NewModelWhitelist(s guardrail.Strategy) *ModelWhitelistGuardrail {
 }
 
 func (g *ModelWhitelistGuardrail) Name() string               { return g.name }
-func (g *ModelWhitelistGuardrail) Type() guardrail.GuardrailType { return guardrail.TypeMandatory }
 
 func (g *ModelWhitelistGuardrail) Evaluate(_ context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	if len(g.whitelist) == 0 {
@@ -173,7 +171,6 @@ func NewModelRules(s guardrail.Strategy) *ModelRulesGuardrail {
 }
 
 func (g *ModelRulesGuardrail) Name() string               { return g.name }
-func (g *ModelRulesGuardrail) Type() guardrail.GuardrailType { return guardrail.TypeMandatory }
 
 func (g *ModelRulesGuardrail) Evaluate(_ context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	if len(g.rules) == 0 {
@@ -216,7 +213,6 @@ func NewAllowedRequestTypes(s guardrail.Strategy) *AllowedRequestTypesGuardrail 
 }
 
 func (g *AllowedRequestTypesGuardrail) Name() string               { return g.name }
-func (g *AllowedRequestTypesGuardrail) Type() guardrail.GuardrailType { return guardrail.TypeMandatory }
 
 func (g *AllowedRequestTypesGuardrail) Evaluate(_ context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	if len(g.types) == 0 {
@@ -268,7 +264,6 @@ func NewWebhook(s guardrail.Strategy) *WebhookGuardrail {
 }
 
 func (g *WebhookGuardrail) Name() string               { return g.name }
-func (g *WebhookGuardrail) Type() guardrail.GuardrailType { return guardrail.TypePolicy }
 
 func (g *WebhookGuardrail) Evaluate(ctx context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	if g.webhookURL == "" {
@@ -311,7 +306,6 @@ func NewLog(s guardrail.Strategy) *LogGuardrail {
 }
 
 func (g *LogGuardrail) Name() string               { return g.name }
-func (g *LogGuardrail) Type() guardrail.GuardrailType { return guardrail.TypePolicy }
 
 func (g *LogGuardrail) Evaluate(_ context.Context, dir guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	if len(body) > 500 {
@@ -342,7 +336,6 @@ func NewAddPrefix(s guardrail.Strategy) *AddPrefixGuardrail {
 }
 
 func (g *AddPrefixGuardrail) Name() string               { return g.name }
-func (g *AddPrefixGuardrail) Type() guardrail.GuardrailType { return guardrail.TypePolicy }
 
 func (g *AddPrefixGuardrail) Evaluate(_ context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	if g.prefix == "" {
@@ -384,7 +377,6 @@ func NewRegexReplace(s guardrail.Strategy) *RegexReplaceGuardrail {
 }
 
 func (g *RegexReplaceGuardrail) Name() string               { return g.name }
-func (g *RegexReplaceGuardrail) Type() guardrail.GuardrailType { return guardrail.TypePolicy }
 
 func (g *RegexReplaceGuardrail) Evaluate(_ context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
 	if g.searchPat == nil {

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/dexterhere04/AgentPlane/internal/guardrail"
+	"github.com/dexterhere04/AgentPlane/internal/observability"
 	guardpii "github.com/dexterhere04/AgentPlane/internal/guardrail/providers/pii"
 	guardsecrets "github.com/dexterhere04/AgentPlane/internal/guardrail/providers/secrets"
 )
@@ -694,13 +695,6 @@ func TestContentModeration_CleanTextPasses(t *testing.T) {
 	}
 }
 
-func TestContentModeration_IsPolicyNotMandatory(t *testing.T) {
-	g := guardrail.NewContentModerationGuardrail(guardrail.Strategy{})
-	if g.Type() != guardrail.TypePolicy {
-		t.Errorf("content moderation should be TypePolicy, got %s", g.Type())
-	}
-}
-
 func TestContentModeration_WarnAllowsRequest(t *testing.T) {
 	w := doChat(wrapInChat("hate speech and racist language analysis"),
 		guardrail.NewContentModerationGuardrail(guardrail.Strategy{}))
@@ -835,20 +829,65 @@ func TestEdge_GuardrailOrdering(t *testing.T) {
 	})
 }
 
-func TestEdge_MandatoryGuardrailsCannotBeSkipped(t *testing.T) {
-	g := guardsecrets.New(guardrail.Strategy{})
-	if g.Type() != guardrail.TypeMandatory {
-		t.Error("secrets guardrail must be mandatory")
+func TestEdge_RequiredGuardrailsCannotBeSkipped(t *testing.T) {
+	secretsGuard := guardsecrets.New(guardrail.Strategy{})
+	piiGuard := guardpii.New(guardrail.Strategy{})
+	promptInjGuard := guardrail.NewPromptInjectionGuardrail(guardrail.Strategy{})
+
+	registry := guardrail.NewRegistry()
+	registry.Register(secretsGuard)
+	registry.Register(piiGuard)
+	registry.Register(promptInjGuard)
+
+	cfg := guardrail.Config{
+		Strategies: map[string]guardrail.Strategy{
+			"secrets":          {Name: "secrets", Mode: guardrail.ModeEnforce, Enabled: true},
+			"pii":              {Name: "pii", Mode: guardrail.ModeEnforce, Enabled: true},
+			"prompt_injection": {Name: "prompt_injection", Mode: guardrail.ModeEnforce, Enabled: true},
+		},
 	}
 
-	g2 := guardpii.New(guardrail.Strategy{})
-	if g2.Type() != guardrail.TypeMandatory {
-		t.Error("pii guardrail must be mandatory")
-	}
+	ep := guardrail.NewEnforcementPoint(registry, cfg, observability.NewEventBus(10))
 
-	g3 := guardrail.NewPromptInjectionGuardrail(guardrail.Strategy{})
-	if g3.Type() != guardrail.TypeMandatory {
-		t.Error("prompt injection guardrail must be mandatory")
-	}
+	t.Run("required guardrail evaluates when disabled", func(t *testing.T) {
+		cfgOff := guardrail.Config{
+			Strategies: map[string]guardrail.Strategy{
+				"secrets": {Name: "secrets", Mode: guardrail.ModeOff, Enabled: false},
+			},
+		}
+		epOff := guardrail.NewEnforcementPoint(registry, cfgOff, observability.NewEventBus(10))
+		set := guardrail.GuardrailSet{Guards: []guardrail.GuardrailSpec{{Name: "secrets", Required: true}}}
+
+		result, err := epOff.Evaluate(ctx(), "req-disabled-required", guardrail.DirectionInput,
+			[]byte(`sk-proj-test123456789012345678901234`), set)
+		if err != nil {
+			t.Errorf("required guardrail should not error when disabled: %v", err)
+		}
+		if result.Decision == guardrail.DecisionPass {
+			t.Error("required secrets guardrail should block secret even when disabled")
+		}
+	})
+
+	t.Run("required guardrail missing from registry fails closed", func(t *testing.T) {
+		set := guardrail.GuardrailSet{Guards: []guardrail.GuardrailSpec{{Name: "not_registered_g", Required: true}}}
+		result, err := ep.Evaluate(ctx(), "req-missing-required", guardrail.DirectionInput, []byte(`test`), set)
+		if err == nil {
+			t.Error("expected error for missing required guardrail")
+		}
+		if result.Decision != guardrail.DecisionBlock {
+			t.Errorf("expected DecisionBlock for missing required guardrail, got %s", result.Decision)
+		}
+	})
+
+	t.Run("optional guardrail missing is silently skipped", func(t *testing.T) {
+		set := guardrail.GuardrailSet{Guards: []guardrail.GuardrailSpec{{Name: "not_registered_opt"}}}
+		result, err := ep.Evaluate(ctx(), "req-opt-missing", guardrail.DirectionInput, []byte(`test`), set)
+		if err != nil {
+			t.Errorf("optional missing guardrail should not error: %v", err)
+		}
+		if result.Decision != guardrail.DecisionPass {
+			t.Error("expected DecisionPass for missing optional guardrail")
+		}
+	})
 }
 
