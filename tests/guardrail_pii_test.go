@@ -1,7 +1,9 @@
 package tests
 
 import (
+	"context"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/dexterhere04/AgentPlane/internal/guardrail"
@@ -176,3 +178,107 @@ func TestPIIRedactPreservesNonPII(t *testing.T) {
 		t.Error("email should be redacted")
 	}
 }
+
+func TestPIIRedactDifferentLengthReplacements(t *testing.T) {
+	g := guardpii.New(guardrail.Strategy{})
+	body := "Email: alice@example.com SSN: 123-45-6789 CreditCard: 4111111111111111"
+	result, err := g.Evaluate(ctx(), guardrail.DirectionInput, []byte(body))
+	assertNoError(t, err)
+	assertDecision(t, result, guardrail.DecisionRedact)
+	redacted := string(result.Redacted)
+	if strings.Contains(redacted, "alice@example.com") {
+		t.Error("email should be redacted")
+	}
+	if strings.Contains(redacted, "123-45-6789") {
+		t.Error("SSN should be redacted")
+	}
+	if strings.Contains(redacted, "4111111111111111") {
+		t.Error("credit card should be redacted")
+	}
+	if !strings.Contains(redacted, "Email:") && !strings.Contains(redacted, "SSN:") && !strings.Contains(redacted, "CreditCard:") {
+		t.Error("labels should be preserved")
+	}
+}
+
+func TestPIIRedactAdjacentFindings(t *testing.T) {
+	g := guardpii.New(guardrail.Strategy{})
+	body := "Email: alice@example.comPhone:555-123-4567"
+	result, err := g.Evaluate(ctx(), guardrail.DirectionInput, []byte(body))
+	assertNoError(t, err)
+	redacted := string(result.Redacted)
+	if strings.Contains(redacted, "alice@example.com") {
+		t.Error("email should be redacted")
+	}
+	if strings.Contains(redacted, "555-123-4567") {
+		t.Error("phone should be redacted")
+	}
+}
+
+func TestPIIRedactWithOverlaps(t *testing.T) {
+	g := guardpii.New(guardrail.Strategy{})
+	body := "123 Main Street, New York"
+	result, err := g.Evaluate(ctx(), guardrail.DirectionInput, []byte(body))
+	assertNoError(t, err)
+	assertDecision(t, result, guardrail.DecisionRedact)
+	redacted := string(result.Redacted)
+	if strings.Contains(redacted, "Main") {
+		t.Error("street address should be redacted")
+	}
+}
+
+func TestPIIConcurrentEvaluation(t *testing.T) {
+	g := guardpii.New(guardrail.Strategy{})
+
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := g.Evaluate(ctx(), guardrail.DirectionInput, []byte("Email: test@example.com"))
+			if err != nil {
+				t.Errorf("concurrent evaluate error: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+func TestPIIConcurrentRegistration(t *testing.T) {
+	g := guardpii.New(guardrail.Strategy{})
+
+	det := &piiDetectorStub{name: "stub", findings: []guardrail.Finding{
+		{Guardrail: "pii", Type: "test", Severity: guardrail.SeverityLow, Start: 0, End: 4, Entity: "test", Value: "TEST"},
+	}}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			g.RegisterDetector(det)
+		}()
+		go func() {
+			defer wg.Done()
+			_, _ = g.Evaluate(ctx(), guardrail.DirectionInput, []byte("TestSafe"))
+		}()
+	}
+	wg.Wait()
+}
+
+type piiDetectorStub struct {
+	name       string
+	findings   []guardrail.Finding
+	err        error
+}
+
+func (d *piiDetectorStub) Name() string { return d.name }
+func (d *piiDetectorStub) Detect(_ context.Context, _ string) ([]guardrail.Finding, error) {
+	if d.err != nil {
+		return nil, d.err
+	}
+	out := make([]guardrail.Finding, len(d.findings))
+	copy(out, d.findings)
+	return out, nil
+}
+
+var _ guardpii.Detector = &piiDetectorStub{}

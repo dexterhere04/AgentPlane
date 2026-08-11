@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 
@@ -108,23 +109,55 @@ func (d *RegexDetector) Detect(ctx context.Context, content string) ([]guardrail
 }
 
 func redactContent(content string, findings []guardrail.Finding) string {
-	redacted := content
-	offset := 0
-	for _, f := range findings {
+	if len(findings) == 0 {
+		return content
+	}
+
+	validated := validateFindings(findings)
+
+	sorted := make([]guardrail.Finding, len(validated))
+	copy(sorted, validated)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Start > sorted[j].Start
+	})
+
+	result := []byte(content)
+	for _, f := range sorted {
+		if f.Start < 0 || f.End > len(result) || f.Start >= f.End {
+			continue
+		}
 		for _, rule := range piiRules {
 			if rule.name == f.Type {
-				adjustedStart := f.Start + offset
-				adjustedEnd := f.End + offset
-				if adjustedStart < 0 || adjustedEnd > len(redacted) {
-					continue
-				}
-				redacted = redacted[:adjustedStart] + rule.redactStr + redacted[adjustedEnd:]
-				offset += len(rule.redactStr) - (f.End - f.Start)
+				prefix := result[:f.Start]
+				suffix := result[f.End:]
+				result = append(prefix, append([]byte(rule.redactStr), suffix...)...)
 				break
 			}
 		}
 	}
-	return redacted
+	return string(result)
+}
+
+func validateFindings(findings []guardrail.Finding) []guardrail.Finding {
+	if len(findings) <= 1 {
+		return findings
+	}
+
+	sort.Slice(findings, func(i, j int) bool {
+		return findings[i].Start < findings[j].Start
+	})
+
+	valid := make([]guardrail.Finding, 0, len(findings))
+	for i, f := range findings {
+		if f.Start < 0 || f.End <= f.Start {
+			continue
+		}
+		if i > 0 && f.Start < valid[len(valid)-1].End {
+			continue
+		}
+		valid = append(valid, f)
+	}
+	return valid
 }
 
 type PIIGuardrail struct {
@@ -162,11 +195,12 @@ func (g *PIIGuardrail) check(body []byte) (*guardrail.Result, error) {
 	content := string(body)
 
 	g.mu.RLock()
-	detectors := g.detectors
+	detSnap := make([]Detector, len(g.detectors))
+	copy(detSnap, g.detectors)
 	g.mu.RUnlock()
 
 	var allFindings []guardrail.Finding
-	for _, d := range detectors {
+	for _, d := range detSnap {
 		findings, err := d.Detect(context.Background(), content)
 		if err != nil {
 			continue
@@ -193,8 +227,8 @@ func (g *PIIGuardrail) check(body []byte) (*guardrail.Result, error) {
 	}
 	details["total_findings"] = len(allFindings)
 
-	names := make([]string, 0, len(detectors))
-	for _, d := range detectors {
+	names := make([]string, 0, len(detSnap))
+	for _, d := range detSnap {
 		names = append(names, d.Name())
 	}
 

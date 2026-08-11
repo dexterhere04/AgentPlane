@@ -8,31 +8,30 @@ import (
 	"github.com/dexterhere04/AgentPlane/internal/guardrail"
 	"github.com/dexterhere04/AgentPlane/internal/observability"
 	guardpii "github.com/dexterhere04/AgentPlane/internal/guardrail/providers/pii"
-	guardsecrets "github.com/dexterhere04/AgentPlane/internal/guardrail/providers/secrets"
 )
 
 func TestSecrets_OpenAIKey(t *testing.T) {
-	w := doChat(wrapInChat("OpenAI key: sk-proj-abcdefghijklmnopqrstuvwxyz123456"), guardsecrets.New(guardrail.Strategy{}))
+	w := doChat(wrapInChat("OpenAI key: sk-proj-abcdefghijklmnopqrstuvwxyz123456"), newRegexSecretsGuardForChat())
 	assertBlocked(t, w)
 }
 
 func TestSecrets_GitHubPAT(t *testing.T) {
-	w := doChat(wrapInChat("GitHub token: ghp_abcdefghijklmnopqrstuvwxyz1234567890"), guardsecrets.New(guardrail.Strategy{}))
+	w := doChat(wrapInChat("GitHub token: ghp_abcdefghijklmnopqrstuvwxyz1234567890"), newRegexSecretsGuardForChat())
 	assertBlocked(t, w)
 }
 
 func TestSecrets_GitHubOAuth(t *testing.T) {
-	w := doChat(wrapInChat("oauth: gho_abcdefghijklmnopqrstuvwxyz1234567890"), guardsecrets.New(guardrail.Strategy{}))
+	w := doChat(wrapInChat("oauth: gho_abcdefghijklmnopqrstuvwxyz1234567890"), newRegexSecretsGuardForChat())
 	assertBlocked(t, w)
 }
 
 func TestSecrets_GitHubAppToken(t *testing.T) {
-	w := doChat(wrapInChat("app token: ghs_abcdefghijklmnopqrstuvwxyz1234567890"), guardsecrets.New(guardrail.Strategy{}))
+	w := doChat(wrapInChat("app token: ghs_abcdefghijklmnopqrstuvwxyz1234567890"), newRegexSecretsGuardForChat())
 	assertBlocked(t, w)
 }
 
 func TestSecrets_GitHubRefreshToken(t *testing.T) {
-	w := doChat(wrapInChat("refresh: ghr_abcdefghijklmnopqrstuvwxyz1234567890"), guardsecrets.New(guardrail.Strategy{}))
+	w := doChat(wrapInChat("refresh: ghr_abcdefghijklmnopqrstuvwxyz1234567890"), newRegexSecretsGuardForChat())
 	assertBlocked(t, w)
 }
 
@@ -45,7 +44,7 @@ func TestSecrets_AWSAccessKey(t *testing.T) {
 	}
 	for _, key := range tests {
 		t.Run(key[:4], func(t *testing.T) {
-			w := doChat(wrapInChat("AWS key: "+key), guardsecrets.New(guardrail.Strategy{}))
+			w := doChat(wrapInChat("AWS key: "+key), newRegexSecretsGuardForChat())
 			assertBlocked(t, w)
 		})
 	}
@@ -53,45 +52,45 @@ func TestSecrets_AWSAccessKey(t *testing.T) {
 
 func TestSecrets_AWSSecretKeyPattern(t *testing.T) {
 	body := "aws secret key: AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCd"
-	w := doChat(wrapInChat(body), guardsecrets.New(guardrail.Strategy{}))
+	w := doChat(wrapInChat(body), newRegexSecretsGuardForChat())
 	assertBlocked(t, w)
 }
 
 func TestSecrets_GoogleAPIKey(t *testing.T) {
-	w := doChat(wrapInChat("Google key: AIzaSyB-abcdefghijklmnopqrstuvwxyz12345"), guardsecrets.New(guardrail.Strategy{}))
+	w := doChat(wrapInChat("Google key: AIzaSyB-abcdefghijklmnopqrstuvwxyz12345"), newRegexSecretsGuardForChat())
 	assertBlocked(t, w)
 }
 
 func TestSecrets_SlackToken(t *testing.T) {
-	w := doChat(wrapInChat("Slack: xoxb-123456789012-abcdefghijklmnopqrst"), guardsecrets.New(guardrail.Strategy{}))
+	w := doChat(wrapInChat("Slack: xoxb-123456789012-abcdefghijklmnopqrst"), newRegexSecretsGuardForChat())
 	assertBlocked(t, w)
 }
 
 func TestSecrets_JWT(t *testing.T) {
 	jwt := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
-	w := doChat(wrapInChat("Bearer "+jwt), guardsecrets.New(guardrail.Strategy{}))
+	w := doChat(wrapInChat("Bearer "+jwt), newRegexSecretsGuardForChat())
 	assertBlocked(t, w)
 }
 
 func TestSecrets_PrivateKey(t *testing.T) {
 	pem := "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----"
-	w := doChat(wrapInChat("Key:\n"+pem), guardsecrets.New(guardrail.Strategy{}))
+	w := doChat(wrapInChat("Key:\n"+pem), newRegexSecretsGuardForChat())
 	assertBlocked(t, w)
 }
 
 func TestSecrets_ECPrivateKey(t *testing.T) {
 	pem := "-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEIO+\n-----END EC PRIVATE KEY-----"
-	w := doChat(wrapInChat("EC key:\n"+pem), guardsecrets.New(guardrail.Strategy{}))
+	w := doChat(wrapInChat("EC key:\n"+pem), newRegexSecretsGuardForChat())
 	assertBlocked(t, w)
 }
 
 func TestSecrets_StripeLiveKey(t *testing.T) {
-	w := doChat(wrapInChat("Stripe: sk_live_123456789012345678901234"), guardsecrets.New(guardrail.Strategy{}))
+	w := doChat(wrapInChat("Stripe: sk_live_123456789012345678901234"), newRegexSecretsGuardForChat())
 	assertBlocked(t, w)
 }
 
 func TestSecrets_StripeTestKeySeverityLow(t *testing.T) {
-	g := guardsecrets.New(guardrail.Strategy{})
+	g := newRegexSecretsGuardForChat()
 	result, _ := g.Evaluate(nil, guardrail.DirectionInput, wrapInChat("Stripe: sk_test_123456789012345678901234"))
 	if result == nil || result.Decision != guardrail.DecisionBlock {
 		t.Fatal("expected block even for test key")
@@ -105,7 +104,7 @@ func TestSecrets_StripeTestKeySeverityLow(t *testing.T) {
 
 func TestSecrets_BearerToken(t *testing.T) {
 	w := doChat(wrapInChat("Authorization: Bearer abcdefghijklmnopqrstuvwxyz1234567890"),
-		guardsecrets.New(guardrail.Strategy{}))
+		newRegexSecretsGuardForChat())
 	assertBlocked(t, w)
 }
 
@@ -117,7 +116,7 @@ func TestSecrets_PasswordInURI(t *testing.T) {
 	}
 	for _, uri := range uris {
 		t.Run(safeName(uri, 12), func(t *testing.T) {
-			w := doChat(wrapInChat("Connect to "+uri), guardsecrets.New(guardrail.Strategy{}))
+			w := doChat(wrapInChat("Connect to "+uri), newRegexSecretsGuardForChat())
 			assertBlocked(t, w)
 		})
 	}
@@ -125,25 +124,25 @@ func TestSecrets_PasswordInURI(t *testing.T) {
 
 func TestSecrets_DiscordWebhook(t *testing.T) {
 	w := doChat(wrapInChat("Webhook: https://discord.com/api/webhooks/123456789012345678/abcdefghijklmnopqrstuvwxyz012345"),
-		guardsecrets.New(guardrail.Strategy{}))
+		newRegexSecretsGuardForChat())
 	assertBlocked(t, w)
 }
 
 func TestSecrets_AzureConnectionString(t *testing.T) {
 	conn := "DefaultEndpointsProtocol=https;AccountName=mystorage;AccountKey=abcdefghijklmnopqrstuvwxyz1234567890ABCDEFGHIJKLMNOP"
-	w := doChat(wrapInChat(conn), guardsecrets.New(guardrail.Strategy{}))
+	w := doChat(wrapInChat(conn), newRegexSecretsGuardForChat())
 	assertBlocked(t, w)
 }
 
 func TestSecrets_BasicAuth(t *testing.T) {
 	w := doChat(wrapInChat("Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQxMjM0NTY3ODkw"),
-		guardsecrets.New(guardrail.Strategy{}))
+		newRegexSecretsGuardForChat())
 	assertBlocked(t, w)
 }
 
 func TestSecrets_MultipleSecrets(t *testing.T) {
 	body := "My OpenAI key: sk-proj-xxx123456789012345678901234\nAlso GitHub: ghp_abcdefghijklmnopqrstuvwxyz1234567890\nAWS: AKIAIOSFODNN7EXAMPLE"
-	w := doChat(wrapInChat(body), guardsecrets.New(guardrail.Strategy{}))
+	w := doChat(wrapInChat(body), newRegexSecretsGuardForChat())
 	assertBlocked(t, w)
 
 	var resp map[string]interface{}
@@ -156,7 +155,7 @@ func TestSecrets_MultipleSecrets(t *testing.T) {
 }
 
 func TestSecrets_OutputDetection(t *testing.T) {
-	g := guardsecrets.New(guardrail.Strategy{})
+	g := newRegexSecretsGuardForChat()
 	result, _ := g.Evaluate(nil, guardrail.DirectionOutput, []byte(`{"choices":[{"message":{"content":"key: sk-proj-test123456789012345678901234"}}]}`))
 	if result == nil || result.Decision != guardrail.DecisionBlock {
 		t.Fatal("expected block on output secret detection")
@@ -164,7 +163,7 @@ func TestSecrets_OutputDetection(t *testing.T) {
 }
 
 func TestSecrets_FindingsHaveCorrectPosition(t *testing.T) {
-	g := guardsecrets.New(guardrail.Strategy{})
+	g := newRegexSecretsGuardForChat()
 	body := wrapInChat("My key: sk-proj-abcdefghijklmnopqrstuvwxyz123456")
 	result, _ := g.Evaluate(nil, guardrail.DirectionInput, body)
 	if len(result.Findings) == 0 {
@@ -182,7 +181,7 @@ func TestSecrets_FindingsHaveCorrectPosition(t *testing.T) {
 }
 
 func TestSecrets_CleanTextPasses(t *testing.T) {
-	g := guardsecrets.New(guardrail.Strategy{})
+	g := newRegexSecretsGuardForChat()
 	result, _ := g.Evaluate(nil, guardrail.DirectionInput, wrapInChat("What is the capital of France?"))
 	if result == nil || result.Decision != guardrail.DecisionPass {
 		t.Error("clean text should pass secrets detection")
@@ -191,13 +190,13 @@ func TestSecrets_CleanTextPasses(t *testing.T) {
 
 func TestSecrets_GenericAPIKey(t *testing.T) {
 	w := doChat(wrapInChat("api_key: abcdefghijklmnopqrstuvwxyz"),
-		guardsecrets.New(guardrail.Strategy{}))
+		newRegexSecretsGuardForChat())
 	assertBlocked(t, w)
 }
 
 func TestSecrets_TwilioSID(t *testing.T) {
 	w := doChat(wrapInChat("SID: SKabcdef1234567890abcdef1234567890"),
-		guardsecrets.New(guardrail.Strategy{}))
+		newRegexSecretsGuardForChat())
 	assertBlocked(t, w)
 }
 
@@ -712,7 +711,7 @@ func TestContentModeration_OutputDetection(t *testing.T) {
 func TestEdge_AllGuardrailsPassCleanInput(t *testing.T) {
 	w := doChat(wrapInChat("What is the capital of France?"),
 		guardrail.NewPromptInjectionGuardrail(guardrail.Strategy{}),
-		guardsecrets.New(guardrail.Strategy{}),
+		newRegexSecretsGuardForChat(),
 		guardpii.New(guardrail.Strategy{}),
 		guardrail.NewContentModerationGuardrail(guardrail.Strategy{}),
 	)
@@ -721,7 +720,7 @@ func TestEdge_AllGuardrailsPassCleanInput(t *testing.T) {
 
 func TestEdge_EmptyBody(t *testing.T) {
 	w := doChat([]byte(`{}`),
-		guardsecrets.New(guardrail.Strategy{}),
+		newRegexSecretsGuardForChat(),
 		guardpii.New(guardrail.Strategy{}),
 	)
 	assertPassed(t, w)
@@ -750,7 +749,7 @@ func TestEdge_SecretsBlockPrecedesNextGuardrail(t *testing.T) {
 			{"role": "user", "content": "Use this key: sk-proj-abcdefghijklmnopqrstuvwxyz123456"}
 		]
 	}`)
-	w := doChat(body, guardsecrets.New(guardrail.Strategy{}))
+	w := doChat(body, newRegexSecretsGuardForChat())
 	assertBlocked(t, w)
 }
 
@@ -759,7 +758,7 @@ func TestEdge_LargeInputWithBuriedSecret(t *testing.T) {
 	secret := "sk-proj-abcdefghijklmnopqrstuvwxyz123456"
 	body := padding + "\n" + secret + "\n" + padding
 
-	g := guardsecrets.New(guardrail.Strategy{})
+	g := newRegexSecretsGuardForChat()
 	result, _ := g.Evaluate(nil, guardrail.DirectionInput, wrapInChat(body))
 	if result == nil || result.Decision != guardrail.DecisionBlock {
 		t.Fatal("expected block for buried secret in large input")
@@ -794,7 +793,7 @@ func TestEdge_RedactPreservesNonPIIContent(t *testing.T) {
 func TestEdge_GuardrailOrdering(t *testing.T) {
 	t.Run("secrets_before_pii_blocks_first", func(t *testing.T) {
 		body := "Key: sk-proj-abcdefghijklmnopqrstuvwxyz123456 and email: alice@example.com"
-		secretsG := guardsecrets.New(guardrail.Strategy{})
+		secretsG := newRegexSecretsGuardForChat()
 		piiG := guardpii.New(guardrail.Strategy{})
 		w := doChat(wrapInChat(body), secretsG, piiG)
 		assertBlocked(t, w)
@@ -810,7 +809,7 @@ func TestEdge_GuardrailOrdering(t *testing.T) {
 		}
 		registry := guardrail.NewRegistry()
 		registry.Register(guardpii.New(guardrail.Strategy{}))
-		registry.Register(guardsecrets.New(guardrail.Strategy{}))
+		registry.Register(newRegexSecretsGuardForChat())
 
 		ep := guardrail.NewEnforcementPoint(registry, cfg, nil)
 		set := guardrail.GuardrailSet{Guards: []guardrail.GuardrailSpec{{Name: "pii"}, {Name: "secrets"}}}
@@ -830,7 +829,7 @@ func TestEdge_GuardrailOrdering(t *testing.T) {
 }
 
 func TestEdge_RequiredGuardrailsCannotBeSkipped(t *testing.T) {
-	secretsGuard := guardsecrets.New(guardrail.Strategy{})
+	secretsGuard := newRegexSecretsGuardForChat()
 	piiGuard := guardpii.New(guardrail.Strategy{})
 	promptInjGuard := guardrail.NewPromptInjectionGuardrail(guardrail.Strategy{})
 
