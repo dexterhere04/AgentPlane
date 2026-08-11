@@ -3,10 +3,187 @@ package secrets
 import (
 	"context"
 	"fmt"
+	"os"
 	"regexp"
+	"strings"
+	"sync"
+
+	"github.com/zricethezav/gitleaks/v8/detect"
 
 	"github.com/dexterhere04/AgentPlane/internal/guardrail"
 )
+
+type SecretsEngine string
+
+const (
+	EngineGitleaks SecretsEngine = "gitleaks"
+	EngineRegex    SecretsEngine = "regex"
+)
+
+var (
+	detectorOnce sync.Once
+	detectorInst *detect.Detector
+	detectorErr  error
+)
+
+func getDetector() (*detect.Detector, error) {
+	detectorOnce.Do(func() {
+		detectorInst, detectorErr = detect.NewDetectorDefaultConfig()
+	})
+	return detectorInst, detectorErr
+}
+
+type SecretsGuardrail struct {
+	engine SecretsEngine
+}
+
+func resolveEngine(strategy guardrail.Strategy) SecretsEngine {
+	if v, ok := strategy.Extra["engine"]; ok {
+		if e, ok := v.(string); ok && e == "regex" {
+			return EngineRegex
+		}
+	}
+	if env := strings.ToLower(os.Getenv("SECRETS_ENGINE")); env == "regex" {
+		return EngineRegex
+	}
+	return EngineGitleaks
+}
+
+func New(strategy guardrail.Strategy) *SecretsGuardrail {
+	return &SecretsGuardrail{engine: resolveEngine(strategy)}
+}
+
+func (g *SecretsGuardrail) Name() string {
+	return "secrets"
+}
+
+func (g *SecretsGuardrail) Evaluate(_ context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
+	return g.Detect(context.Background(), string(body))
+}
+
+func (g *SecretsGuardrail) Detect(ctx context.Context, content string) (*guardrail.Result, error) {
+	if g.engine == EngineRegex {
+		return g.detectWithRegex(ctx, content)
+	}
+	return g.detectWithGitleaks(ctx, content)
+}
+
+func (g *SecretsGuardrail) detectWithGitleaks(ctx context.Context, content string) (*guardrail.Result, error) {
+	det, err := getDetector()
+	if err != nil {
+		return nil, fmt.Errorf("gitleaks detector init: %w", err)
+	}
+
+	rawFindings := det.DetectString(content)
+
+	if len(rawFindings) == 0 {
+		return &guardrail.Result{Guardrail: g.Name(), Decision: guardrail.DecisionPass}, nil
+	}
+
+	findings := make([]guardrail.Finding, 0, len(rawFindings))
+	searchOffset := 0
+
+	for _, gf := range rawFindings {
+		secretSnippet := gf.Secret
+		if len(secretSnippet) > 32 {
+			secretSnippet = secretSnippet[:16] + "..." + secretSnippet[len(secretSnippet)-8:]
+		}
+
+		matchStr := strings.TrimSpace(gf.Match)
+		start, end := findMatch(content, matchStr, searchOffset)
+		if start < 0 {
+			searchOffset = end
+			start = searchOffset
+			end = searchOffset
+		} else {
+			searchOffset = end
+		}
+
+		severity := classifyGitleaksSeverity(gf.RuleID, gf.Tags)
+
+		findings = append(findings, guardrail.Finding{
+			Guardrail: g.Name(),
+			Type:      gf.RuleID,
+			Severity:  severity,
+			Start:     start,
+			End:       end,
+			Entity:    "secret",
+			Value:     secretSnippet,
+		})
+	}
+
+	return &guardrail.Result{
+		Guardrail: g.Name(),
+		Decision:  guardrail.DecisionBlock,
+		Message:   fmt.Sprintf("detected %d potential secret(s)", len(findings)),
+		Findings:  findings,
+	}, nil
+}
+
+func findMatch(content, match string, from int) (int, int) {
+	if match == "" {
+		return -1, from
+	}
+	idx := strings.Index(content[from:], match)
+	if idx < 0 {
+		return -1, from
+	}
+	absIdx := from + idx
+	return absIdx, absIdx + len(match)
+}
+
+func classifyGitleaksSeverity(ruleID string, tags []string) guardrail.Severity {
+	highRules := map[string]bool{
+		"aws-access-key":           true,
+		"aws-secret-access-key":    true,
+		"openai-api-key":           true,
+		"github-pat":               true,
+		"github-oauth":             true,
+		"github-app-token":         true,
+		"github-refresh-token":     true,
+		"github-fine-grained-pat":  true,
+		"google-api-key":           true,
+		"google-cloud-platform-service-account": true,
+		"stripe-access-token":      true,
+		"slack-bot-token":          true,
+		"slack-user-token":         true,
+		"slack-app-token":          true,
+		"slack-webhook-url":        true,
+		"private-key":              true,
+		"pgp-private-key":          true,
+		"generic-api-key":          true,
+		"azure-storage-account-key":     true,
+		"sendgrid-api-key":         true,
+		"heroku-api-key":           true,
+		"password-in-url":          true,
+		"discord-bot-token":        true,
+		"gitlab-pat":               true,
+		"jwt":                      true,
+		"auth0-oauth2-client-secret": true,
+		"microsoft-teams-webhook":  true,
+		"twilio-api-key":           true,
+	}
+
+	for _, t := range tags {
+		if t == "critical" {
+			return guardrail.SeverityCritical
+		}
+	}
+
+	if highRules[ruleID] {
+		return guardrail.SeverityCritical
+	}
+
+	mediumRules := map[string]bool{
+		"discord-api-key":     true,
+		"discord-client-secret": true,
+	}
+	if mediumRules[ruleID] {
+		return guardrail.SeverityMedium
+	}
+
+	return guardrail.SeverityHigh
+}
 
 var gitleaksPatterns = []struct {
 	name     string
@@ -155,21 +332,7 @@ var gitleaksPatterns = []struct {
 	},
 }
 
-type SecretsGuardrail struct{}
-
-func New(_ guardrail.Strategy) *SecretsGuardrail {
-	return &SecretsGuardrail{}
-}
-
-func (g *SecretsGuardrail) Name() string {
-	return "secrets"
-}
-
-func (g *SecretsGuardrail) Evaluate(_ context.Context, _ guardrail.Direction, body []byte) (*guardrail.Result, error) {
-	return g.Detect(context.Background(), string(body))
-}
-
-func (g *SecretsGuardrail) Detect(ctx context.Context, content string) (*guardrail.Result, error) {
+func (g *SecretsGuardrail) detectWithRegex(ctx context.Context, content string) (*guardrail.Result, error) {
 	var findings []guardrail.Finding
 
 	for _, sp := range gitleaksPatterns {
