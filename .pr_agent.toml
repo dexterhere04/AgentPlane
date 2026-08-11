@@ -1,0 +1,15 @@
+[config]
+model = "deepseek/deepseek-v4-pro"
+fallback_models = ["deepseek/deepseek-v4-flash"]
+
+[pr_reviewer]
+extra_instructions = "Focus on security vulnerabilities, guardrail correctness, secret handling, error handling, and Go best practices."
+
+[pr_code_suggestions]
+num_code_suggestions = 6
+suggestions_score_threshold = 7
+
+[github_action_config]
+auto_review = true
+auto_describe = true
+auto_improve = true
