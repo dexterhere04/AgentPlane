@@ -156,4 +156,9 @@ func (s *Store) CreateAPIKey(ctx context.Context, params CreateAPIKeyParams) (*A
 	}
 
 	return &rec, nil
+
+}
+
+func HashAPIKeySecret(secret, pepper string) string {
+	return hashSecret(secret, pepper)
 }

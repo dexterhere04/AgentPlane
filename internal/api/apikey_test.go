@@ -1,6 +1,7 @@
 package api
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -10,9 +11,21 @@ func TestGenerateAPIKey_Format(t *testing.T) {
 		t.Fatalf("GenerateAPIKey returned error: %v", err)
 	}
 
+	if !strings.HasPrefix(key.FullKey, "ap_live_") {
+		t.Errorf("expected FullKey to start with 'ap_live_', got %q", key.FullKey)
+	}
+
+	// NOTE: don't split FullKey on "_" and count parts. base64url can
+	// legitimately contain "_" within KeyID or Secret themselves (e.g.
+	// "ap_live_fgftrwd_bdenkxmw_fekdmlweldf" is a valid key with more than
+	// 4 underscore-separated segments), so splitting would produce a
+	// false failure on a correctly formatted key. Instead, build the
+	// expected string directly from the already-generated KeyID/Secret and
+	// compare it to FullKey — this tests the actual contract without
+	// imposing an invalid character restriction.
 	expected := "ap_live_" + key.KeyID + "_" + key.Secret
 	if key.FullKey != expected {
-		t.Errorf("FullKey does not match expected format, got %q, expected %q", key.FullKey, expected)
+		t.Errorf("FullKey %q does not match expected %q built from KeyID/Secret", key.FullKey, expected)
 	}
 }
 
