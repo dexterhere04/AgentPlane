@@ -79,6 +79,11 @@ func main() {
 		log.Fatalf("API key pepper: %v", err)
 	}
 
+	adminToken, err := config.AdminToken()
+	if err != nil {
+		log.Fatalf("Admin token: %v", err)
+	}
+
 	provisioner := provisioning.NewProvisioner(
 		userStore,
 		apiKeyStore,
@@ -134,6 +139,13 @@ func main() {
 		authenticator.Middleware(http.HandlerFunc(handlers.Chat)),
 	)
 	mux.Handle("/provision/user", handlers.ProvisionUser(provisioner))
+	mux.Handle(
+		"/admin/api-keys/revoke",
+		auth.AdminMiddleware(
+			adminToken,
+			handlers.RevokeAPIKey(apiKeyStore),
+		),
+	)
 	mux.HandleFunc("/events", observability.SSEHandler(bus))
 	mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

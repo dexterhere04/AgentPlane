@@ -107,7 +107,7 @@ func TestVaultStore_GetSecret_KV2_NumericValue(t *testing.T) {
 	defer server.Close()
 
 	store := secrets.VaultStore{
-		Addr:      server.URL, Token: "t", MountPath: "m", KVVersion: 2,
+		Addr: server.URL, Token: "t", MountPath: "m", KVVersion: 2,
 	}
 
 	val, err := store.GetSecret("k")
@@ -130,7 +130,7 @@ func TestVaultStore_GetSecret_KV2_MissingValue(t *testing.T) {
 	defer server.Close()
 
 	store := secrets.VaultStore{
-		Addr:      server.URL, Token: "t", MountPath: "m", KVVersion: 2,
+		Addr: server.URL, Token: "t", MountPath: "m", KVVersion: 2,
 	}
 
 	_, err := store.GetSecret("k")
@@ -153,7 +153,7 @@ func TestVaultStore_GetSecret_KV2_NilValue(t *testing.T) {
 	defer server.Close()
 
 	store := secrets.VaultStore{
-		Addr:      server.URL, Token: "t", MountPath: "m", KVVersion: 2,
+		Addr: server.URL, Token: "t", MountPath: "m", KVVersion: 2,
 	}
 
 	_, err := store.GetSecret("k")
@@ -170,7 +170,7 @@ func TestVaultStore_GetSecret_HTTPError(t *testing.T) {
 	defer server.Close()
 
 	store := secrets.VaultStore{
-		Addr:      server.URL, Token: "t", MountPath: "m", KVVersion: 1,
+		Addr: server.URL, Token: "t", MountPath: "m", KVVersion: 1,
 	}
 
 	_, err := store.GetSecret("k")
@@ -189,7 +189,7 @@ func TestVaultStore_GetSecret_InvalidJSON(t *testing.T) {
 	defer server.Close()
 
 	store := secrets.VaultStore{
-		Addr:      server.URL, Token: "t", MountPath: "m", KVVersion: 1,
+		Addr: server.URL, Token: "t", MountPath: "m", KVVersion: 1,
 	}
 
 	_, err := store.GetSecret("k")

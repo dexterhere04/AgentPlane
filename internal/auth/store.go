@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
-
+	"github.com/dexterhere04/AgentPlane/internal/api"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"time"
 )
 
 // Credential contains the database information required to authenticate
@@ -30,6 +30,33 @@ type Store struct {
 // NewStore creates an authentication Store backed by PostgreSQL.
 func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
+}
+
+// MarkKeyUsed records the time at which an API key was successfully
+// authenticated.
+func (s *Store) MarkKeyUsed(ctx context.Context, keyID string) error {
+	if keyID == "" {
+		return fmt.Errorf("auth: key_id is required")
+	}
+
+	const query = `
+		UPDATE api_keys
+		SET last_used_at = now()
+		WHERE key_id = $1
+		  AND status = $2
+		  AND revoked_at IS NULL
+	`
+
+	result, err := s.pool.Exec(ctx, query, keyID, api.StatusActive)
+	if err != nil {
+		return fmt.Errorf("auth: failed to update last_used_at: %w", err)
+	}
+
+	if result.RowsAffected() != 1 {
+		return fmt.Errorf("auth: API key not found or inactive")
+	}
+
+	return nil
 }
 
 // FindCredential looks up an API key by its public key_id.

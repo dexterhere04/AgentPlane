@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/dexterhere04/AgentPlane/internal/api"
-	"github.com/dexterhere04/AgentPlane/internal/users"
-	"github.com/dexterhere04/AgentPlane/internal/db"
 	"github.com/dexterhere04/AgentPlane/internal/config"
+	"github.com/dexterhere04/AgentPlane/internal/db"
+	"github.com/dexterhere04/AgentPlane/internal/users"
+	"github.com/google/uuid"
 )
 
 // TestProvisionUserWithAPIKey_Integration runs against a real PostgreSQL

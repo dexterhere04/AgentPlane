@@ -63,9 +63,9 @@ func TestIsValidEmail(t *testing.T) {
 		{"no-at-sign", false},
 		{"@example.com", false},
 		{"alice@", false},
-		{"alice@b", false},         // domain has no dot
-		{"alice@b@c.com", false},   // second '@'
-		{"alice@.com", true},       // local/domain non-empty, domain has a dot — accepted by this lightweight check
+		{"alice@b", false},       // domain has no dot
+		{"alice@b@c.com", false}, // second '@'
+		{"alice@.com", true},     // local/domain non-empty, domain has a dot — accepted by this lightweight check
 	}
 
 	for _, c := range cases {

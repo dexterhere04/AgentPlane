@@ -82,6 +82,9 @@ func (a *Authenticator) Authenticate(
 	if user.Status != users.StatusActive {
 		return nil, ErrInvalidAPIKey
 	}
+	if err := a.credentials.MarkKeyUsed(ctx, rec.KeyID); err != nil {
+		return nil, ErrInvalidAPIKey
+	}
 
 	return user, nil
 }
