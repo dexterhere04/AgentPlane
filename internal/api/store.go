@@ -156,7 +156,36 @@ func (s *Store) CreateAPIKey(ctx context.Context, params CreateAPIKeyParams) (*A
 	}
 
 	return &rec, nil
+}
 
+var ErrAPIKeyNotFound = errors.New("apikeymanagement: api key not found")
+
+// RevokeAPIKey marks an API key as revoked.
+//
+// Revocation is identified by the public key_id. The plaintext secret is
+// never needed to revoke a key.
+func (s *Store) RevokeAPIKey(ctx context.Context, keyID string) error {
+	if keyID == "" {
+		return fmt.Errorf("apikeymanagement: key_id is required")
+	}
+
+	const query = `
+		UPDATE api_keys
+		SET revoked_at = now()
+		WHERE key_id = $1
+		  AND revoked_at IS NULL
+	`
+
+	tag, err := s.pool.Exec(ctx, query, keyID)
+	if err != nil {
+		return fmt.Errorf("apikeymanagement: failed to revoke api key: %w", err)
+	}
+
+	if tag.RowsAffected() == 0 {
+		return ErrAPIKeyNotFound
+	}
+
+	return nil
 }
 
 func HashAPIKeySecret(secret, pepper string) string {

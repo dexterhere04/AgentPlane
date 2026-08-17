@@ -1,18 +1,23 @@
 package main
 
 import (
+	"context"
+	"github.com/dexterhere04/AgentPlane/internal/api"
+	"github.com/dexterhere04/AgentPlane/internal/auth"
+	"github.com/dexterhere04/AgentPlane/internal/config"
+	"github.com/dexterhere04/AgentPlane/internal/dashboard"
+	"github.com/dexterhere04/AgentPlane/internal/db"
+	"github.com/dexterhere04/AgentPlane/internal/handlers"
+	"github.com/dexterhere04/AgentPlane/internal/observability"
+	"github.com/dexterhere04/AgentPlane/internal/provisioning"
+	"github.com/dexterhere04/AgentPlane/internal/secrets"
+	"github.com/dexterhere04/AgentPlane/internal/users"
+	"github.com/joho/godotenv"
+
 	"log"
 	"net/http"
 	"os"
 	"time"
-	"context"
-	"github.com/dexterhere04/AgentPlane/internal/config"
-	"github.com/dexterhere04/AgentPlane/internal/dashboard"
-	"github.com/dexterhere04/AgentPlane/internal/handlers"
-	"github.com/dexterhere04/AgentPlane/internal/observability"
-	"github.com/dexterhere04/AgentPlane/internal/secrets"
-	"github.com/dexterhere04/AgentPlane/internal/db"
-	"github.com/joho/godotenv"
 )
 
 func envOrDefault(key, fallback string) string {
@@ -64,6 +69,28 @@ func main() {
 		log.Fatalf("Database connection: %v", err)
 	}
 	defer pool.Close()
+
+	userStore := users.NewStore(pool)
+	apiKeyStore := api.NewStore(pool)
+	authStore := auth.NewStore(pool)
+
+	pepper, err := config.KeyPepper()
+	if err != nil {
+		log.Fatalf("API key pepper: %v", err)
+	}
+
+	provisioner := provisioning.NewProvisioner(
+		userStore,
+		apiKeyStore,
+		pepper,
+	)
+
+	authenticator := auth.NewAuthenticator(
+		authStore,
+		userStore,
+		pepper,
+	)
+
 	bus := observability.DefaultBus
 
 	switch os.Getenv("SECRET_STORE") {
@@ -102,7 +129,11 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/chat", handlers.Chat)
+	mux.Handle(
+		"/chat",
+		authenticator.Middleware(http.HandlerFunc(handlers.Chat)),
+	)
+	mux.Handle("/provision/user", handlers.ProvisionUser(provisioner))
 	mux.HandleFunc("/events", observability.SSEHandler(bus))
 	mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
