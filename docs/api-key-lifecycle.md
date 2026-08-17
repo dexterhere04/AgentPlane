@@ -9,6 +9,7 @@ user resolution, request-context attachment, usage tracking, and revocation.
 
 ## 2. User Provisioning and API Key Creation
 
+```text
 ┌──────────────────────┐
 │ 1. User Provisioning │
 │ POST /provision/user │
@@ -63,7 +64,7 @@ user resolution, request-context attachment, usage tracking, and revocation.
                          │ key_id                  │
                          │ user_id ────────────────┼──► users.id
                          │ name                    │
-                         │ secret_hash              │
+                         │ secret_hash             │
                          │ status = active         │
                          │ created_at              │
                          │ last_used_at = NULL     │
@@ -83,11 +84,12 @@ user resolution, request-context attachment, usage tracking, and revocation.
 │                                  │
 │ Client must store the full key.  │
 └──────────────────────────────────┘
+```
 
 
 ## 3. Request Authentication Lifecycle
 
-
+```text
 Client
   │
   │ POST /chat
@@ -186,6 +188,7 @@ Client
               ┌───────────────┐
               │ Proxy/OpenAI  │
               └───────────────┘
+```
 
 ## 4. Revocation Lifecycle
 
@@ -235,3 +238,4 @@ Include the commands that were used to validate the implementation:
 ```bash
 go test ./...
 go test -tags=integration ./internal/...
+```
