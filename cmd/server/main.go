@@ -1,13 +1,12 @@
 package main
 
 import (
-	"log"
-	"net/http"
-	"os"
-	"time"
-
+	"context"
+	"github.com/dexterhere04/AgentPlane/internal/api"
+	"github.com/dexterhere04/AgentPlane/internal/auth"
 	"github.com/dexterhere04/AgentPlane/internal/config"
 	"github.com/dexterhere04/AgentPlane/internal/dashboard"
+	"github.com/dexterhere04/AgentPlane/internal/db"
 	"github.com/dexterhere04/AgentPlane/internal/guardrail"
 	guardaim "github.com/dexterhere04/AgentPlane/internal/guardrail/providers/aim"
 	guardfunctions "github.com/dexterhere04/AgentPlane/internal/guardrail/providers/functions"
@@ -21,8 +20,16 @@ import (
 	guardzscaler "github.com/dexterhere04/AgentPlane/internal/guardrail/providers/zscaler"
 	"github.com/dexterhere04/AgentPlane/internal/handlers"
 	"github.com/dexterhere04/AgentPlane/internal/observability"
+	"github.com/dexterhere04/AgentPlane/internal/provisioning"
 	"github.com/dexterhere04/AgentPlane/internal/proxy"
 	"github.com/dexterhere04/AgentPlane/internal/secrets"
+	"github.com/dexterhere04/AgentPlane/internal/users"
+	"github.com/joho/godotenv"
+
+	"log"
+	"net/http"
+	"os"
+	"time"
 )
 
 func envOrDefault(key, fallback string) string {
@@ -58,6 +65,32 @@ func newVaultStore() secrets.VaultStore {
 }
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Printf("No .env file loaded: %v", err)
+	}
+
+	databaseURL, err := config.DatabaseURL()
+	if err != nil {
+		log.Fatalf("Database configuration: %v", err)
+	}
+
+	ctx := context.Background()
+
+	pool, err := db.NewPool(ctx, databaseURL)
+	if err != nil {
+		log.Fatalf("Database connection: %v", err)
+	}
+	defer pool.Close()
+
+	userStore := users.NewStore(pool)
+	apiKeyStore := api.NewStore(pool)
+	authStore := auth.NewStore(pool)
+
+	adminToken, err := config.AdminToken()
+	if err != nil {
+		log.Fatalf("Admin token: %v", err)
+	}
+
 	bus := observability.DefaultBus
 
 	switch os.Getenv("SECRET_STORE") {
@@ -89,6 +122,23 @@ func main() {
 		log.Printf("Secrets backend: Vault (%s)", envOrDefault("VAULT_ADDR", "http://127.0.0.1:8200"))
 		config.SetStore(newVaultStore())
 	}
+
+	pepper, err := config.KeyPepper()
+	if err != nil {
+		log.Fatalf("API key pepper: %v", err)
+	}
+
+	provisioner := provisioning.NewProvisioner(
+		userStore,
+		apiKeyStore,
+		pepper,
+	)
+
+	authenticator := auth.NewAuthenticator(
+		authStore,
+		userStore,
+		pepper,
+	)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -200,9 +250,32 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/chat", func(w http.ResponseWriter, r *http.Request) {
-		handlers.Chat(w, r, enforcement, mandatoryInput, mandatoryOutput, provider)
-	})
+	mux.Handle(
+		"/chat",
+		authenticator.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handlers.Chat(w, r, enforcement, mandatoryInput, mandatoryOutput, provider)
+		})),
+	)
+
+	// SECURITY: /provision/user creates users and mints API keys, so it is
+	// gated behind the same admin authentication as /admin/api-keys/revoke.
+	// It must never be reachable without adminToken — this is what mints
+	// the credentials that everything else in the gateway trusts.
+	mux.Handle(
+		"/provision/user",
+		auth.AdminMiddleware(
+			adminToken,
+			handlers.ProvisionUser(provisioner),
+		),
+	)
+
+	mux.Handle(
+		"/admin/api-keys/revoke",
+		auth.AdminMiddleware(
+			adminToken,
+			handlers.RevokeAPIKey(apiKeyStore),
+		),
+	)
 	mux.HandleFunc("/events", observability.SSEHandler(bus))
 	mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -218,7 +291,7 @@ func main() {
 	log.Printf("  Metrics   → http://localhost:%s/metrics", port)
 	log.Printf("  Mock API  → http://localhost:%s (set OPENAI_BASE_URL)", port)
 
-	err := http.ListenAndServe(":"+port, mux)
+	err = http.ListenAndServe(":"+port, mux)
 	if err != nil {
 		log.Fatal(err)
 	}

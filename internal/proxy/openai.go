@@ -56,6 +56,7 @@ func (p *OpenAIProvider) Forward(ctx context.Context, body []byte, requestID str
 		bus.Publish(observability.NewMessageEvent(requestID, observability.StageLoadingAPIKey, "error", "OPENAI_API_KEY is not set"))
 		return nil, fmt.Errorf("OPENAI_API_KEY is not set")
 	}
+
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageLoadingAPIKey, "completed", "API key loaded"))
 
 	if p.isStreaming(body) {
