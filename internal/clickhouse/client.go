@@ -28,7 +28,9 @@ func New(host string, port int) (*Client, error) {
 		conn, connErr := clickhouse.Open(&clickhouse.Options{
 			Addr: []string{fmt.Sprintf("%s:%d", host, port)},
 			Auth: clickhouse.Auth{
-				Database: "agentplane",
+				// Connect to the server's default database; the "agentplane"
+				// database is created by the schema migration at init time and
+				// all table writes are fully qualified (agentplane.*).
 				Username: "default",
 				Password: "",
 			},
