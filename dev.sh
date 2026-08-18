@@ -37,9 +37,15 @@ echo "[3/3] Starting services..."
 MOCK_PID=$!
 sleep 1
 
+# The gateway now requires PostgreSQL for users/API keys. Start it with:
+#   docker compose up -d postgres
+# (migrations are applied automatically on startup).
 SECRET_STORE=env \
 OPENAI_API_KEY=mock-key \
 OPENAI_BASE_URL=http://localhost:3002/v1 \
+DATABASE_URL=postgres://agentplane:agentplane@localhost:5432/agentplane?sslmode=disable \
+API_KEY_PEPPER=dev-pepper-change-me \
+AGENTPLANE_ADMIN_TOKEN=dev-admin-token-change-me \
 GUARDRAIL_SECRETS=enforce \
 GUARDRAIL_PII=enforce \
 GUARDRAIL_PROMPT_INJECTION=enforce \
@@ -56,6 +62,8 @@ echo "  Metrics   → http://localhost:3001/metrics"
 echo "  Mock API  → http://localhost:3002/health"
 echo ""
 echo "  Guardrails: secrets + pii + prompt_injection (enforce mode)"
+echo ""
+echo "  Requires PostgreSQL (docker compose up -d postgres)"
 echo "----------------------------------------"
 echo ""
 echo "Press Ctrl+C to stop."
