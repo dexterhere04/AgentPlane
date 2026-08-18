@@ -24,6 +24,7 @@ import (
 	"github.com/dexterhere04/AgentPlane/internal/proxy"
 	"github.com/dexterhere04/AgentPlane/internal/secrets"
 	"github.com/dexterhere04/AgentPlane/internal/users"
+	"github.com/dexterhere04/AgentPlane/migrations"
 	"github.com/joho/godotenv"
 
 	"log"
@@ -81,6 +82,10 @@ func main() {
 		log.Fatalf("Database connection: %v", err)
 	}
 	defer pool.Close()
+
+	if err := db.Migrate(ctx, pool, migrations.FS); err != nil {
+		log.Fatalf("Database migrations: %v", err)
+	}
 
 	userStore := users.NewStore(pool)
 	apiKeyStore := api.NewStore(pool)
