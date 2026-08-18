@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/dexterhere04/AgentPlane/internal/auth"
 	"github.com/dexterhere04/AgentPlane/internal/guardrail"
 	"github.com/dexterhere04/AgentPlane/internal/observability"
 	"github.com/dexterhere04/AgentPlane/internal/proxy"
@@ -31,6 +32,13 @@ func Chat(
 	}()
 
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageRequestReceived, "started", r.Method+" /chat"))
+
+	if user, ok := auth.UserFromContext(r.Context()); ok {
+		bus.Publish(observability.NewDataEvent(requestID, observability.StageRequestReceived, "authenticated", map[string]string{
+			"user_id":  user.ID.String(),
+			"username": user.Username,
+		}))
+	}
 
 	if r.Method != http.MethodPost {
 		bus.Publish(observability.NewMessageEvent(requestID, observability.StageRequestReceived, "error", "Method not allowed: "+r.Method))
