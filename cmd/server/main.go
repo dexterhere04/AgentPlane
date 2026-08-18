@@ -2,8 +2,18 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"net/url"
+	"os"
+	"strconv"
+	"time"
+
 	"github.com/dexterhere04/AgentPlane/internal/api"
 	"github.com/dexterhere04/AgentPlane/internal/auth"
+	"github.com/dexterhere04/AgentPlane/internal/clickhouse"
 	"github.com/dexterhere04/AgentPlane/internal/config"
 	"github.com/dexterhere04/AgentPlane/internal/dashboard"
 	"github.com/dexterhere04/AgentPlane/internal/db"
@@ -25,11 +35,16 @@ import (
 	"github.com/dexterhere04/AgentPlane/internal/users"
 	"github.com/dexterhere04/AgentPlane/migrations"
 	"github.com/joho/godotenv"
-
-	"log"
-	"net/http"
-	"os"
 )
+
+// Analytics window bounds (in hours) and the HTTP client used to forward
+// analytics queries to ClickHouse's HTTP interface.
+const (
+	minAnalyticsHours = 1
+	maxAnalyticsHours = 720 // 30 days
+)
+
+var analyticsHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 func main() {
 	if err := godotenv.Load(); err != nil {
@@ -63,6 +78,32 @@ func main() {
 	}
 
 	bus := observability.DefaultBus
+
+	// ClickHouse observability store initialization (optional).
+	chCfg := clickhouse.LoadFromEnv()
+	var chURL string
+	if chCfg.Enabled {
+		// HTTP interface used by the analytics endpoint (default 8123).
+		chHTTPPort := 8123
+		if v := os.Getenv("CLICKHOUSE_HTTP_PORT"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				chHTTPPort = n
+			}
+		}
+		chURL = fmt.Sprintf("http://%s:%d", chCfg.Host, chHTTPPort)
+		// initialize native ClickHouse client
+		if client, err := clickhouse.New(chCfg.Host, chCfg.Port); err != nil {
+			log.Printf("clickhouse native init error: %v", err)
+		} else {
+			adapter := observability.NewClickHouseAdapter(client)
+			if err := adapter.Init(); err != nil {
+				log.Printf("clickhouse adapter init error: %v", err)
+			} else {
+				observability.SetStore(adapter)
+				log.Printf("ClickHouse observability enabled (host=%s port=%d)", chCfg.Host, chCfg.Port)
+			}
+		}
+	}
 
 	if err := config.ConfigureSecretStore(); err != nil {
 		log.Fatalf("Secret store: %v", err)
@@ -222,6 +263,38 @@ func main() {
 		),
 	)
 	mux.HandleFunc("/events", observability.SSEHandler(bus))
+	if chURL != "" {
+		analyticsHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hours := 24
+			if v := r.URL.Query().Get("hours"); v != "" {
+				n, err := strconv.Atoi(v)
+				if err != nil || n < minAnalyticsHours || n > maxAnalyticsHours {
+					http.Error(w, fmt.Sprintf("hours must be an integer between %d and %d", minAnalyticsHours, maxAnalyticsHours), http.StatusBadRequest)
+					return
+				}
+				hours = n
+			}
+
+			q := fmt.Sprintf("SELECT count() AS cnt FROM agentplane.traces WHERE timestamp >= now() - INTERVAL %d HOUR", hours)
+			req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, chURL+"/?query="+url.QueryEscape(q), nil)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+
+			resp, err := analyticsHTTPClient.Do(req)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+			defer resp.Body.Close()
+
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(resp.StatusCode)
+			io.Copy(w, resp.Body)
+		})
+		mux.Handle("/analytics/traces_count", auth.AdminMiddleware(adminToken, analyticsHandler))
+	}
 	mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(dashboard.HTML))

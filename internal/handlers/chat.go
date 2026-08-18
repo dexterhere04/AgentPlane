@@ -58,6 +58,39 @@ func Chat(
 	defer r.Body.Close()
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageBodyRead, "completed", fmt.Sprintf("%d bytes", len(body))))
 
+	// Enforce capture mode for prompt payload
+	config := observability.GetCaptureConfig()
+	decision := observability.MakeCaptureDecision(config.PromptMode, body, config.SampleRate)
+
+	if decision.ShouldCapture {
+		go func() {
+			var payload []byte
+			captureMode := decision.FinalMode
+
+			if decision.StorePayload {
+				// Full or sampled: compress the payload for storage
+				if compressed, err := observability.CompressPayload(body); err == nil {
+					payload = compressed
+				} else {
+					// fallback: store raw payload
+					payload = body
+				}
+			} else if decision.ComputeHash {
+				// hash_only mode: pass original data for hashing
+				// The adapter will compute hash but not store the blob
+				payload = body
+			}
+
+			_, _ = observability.CapturePromptPayload(observability.Payload{
+				TraceID:     requestID,
+				RequestID:   requestID,
+				Timestamp:   time.Now(),
+				Payload:     payload,
+				CaptureMode: captureMode,
+			})
+		}()
+	}
+
 	var payload interface{}
 	if json.Valid(body) {
 		json.Unmarshal(body, &payload)
