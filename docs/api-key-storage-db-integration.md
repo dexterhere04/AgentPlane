@@ -1,5 +1,5 @@
 # API Key Storage & Database Integration 
-Location: `internal/apikey_management/store.go`, `internal/db/db.go`,
+Location: `internal/api/store.go`, `internal/db/db.go`,
 `internal/config/database.go`, `migrations/`
 
 ## 1. What was built
@@ -18,7 +18,7 @@ This covers:
 
 | File | Purpose |
 |---|---|
-| `internal/apikey_management/store.go` | `Store.CreateAPIKey` — inserts a new `api_keys` row from `KeyID` + `SecretHash` only |
+| `internal/api/store.go` | `Store.CreateAPIKey` — inserts a new `api_keys` row from `KeyID` + `SecretHash` only |
 | `internal/db/db.go` | Shared `pgx/v5` connection pool: `NewPool`, pings on creation, closed on shutdown |
 | `internal/config/database.go` | `config.DatabaseURL()` — reads and validates the Postgres connection string |
 | `migrations/000001_create_users_table.{up,down}.sql` | Creates `users` (dependency of `api_keys` via FK) |
