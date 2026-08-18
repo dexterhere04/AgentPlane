@@ -2,14 +2,14 @@
 
 ## Overview
 
-The gateway ships as a lightweight Docker image (~8 MB) based on `alpine:3.20`. A `docker-compose.yml` bundles it with a dev-mode Vault instance preconfigured for AppRole authentication, demonstrating the full secrets bootstrapping flow.
+The gateway ships as a lightweight Docker image based on `alpine:3.20`. A `docker-compose.yml` bundles it with a dev-mode Vault instance preconfigured for AppRole authentication and a PostgreSQL instance, demonstrating the full secrets bootstrapping and database flow.
 
 ## Files
 
 | File | Purpose |
 |------|---------|
 | `Dockerfile` | Builds the gateway image from a pre-built binary |
-| `docker-compose.yml` | Orchestrates Vault + init + gateway |
+| `docker-compose.yml` | Orchestrates Vault + init + PostgreSQL + gateway |
 | `docker-entrypoint.sh` | Runtime entrypoint that sources AppRole credentials |
 | `.dockerignore` | Excludes unnecessary files from the build context |
 
@@ -74,7 +74,7 @@ AppRole credentials (`VAULT_ROLE_ID`, `VAULT_SECRET_ID`) are generated dynamical
 
 ## docker-compose.yml Flow
 
-The stack has three services orchestrated in sequence:
+The stack has four services orchestrated in sequence:
 
 ```
 ┌───────────┐     ┌──────────────┐     ┌──────────────┐
@@ -82,6 +82,11 @@ The stack has three services orchestrated in sequence:
 │ (dev mode)│     │ (bootstrap)  │     │ (agentplane) │
 └───────────┘     └──────────────┘     └──────────────┘
     8200                                    3001
+
+┌───────────┐
+│ postgres  │────> gateway (DATABASE_URL)
+│    16     │
+└───────────┘
 ```
 
 ### 1. vault
@@ -130,15 +135,31 @@ VAULT_ROLE_ID=fb9ce36c-27db-6bce-1bd0-1be0b5efb6c8
 VAULT_SECRET_ID=8172e089-0107-6e7e-b989-9a2faa166cfc
 ```
 
-### 3. gateway
+### 3. postgres
 
-Depends on `vault-init` completing successfully. It:
+Runs PostgreSQL 16 and serves as the backing store for users and API keys. The gateway connects to it via `DATABASE_URL`, and migrations are applied automatically on startup.
+
+```yaml
+postgres:
+  image: postgres:16-alpine
+  environment:
+    POSTGRES_USER: agentplane
+    POSTGRES_PASSWORD: agentplane
+    POSTGRES_DB: agentplane
+  volumes:
+    - pgdata:/var/lib/postgresql/data
+```
+
+### 4. gateway
+
+Depends on `vault-init` completing successfully and `postgres` being healthy. It:
 
 1. **Entrypoint sources** `creds.env` from the shared volume, exporting `VAULT_ROLE_ID` and `VAULT_SECRET_ID`
 2. **`main.go` detects** `SECRET_STORE=vault` and constructs a `VaultStore`
 3. **No static token** is set (`VAULT_TOKEN` env is empty), so it calls `VaultAppRoleLogin(addr, roleID, secretID)`
 4. **VaultAppRoleLogin** POSTs to `/v1/auth/approle/login` and receives a `client_token`
 5. The token is stored in `VaultStore.Token` and used for all subsequent secret reads
+6. **`main.go` connects** to PostgreSQL via `DATABASE_URL` and applies embedded migrations
 
 ```yaml
 gateway:
@@ -147,11 +168,16 @@ gateway:
     SECRET_STORE: vault
     VAULT_ADDR: http://vault:8200
     VAULT_MOUNT_PATH: agentplane
+    OPENAI_BASE_URL: https://api.openai.com/v1
+    DATABASE_URL: postgres://agentplane:agentplane@postgres:5432/agentplane?sslmode=disable
+    AGENTPLANE_ADMIN_TOKEN: dev-admin-token-change-me
   volumes:
     - vault-creds:/vault-creds       # receives creds from vault-init
   depends_on:
     vault-init:
       condition: service_completed_successfully
+    postgres:
+      condition: service_healthy
 ```
 
 ### Full Auth Timeline
@@ -168,6 +194,7 @@ t=1   vault-init:
 t=2   vault-init exits (success)
 t=3   gateway starts:
         - entrypoint sources creds.env → VAULT_ROLE_ID, VAULT_SECRET_ID set
+        - main.go connects to PostgreSQL, applies migrations (users, api_keys)
         - main.go: VaultStore has no Token
         - calls VaultAppRoleLogin(addr, roleID, secretID)
         - POST /v1/auth/approle/login → client_token

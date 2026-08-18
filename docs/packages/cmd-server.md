@@ -1,50 +1,48 @@
 # Package: `cmd/server`
 
-**File:** `cmd/server/main.go` (19 lines)
+**File:** `cmd/server/main.go`
 
 **Package:** `main`
 
 ## Overview
 
-The application entry point. Creates an HTTP server, registers routes, and starts listening on port 3001.
+The application entry point and composition root. Loads configuration, connects to PostgreSQL, applies migrations, wires together all packages (auth, provisioning, guardrails, proxy), registers routes, and starts the HTTP server on port 3001.
 
-## Imports
+There is also a second executable, `cmd/keygeneration/main.go`, which generates a single API key and prints it (full key, key ID, and secret hash).
 
-| Import | Usage |
-|--------|-------|
-| `log` | Log startup message and fatal errors |
-| `net/http` | Create HTTP mux, register routes, start server |
-| `github.com/dexterhere04/AgentPlane/internal/handlers` | Import the Chat handler |
+## Startup sequence
+
+1. Load `.env` via `godotenv.Load()` (missing file is non-fatal).
+2. Read `config.DatabaseURL()` and create the pool via `db.NewPool()`.
+3. Apply embedded migrations via `db.Migrate(ctx, pool, migrations.FS)`.
+4. Build the stores: `users.NewStore`, `api.NewStore`, `auth.NewStore`.
+5. Read `config.AdminToken()`.
+6. Configure the secret store via `config.ConfigureSecretStore()` and load `config.KeyPepper()`.
+7. Construct the `provisioning.Provisioner` and `auth.Authenticator`.
+8. Build the provider via `proxy.NewOpenAIProviderFromEnv()`.
+9. Load guardrail config, register all guardrails, and create the `EnforcementPoint` plus the input/output `GuardrailSet`s.
+10. Register routes on an `http.ServeMux` and call `http.ListenAndServe(":"+port, mux)`.
+
+## Routes
+
+| Path | Handler | Auth |
+|------|---------|------|
+| `/chat` | `handlers.Chat` wrapped in `authenticator.Middleware` | Bearer API key |
+| `/provision/user` | `handlers.ProvisionUser` wrapped in `auth.AdminMiddleware` | Bearer admin token |
+| `/admin/api-keys/revoke` | `handlers.RevokeAPIKey` wrapped in `auth.AdminMiddleware` | Bearer admin token |
+| `/events` | `observability.SSEHandler` | — |
+| `/dashboard` | inline handler serving `dashboard.HTML` | — |
+| `/metrics` | `handlers.MetricsHandler` | — |
 
 ## Functions
 
 ### `main()`
 
-```go
-func main()
-```
-
-**Line:** `cmd/server/main.go:10`
-
 **Signature:** `func main()`
 
-**Behavior:**
-1. Creates a new `http.ServeMux` (`cmd/server/main.go:11`)
-2. Registers `handlers.Chat` on the `/chat` path (`cmd/server/main.go:12`)
-3. Logs `"Starting AgentPlane on :3001"` (`cmd/server/main.go:14`)
-4. Calls `http.ListenAndServe(":3001", mux)` to start the server (`cmd/server/main.go:15`)
-5. If `ListenAndServe` returns an error, logs it fatally and exits (`cmd/server/main.go:16-18`)
+**Behavior:** Wires the full dependency graph (described above) and starts the server. Logs the gateway, events, dashboard, metrics, and mock-API URLs.
 
-**Returns:** Does not return. Exits on fatal error.
-
-**Called by:** The Go runtime (program entry point).
-
-**Calls:**
-- `http.NewServeMux()`
-- `mux.HandleFunc("/chat", handlers.Chat)`
-- `http.ListenAndServe(":3001", mux)`
-
-**Purpose:** Wires the minimal dependency graph for V0 and starts the server. Acts as the composition root.
+**Returns:** Does not return. Exits fatally on any startup error.
 
 **Must NOT:**
 - Call OpenAI directly

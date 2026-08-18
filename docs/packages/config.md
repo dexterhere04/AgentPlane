@@ -1,40 +1,75 @@
 # Package: `config`
 
-**File:** `internal/config/config.go` (9 lines)
+**Files:** `internal/config/config.go`, `store.go`, `database.go`, `admin_token.go`, `pepper.go`
 
 **Package:** `config`
 
 ## Overview
 
-Provides configuration values to the rest of the application. Currently uses environment variables, but the abstraction allows future swap to other config backends without changing callers.
-
-## Imports
-
-| Import | Usage |
-|--------|-------|
-| `os` | `os.Getenv("OPENAI_API_KEY")` |
+Centralizes configuration for the rest of the application. Secrets are read through a pluggable `secrets.SecretStore` (installed via `ConfigureSecretStore()`), so callers never depend on a specific backend (env, file, Vault, AWS, Azure).
 
 ## Functions
+
+### `ConfigureSecretStore()`
+
+```go
+func ConfigureSecretStore() error
+```
+
+**File:** `internal/config/store.go`
+
+Selects the secret backend from the `SECRET_STORE` env var and installs it into `Store`. Backends: `env`, `file`, `aws`, `azure`, `chain`. When `SECRET_STORE` is unset or unrecognized, it falls back to HashiCorp Vault.
 
 ### `OpenAIKey()`
 
 ```go
-func OpenAIKey() string
+func OpenAIKey() (string, error)
 ```
 
-**Line:** `internal/config/config.go:7`
+**File:** `internal/config/config.go`
 
-**Signature:** `func OpenAIKey() string`
+Returns the upstream provider key from the configured secret store (`Store.GetSecret("OPENAI_API_KEY")`).
 
-**Behavior:**
-1. Calls `os.Getenv("OPENAI_API_KEY")` (`config/config.go:8`)
-2. Returns the value as a string
+### `OpenAIBaseURL()`
 
-**Returns:** `string` — The OpenAI API key, or `""` if not set.
+```go
+func OpenAIBaseURL() string
+```
 
-**Called by:**
-- `proxy.ForwardChat()` in `internal/proxy/openai.go:19`
+**File:** `internal/config/config.go`
 
-**Purpose:** Single source of truth for the OpenAI API key. Callers do not need to know where the key comes from (environment, file, vault, etc.).
+Returns `OPENAI_BASE_URL`, defaulting to `https://api.openai.com/v1`.
 
-**Design note:** Currently this is a one-liner that delegates to `os.Getenv()`. The function exists as an abstraction point so that future configuration sources (YAML, Vault, Kubernetes Secrets, AWS Secrets Manager) can be plugged in without changing the `proxy` package.
+### `KeyPepper()`
+
+```go
+func KeyPepper() (string, error)
+```
+
+**File:** `internal/config/pepper.go`
+
+Returns the `API_KEY_PEPPER` secret from the configured store. Returns an error if missing or empty, so the app fails fast at startup rather than hashing keys with an empty pepper.
+
+### `DatabaseURL()`
+
+```go
+func DatabaseURL() (string, error)
+```
+
+**File:** `internal/config/database.go`
+
+Returns the `DATABASE_URL` Postgres connection string. Returns an error if unset or empty.
+
+### `AdminToken()`
+
+```go
+func AdminToken() (string, error)
+```
+
+**File:** `internal/config/admin_token.go`
+
+Returns the `AGENTPLANE_ADMIN_TOKEN` used to authorize admin endpoints. Returns an error if unset or empty.
+
+## Design note
+
+`Store` is a package-level `secrets.SecretStore` variable defaulting to `secrets.EnvStore{}`. `SetStore()` replaces it. This mirrors the abstraction the original `OpenAIKey()` design intended: the backend can change (YAML, Vault, Kubernetes, AWS, Azure) without changing callers.

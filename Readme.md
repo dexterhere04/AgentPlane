@@ -305,6 +305,7 @@ Client
     │
 
 POST /chat
+Authorization: Bearer ap_live_<key_id>_<secret>
 
     │
 
@@ -315,6 +316,18 @@ main.go
     │
 
 Registers HTTP routes
+(wraps /chat in auth middleware)
+
+    │
+
+    ▼
+
+auth.Middleware
+
+    │
+
+Parses + verifies API key
+Resolves user, attaches to context
 
     │
 
@@ -324,19 +337,18 @@ handlers.Chat()
 
     │
 
-Validates request
-
-Reads request body
+Validates method + JSON body
+Runs input guardrails
 
     │
 
     ▼
 
-proxy.ForwardChat()
+provider.Forward()
 
     │
 
-Loads API key
+Loads upstream API key
 
 Creates outbound request
 
@@ -362,17 +374,11 @@ Returns response
 
     ▼
 
-proxy
+handlers.Chat()
 
     │
 
-Returns response
-
-    │
-
-    ▼
-
-handler
+Runs output guardrails
 
     │
 
@@ -437,6 +443,9 @@ Each package owns exactly one concern.
 | `db`         | Postgres pool + migrations |
 | `guardrail`  | Policy enforcement       |
 | `proxy`      | Provider communication   |
+| `secrets`    | Secret-store backends    |
+| `observability` | Event bus / SSE        |
+| `dashboard`  | HTML dashboard           |
 
 Because responsibilities are isolated, changing one package should not require changes to others.
 

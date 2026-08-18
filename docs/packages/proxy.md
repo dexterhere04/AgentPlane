@@ -1,90 +1,77 @@
 # Package: `proxy`
 
-**File:** `internal/proxy/openai.go` (50 lines)
+**Files:** `internal/proxy/provider.go`, `internal/proxy/openai.go`
 
 **Package:** `proxy`
 
 ## Overview
 
-Communicates with AI providers. Encapsulates all provider-specific knowledge — URLs, authentication headers, request semantics, and error handling. For V0, only OpenAI is supported.
+Communicates with AI providers. Encapsulates all provider-specific knowledge — URLs, authentication headers, request semantics, streaming, and error handling. For V0, only the OpenAI-compatible provider is implemented behind a `Provider` interface.
 
-## Imports
+## Types
 
-| Import | Usage |
-|--------|-------|
-| `bytes` | `bytes.NewReader(body)` to create request body reader |
-| `fmt` | `fmt.Errorf()` for wrapping errors with context |
-| `io` | `io.ReadAll()` to read OpenAI response body |
-| `net/http` | Create and send HTTP requests, read responses |
-| `time` | `60 * time.Second` client timeout |
-| `github.com/dexterhere04/AgentPlane/internal/config` | `config.OpenAIKey()` to get the API key |
-
-## Constants
-
-### `openAIURL`
+### `Provider` (interface)
 
 ```go
-const openAIURL = "https://api.openai.com/v1/chat/completions"
+type Provider interface {
+    Name() string
+    Forward(ctx context.Context, body []byte, requestID string) ([]byte, error)
+}
 ```
 
-**Line:** `internal/proxy/openai.go:13`
+**File:** `internal/proxy/provider.go`
 
-**Type:** `string`
+The abstraction handlers depend on. `handlers.Chat` takes a `proxy.Provider`, so additional providers can be added without touching the handler.
 
-**Value:** The OpenAI Chat Completions API endpoint.
+### `OpenAIProvider`
 
-**Usage:** Used as the target URL in `http.NewRequest()` at line 24.
+```go
+type OpenAIProvider struct {
+    apiKey     string
+    baseURL    string
+    httpClient *http.Client
+}
+```
+
+Constructors:
+
+- `NewOpenAIProvider(apiKey, baseURL string) *OpenAIProvider` — explicit key and base URL (empty `baseURL` defaults to `https://api.openai.com/v1`). Uses a 60-second HTTP client timeout.
+- `NewOpenAIProviderFromEnv() *OpenAIProvider` — reads the key from `config.OpenAIKey()` and the base URL from `OPENAI_BASE_URL`.
 
 ## Functions
 
-### `ForwardChat()`
+### `Forward()`
 
 ```go
-func ForwardChat(body []byte) ([]byte, error)
+func (p *OpenAIProvider) Forward(ctx context.Context, body []byte, requestID string) ([]byte, error)
 ```
 
-**Line:** `internal/proxy/openai.go:18`
+Targets `{baseURL}/chat/completions`.
 
-**Signature:** `func ForwardChat(body []byte) ([]byte, error)`
+**Behavior:**
 
-**Parameters:**
-- `body []byte` — The raw JSON request body from the client (already validated as JSON by the handler).
+1. Errors immediately if `apiKey` is empty (`OPENAI_API_KEY is not set`).
+2. Detects `"stream": true` in the request body and dispatches to streaming or non-streaming path.
 
-**Returns:**
-- `[]byte` — The raw JSON response body from OpenAI (on success).
-- `error` — Wrapped error describing what went wrong (on failure).
+**Non-streaming** (`forwardNonStreaming`):
 
-**Called by:**
-- `handlers.Chat()` in `internal/handlers/chat.go:35`
+1. Builds a `POST` request with the raw body.
+2. Sets `Content-Type: application/json` and `Authorization: Bearer <key>`.
+3. Sends via the 60-second HTTP client.
+4. Reads and returns the response body.
+5. Non-200 statuses are returned as errors (`OpenAI returned status <code>: <body>`).
 
-**Calls:**
-- `config.OpenAIKey()` to retrieve the API key
-- `http.NewRequest(http.MethodPost, openAIURL, bytes.NewReader(body))` to create the outbound request
-- `client.Do(req)` to send the request (with 60s timeout)
-- `io.ReadAll(resp.Body)` to read the response
+**Streaming** (`forwardStreaming`):
 
-**Behavior (step by step):**
+1. Sends the request and reads the SSE stream (`data: ` lines) until `[DONE]`.
+2. Accumulates chunks and rebuilds a single structured `chat.completion` response via `buildStructuredResponse` (the gateway currently returns a non-streaming JSON response, not a live SSE stream to the client).
 
-| Step | Line | Action | Error Returned |
-|------|------|--------|---------------|
-| 1 | 19 | Gets API key from `config.OpenAIKey()` | `"OPENAI_API_KEY is not set"` if empty |
-| 2 | 24 | Creates HTTP request with POST method, OpenAI URL, and body reader | `fmt.Errorf("creating request: %w", err)` |
-| 3 | 29 | Sets `Content-Type: application/json` header | — |
-| 4 | 30 | Sets `Authorization: Bearer <api_key>` header | — |
-| 5 | 32 | Creates HTTP client with 60-second timeout | — |
-| 6 | 34 | Sends the request via `client.Do(req)` | `fmt.Errorf("sending request: %w", err)` |
-| 7 | 38 | Defers `resp.Body.Close()` | — |
-| 8 | 40 | Reads response body with `io.ReadAll(resp.Body)` | `fmt.Errorf("reading response: %w", err)` |
-| 9 | 45 | Checks if status code is not 200 | `fmt.Errorf("OpenAI returned status %d: %s", code, body)` |
-| 10 | 49 | Returns response body on success | `nil` |
+## Error Handling
 
-**Error Handling:**
+Errors are wrapped with `%w` to preserve the chain. `handlers.Chat` logs the error and returns HTTP 502.
 
-All errors use `fmt.Errorf` with `%w` to wrap the underlying error, preserving the full error chain for debugging. The caller (`handlers.Chat`) logs the error and returns HTTP 502.
+## Design notes
 
-**Purpose:** The single provider-specific module. All knowledge of the OpenAI API (URL, authentication mechanism, content type, timeout) lives here. Future providers (Anthropic, Gemini, Groq, Ollama) will each get their own file in this package.
-
-**Design notes:**
-- The 60-second timeout is hardcoded. Future versions may make this configurable via the `config` package.
-- Non-200 status codes from OpenAI are treated as errors and returned with the full response body for debugging.
-- The response body is fully buffered in memory before being returned. For very large responses, streaming support would be needed (future roadmap).
+- The 60-second timeout is hardcoded; future versions may make it configurable.
+- The response body is fully buffered before being returned.
+- Streaming responses are coalesced into a single completion for now (see the roadmap for real SSE streaming back to the client).

@@ -1,6 +1,6 @@
 # API Key Generation — Design & Decisions
 
-Location: `internal/api/`, `internal/config/apikey_pepper.go`
+Location: `internal/api/`, `internal/config/pepper.go`
 
 ## 1. What was built
 
@@ -16,7 +16,7 @@ user once, and producing the `key_id` / `secret_hash` values to persist.
 |---|---|
 | `internal/api/api_generation.go` | Core generation logic: random `key_id`/secret generation, base64url encoding, SHA-256+pepper hashing, full key assembly |
 | `internal/api/apikey_test.go` | Unit tests covering key format, uniqueness, hash determinism/sensitivity, and encoded length |
-| `internal/config/apikey_pepper.go` | `config.KeyPepper()`, which retrieves the pepper from the configured `SecretStore` |
+| `internal/config/pepper.go` | `config.KeyPepper()`, which retrieves the pepper from the configured `SecretStore` |
 
 The implementation was verified using Go's testing tools (`go test -v ./internal/api`), with all seven unit tests passing successfully.
 
@@ -58,7 +58,7 @@ This means callers never interact with a specific secret backend. Whether the pe
 
 `KeyPepper()` returns an error if the secret cannot be retrieved or is empty, causing the application to fail during startup rather than silently hashing API keys with an empty or missing pepper. This ensures deployment or configuration issues are detected immediately.
 
-The implementation lives in its own file (`internal/config/apikey_pepper.go`) alongside the existing configuration package. Since Go packages can span multiple files, this extends the `config` package without requiring changes to the existing `config.go`.
+The implementation lives in its own file (`internal/config/pepper.go`) alongside the existing configuration package. Since Go packages can span multiple files, this extends the `config` package without requiring changes to the existing `config.go`.
 
 ## 4. Secret required
 

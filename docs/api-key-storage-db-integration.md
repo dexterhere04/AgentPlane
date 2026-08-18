@@ -30,7 +30,7 @@ This covers:
 ### 3.1 Driver: pgx / pgxpool
 Modern, high-performance Postgres driver with no `database/sql` wrapper overhead.
 
-### 3.2 Storage code location: `internal/apikey_management/store.go`
+### 3.2 Storage code location: `internal/api/store.go`
 Kept next to the generation code rather than a separate `internal/store` package, so
 everything related to an API key's lifecycle — generate, hash, persist — lives in one
 package.
@@ -57,7 +57,7 @@ through logs or downstream code that only needs the rest of the record.
 ## 4. Testing & validation
 
 The implementation was validated against the real AgentPlane codebase and a live
-PostgreSQL 18.4 database. `go build ./...`, `go vet ./...`, and the complete `go test ./...` suite all pass.
+PostgreSQL database (the dev stack uses `postgres:16-alpine`). `go build ./...`, `go vet ./...`, and the complete `go test ./...` suite all pass.
 
 - Migrations were run against an isolated `agentplane_test` database, successfully
   creating `users` and `api_keys` with the expected UUID defaults, constraints, unique
@@ -96,13 +96,15 @@ a persistent local development database separate from the disposable test databa
 
 ## 6. Next steps
 
-**User creation dependency.** `api_keys.user_id` is a required FK referencing
-`users.id`, so an API key can only be created after an application user exists. The
-intended production flow:
+**User creation dependency — implemented.** `api_keys.user_id` is a required FK
+referencing `users.id`, so an API key can only be created after an application user
+exists. This is now orchestrated by `internal/provisioning.Provisioner`
+(`ProvisionUserWithAPIKey`), which:
 
-1. Create user
-2. Obtain the new user's ID
-3. Generate an API key (`GenerateAPIKey`)
-4. Persist `key_id` and `secret_hash` against that user (`Store.CreateAPIKey`)
-5. Return the complete plaintext key to the user exactly once, then discard it
+1. Creates the user (`users.Store.CreateUser`)
+2. Generates an API key (`api.GenerateAPIKey`)
+3. Persists `key_id` and `secret_hash` against that user (`api.Store.CreateAPIKey`)
+4. Returns the complete plaintext key to the user exactly once, then discards it
+
+See `docs/api-key-lifecycle.md` and `docs/full-request-authentication.md`.
 

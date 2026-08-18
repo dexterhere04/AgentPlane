@@ -1,6 +1,6 @@
 # Package: `guardrail`
 
-**Files:** `internal/guardrail/` (16 files) + `internal/guardrail/providers/` (10 packages, 10 files) + `internal/guardrail/providers/functions/` (3 files)
+**Files:** `internal/guardrail/` (13 files + `streaming/`) + `internal/guardrail/providers/` (10 packages) + `internal/guardrail/providers/functions/` (3 files)
 
 **Package:** `guardrail`
 
@@ -16,19 +16,19 @@ Guardrails run at two points in the request lifecycle:
 
 ```
 Registry (in-memory map of guardrails by name)
-  ── Internal (built-in)
-  │   ├── prompt_injection   →  PromptInjectionGuardrail   (TypeMandatory)
-  │   ├── secrets            →  SecretsGuardrail           (TypeMandatory)
-  │   ├── pii                →  PIIGuardrail               (TypeMandatory)
-  │   └── content_moderation →  ContentModerationGuardrail (TypePolicy)
+  ── Internal (built-in, in-process regex)
+  │   ├── prompt_injection   →  PromptInjectionGuardrail
+  │   ├── secrets            →  SecretsGuardrail
+  │   ├── pii                →  PIIGuardrail
+  │   └── content_moderation →  ContentModerationGuardrail
   ── External (API-based, fail-open)
-  │   ├── aim                →  AIMGuardrail               (TypePolicy)
-  │   ├── lakera             →  LakeraGuardrail            (TypePolicy)
-  │   ├── lumigator          →  LumigatorGuardrail         (TypePolicy)
-  │   ├── prisma_airs        →  PrismaAIRSGuardrail        (TypePolicy)
-  │   ├── nvidia_content     →  NvidiaContentGuardrail     (TypePolicy)
-  │   ├── openai_moderation  →  OpenAIModerationGuardrail  (TypePolicy)
-  │   └── zscaler            →  ZscalerGuardrail           (TypePolicy)
+  │   ├── aim                →  AIMGuardrail
+  │   ├── lakera             →  LakeraGuardrail
+  │   ├── lumigator          →  LumigatorGuardrail
+  │   ├── prisma_airs        →  PrismaAIRSGuardrail
+  │   ├── nvidia_content     →  NvidiaContentGuardrail
+  │   ├── openai_moderation  →  OpenAIModerationGuardrail
+  │   └── zscaler            →  ZscalerGuardrail
   ── Functions (configurable logic, available but off by default)
       ├── regex_match            ┐
       ├── contains               │
@@ -92,16 +92,14 @@ const (
 )
 ```
 
-### GuardrailType (fail-open vs fail-closed)
+### Fail-open vs fail-closed (`Required` flag)
 
-```go
-type GuardrailType int
+Fail-open/fail-closed is expressed per-spec via `GuardrailSpec.Required`, not via a guardrail type:
 
-const (
-    TypeMandatory GuardrailType = iota  // fail-closed: errors result in DecisionBlock
-    TypePolicy                           // fail-open:   errors result in DecisionPass (skip)
-)
-```
+- `Required: true`  → fail-closed: a resolution or evaluation error returns `DecisionBlock` (and the handler returns 503).
+- `Required: false` → fail-open: a disabled guardrail is skipped and an evaluation error is logged then skipped.
+
+> The current wiring in `cmd/server/main.go` registers every guardrail as optional (`Required` is unset). Individual guardrails therefore only run when enabled via `GUARDRAIL_*` env vars (mode `enforce`/`warn`/`log_only`), and errors fail-open. The fail-closed path is implemented and used whenever a spec sets `Required: true`.
 
 ### Direction
 
@@ -121,7 +119,6 @@ const (
 ```go
 type Guardrail interface {
     Name() string
-    Type() GuardrailType
     Evaluate(ctx context.Context, dir Direction, body []byte) (*Result, error)
 }
 ```
@@ -145,8 +142,9 @@ type Result struct {
 
 ```go
 type GuardrailSpec struct {
-    Name   string
-    Config map[string]any  // reserved for future per-instance configuration
+    Name     string
+    Required bool            // fail-closed (error → block) when true
+    Config   map[string]any  // reserved for future per-instance configuration
 }
 
 type GuardrailSet struct {
@@ -346,10 +344,10 @@ func main() {
 
 ### Execution flow for each guardrail
 
-1. Resolve guardrail by name from the Registry (skip if not found)
-2. Check the Strategy — skip if `Enabled` is false
+1. Resolve guardrail by name from the Registry (skip if not found, unless `Required`)
+2. Check the Strategy — skip if `Enabled` is false (optional guardrails)
 3. Call `guardrail.Evaluate(ctx, direction, body)`
-4. On error: if `TypeMandatory` → return `DecisionBlock` (fail-closed); if `TypePolicy` → skip, continue (fail-open)
+4. On error: if `Required` → return `DecisionBlock` (fail-closed); otherwise → skip, continue (fail-open)
 5. Record metrics (evaluation count, latency)
 6. Publish the raw result to EventBus
 7. Resolve effective decision based on configured `Mode`:
@@ -374,23 +372,25 @@ func main() {
 
 AgentPlane ships with **33 guardrails** organized into three tiers:
 
-| Tier | Count | Location | Fail Mode | Latency |
+| Tier | Count | Location | Default decision | Latency |
 |---|---|---|---|---|
-| **Internal** | 4 | `internal/guardrail/` + `providers/{secrets,pii}` | Mandatory (fail-closed) | <1ms (regex in-process) |
-| **External** | 7 | `internal/guardrail/providers/{aim,lakera,...}` | Policy (fail-open) | 5-500ms (API call) |
-| **Functions** | 22 | `internal/guardrail/providers/functions/` | Mixed | <1ms (in-process) |
+| **Internal** | 4 | `internal/guardrail/` + `providers/{secrets,pii}` | block / redact / warn | <1ms (regex in-process) |
+| **External** | 7 | `internal/guardrail/providers/{aim,lakera,...}` | block / warn | 5-500ms (API call) |
+| **Functions** | 22 | `internal/guardrail/providers/functions/` | varies | <1ms (in-process) |
+
+> Fail-open vs fail-closed is **not** a property of the tier — it is set per-spec via `GuardrailSpec.Required` in the `GuardrailSet` (see [Fail-open vs fail-closed](#fail-open-vs-fail-closed-required-flag)). In the current `main.go`, all guardrails are optional (`Required` unset), so they run only when enabled via `GUARDRAIL_*` env vars.
 
 ---
 
-### Tier 1: Internal Guardrails (always active by default)
+### Tier 1: Internal Guardrails (enabled via env)
 
-These are the core security guardrails. They run in-process using regex matching and are fail-closed — if they error, the request is blocked.
+These are the core security guardrails. They run in-process using regex matching. When enabled in `enforce` mode they block/redact; whether an error fails closed depends on the spec's `Required` flag.
 
 #### 1. Prompt Injection (`prompt_injection`)
 
 Detects attempts to override system instructions or extract hidden prompts.
 
-**Type:** `TypeMandatory` (fail-closed) | **Default mode:** `enforce` | **Direction:** input only | **Decision:** `BLOCK` | **Latency:** <1ms
+**Required:** yes (fail-closed) | **Default:** off (enable `GUARDRAIL_PROMPT_INJECTION=enforce`) | **Direction:** input only | **Decision:** `BLOCK` | **Latency:** <1ms
 
 **When to use:** Always. This is your first line of defense against prompt injection attacks. Keep at `enforce` unless you have an external guard (e.g. Lakera) that handles this.
 
@@ -400,7 +400,7 @@ Detects attempts to override system instructions or extract hidden prompts.
 
 Detects credentials and sensitive tokens leaked in prompts or responses.
 
-**Type:** `TypeMandatory` (fail-closed) | **Default mode:** `enforce` | **Direction:** input + output | **Decision:** `BLOCK` | **Latency:** <1ms
+**Required:** yes (fail-closed) | **Default:** off (enable `GUARDRAIL_SECRETS=enforce`) | **Direction:** input + output | **Decision:** `BLOCK` | **Latency:** <1ms
 
 **When to use:** Always on both input and output. Prevents accidental credential leaks from users pasting API keys into prompts, and from LLMs generating responses containing secrets they've memorized from training data.
 
@@ -410,7 +410,7 @@ Detects credentials and sensitive tokens leaked in prompts or responses.
 
 Detects and redacts personally identifiable information.
 
-**Type:** `TypeMandatory` (fail-closed) | **Default mode:** `enforce` | **Direction:** input + output | **Decision:** `REDACT` | **Latency:** <1ms
+**Required:** yes (fail-closed) | **Default:** off (enable `GUARDRAIL_PII=enforce`) | **Direction:** input + output | **Decision:** `REDACT` | **Latency:** <1ms
 
 **When to use:** Always on both input and output. Critical for GDPR/CCPA compliance. Redacts rather than blocks so the pipeline continues with sanitized content.
 
@@ -424,7 +424,7 @@ Supports pluggable `Detector` implementations via `RegisterDetector()` / `NewWit
 
 Detects harmful or policy-violating content across multiple categories.
 
-**Type:** `TypePolicy` (fail-open) | **Default mode:** `warn` | **Direction:** input + output | **Decision:** `WARN` | **Latency:** <1ms
+**Required:** no (fail-open) | **Default:** off (enable `GUARDRAIL_CONTENT_MODERATION=warn`) | **Direction:** input + output | **Decision:** `WARN` | **Latency:** <1ms
 
 **When to use:** Enable when you need keyword-based content filtering but don't want to block traffic. Use `warn` mode to log violations while still allowing content through. Switch to `enforce` for strict blocking. For production-grade moderation, pair with `openai_moderation` or `nvidia_content` external guards.
 
@@ -434,7 +434,7 @@ Detects harmful or policy-violating content across multiple categories.
 
 ### Tier 2: External Guardrails (API-based, off by default)
 
-These integrate with third-party security APIs. They are **fail-open** (TypePolicy) — if the API is unreachable or times out (5s), the guardrail passes and the request continues. To activate, set the corresponding `*_API_KEY` env var.
+These integrate with third-party security APIs. They are **fail-open** by default (errors are skipped and the request continues) unless the spec sets `Required: true`. If the API is unreachable or times out (5s), the guardrail passes and the request continues. To activate, set the corresponding `*_API_KEY` env var.
 
 **Why external?** These services use ML models trained on millions of attack samples, catching sophisticated prompt injection, jailbreak attempts, and nuanced content safety violations that regex patterns miss.
 
@@ -510,7 +510,7 @@ These are composable building blocks for custom policies. They run in-process wi
 
 Matches content against a regex pattern. Blocks on match.
 
-**Type:** `TypeMandatory` | **Direction:** input + output | **Decision:** `BLOCK`
+**Required:** yes | **Direction:** input + output | **Decision:** `BLOCK`
 
 **Config:** `REGEX_MATCH_PATTERN` env var or `{"pattern": "..."}` in Extra.
 
@@ -520,7 +520,7 @@ Matches content against a regex pattern. Blocks on match.
 
 Checks for forbidden words/phrases. Case-insensitive.
 
-**Type:** `TypeMandatory` | **Direction:** input + output | **Decision:** `BLOCK`
+**Required:** yes | **Direction:** input + output | **Decision:** `BLOCK`
 
 **Config:** `CONTAINS_WORDS` (comma-separated) or `{"words": ["word1","word2"]}` in Extra.
 
@@ -530,7 +530,7 @@ Checks for forbidden words/phrases. Case-insensitive.
 
 Detects code snippets in prompts — catches code injection attempts.
 
-**Type:** `TypeMandatory` | **Direction:** input + output | **Decision:** `BLOCK`
+**Required:** yes | **Direction:** input + output | **Decision:** `BLOCK`
 
 **Built-in patterns:** function/class declarations (`def`, `function`, `func`, `class`), import statements, SQL queries (`SELECT`, `INSERT`, `DROP`), shell/sandbox escapes (`eval`, `exec`, `system`), shebang lines, exception handling blocks.
 
@@ -540,7 +540,7 @@ Detects code snippets in prompts — catches code injection attempts.
 
 Checks if content ends with a specific suffix.
 
-**Type:** `TypeMandatory` | **Direction:** input + output | **Decision:** `BLOCK`
+**Required:** yes | **Direction:** input + output | **Decision:** `BLOCK`
 
 **Config:** `ENDSWITH_SUFFIX` env var or `{"suffix": "..."}` in Extra.
 
@@ -550,7 +550,7 @@ Checks if content ends with a specific suffix.
 
 Validates all URLs in content are well-formed. Blocks if malformed URLs found.
 
-**Type:** `TypeMandatory` | **Direction:** input + output | **Decision:** `BLOCK`
+**Required:** yes | **Direction:** input + output | **Decision:** `BLOCK`
 
 **When to use:** Prevent URL-based attacks (malformed URLs that bypass filters, SSRF probes in URL parameters).
 
@@ -558,7 +558,7 @@ Validates all URLs in content are well-formed. Blocks if malformed URLs found.
 
 Flags content that is entirely uppercase. Issues a warning by default.
 
-**Type:** `TypePolicy` | **Direction:** input + output | **Decision:** `WARN`
+**Required:** no | **Direction:** input + output | **Decision:** `WARN`
 
 **When to use:** Detect potential abuse (shouting, spam, CAPS LOCK rage). Use `warn` to log and monitor rather than block outright.
 
@@ -566,7 +566,7 @@ Flags content that is entirely uppercase. Issues a warning by default.
 
 Flags content that is entirely lowercase. Issues a warning by default.
 
-**Type:** `TypePolicy` | **Direction:** input + output | **Decision:** `WARN`
+**Required:** no | **Direction:** input + output | **Decision:** `WARN`
 
 **When to use:** Detect input quality issues or bots sending unformatted text.
 
@@ -576,7 +576,7 @@ Flags content that is entirely lowercase. Issues a warning by default.
 
 Validates request body against a JSON schema. Blocks on schema mismatch.
 
-**Type:** `TypeMandatory` | **Direction:** input only | **Decision:** `BLOCK`
+**Required:** yes | **Direction:** input only | **Decision:** `BLOCK`
 
 **Config:** `JSON_SCHEMA` env var (JSON string) or `{"schema": {...}}` in Extra. Supports nested `type`, `properties`, and `type` validation for `string`, `number`, `boolean`, `object`, `array`.
 
@@ -586,7 +586,7 @@ Validates request body against a JSON schema. Blocks on schema mismatch.
 
 Validates that required JSON keys are present in the request.
 
-**Type:** `TypeMandatory` | **Direction:** input only | **Decision:** `BLOCK`
+**Required:** yes | **Direction:** input only | **Decision:** `BLOCK`
 
 **Config:** `JSON_KEYS_REQUIRED` (comma-separated) or `{"required": ["key1","key2"]}` in Extra.
 
@@ -596,7 +596,7 @@ Validates that required JSON keys are present in the request.
 
 Validates JWT tokens in content for structural correctness and base64url encoding.
 
-**Type:** `TypePolicy` | **Direction:** input only | **Decision:** `WARN`
+**Required:** no | **Direction:** input only | **Decision:** `WARN`
 
 **When to use:** Monitor for malformed or suspicious JWT tokens in requests. Use `warn` mode — this is a heuristic check, not cryptographic validation.
 
@@ -604,7 +604,7 @@ Validates JWT tokens in content for structural correctness and base64url encodin
 
 Ensures specified JSON fields are present and non-null.
 
-**Type:** `TypeMandatory` | **Direction:** input only | **Decision:** `BLOCK`
+**Required:** yes | **Direction:** input only | **Decision:** `BLOCK`
 
 **Config:** `NOT_NULL_FIELDS` (comma-separated) or `{"fields": ["field1","field2"]}` in Extra.
 
@@ -614,7 +614,7 @@ Ensures specified JSON fields are present and non-null.
 
 Validates that specific keys exist in the request's `metadata` object.
 
-**Type:** `TypeMandatory` | **Direction:** input only | **Decision:** `BLOCK`
+**Required:** yes | **Direction:** input only | **Decision:** `BLOCK`
 
 **Config:** `REQUIRED_METADATA_KEYS` (comma-separated) or `{"keys": ["key1","key2"]}` in Extra.
 
@@ -626,7 +626,7 @@ Validates that specific keys exist in the request's `metadata` object.
 
 Enforces min/max word count constraints.
 
-**Type:** `TypePolicy` | **Direction:** input + output | **Decision:** `WARN`
+**Required:** no | **Direction:** input + output | **Decision:** `WARN`
 
 **Config:** `WORD_COUNT_MIN` / `WORD_COUNT_MAX` env vars or `{"min": 10, "max": 2000}` in Extra.
 
@@ -636,7 +636,7 @@ Enforces min/max word count constraints.
 
 Enforces min/max sentence count constraints.
 
-**Type:** `TypePolicy` | **Direction:** input + output | **Decision:** `WARN`
+**Required:** no | **Direction:** input + output | **Decision:** `WARN`
 
 **Config:** `SENTENCE_COUNT_MIN` / `SENTENCE_COUNT_MAX` env vars or `{"min": 1, "max": 100}` in Extra.
 
@@ -646,7 +646,7 @@ Enforces min/max sentence count constraints.
 
 Enforces min/max character count constraints.
 
-**Type:** `TypePolicy` | **Direction:** input + output | **Decision:** `WARN`
+**Required:** no | **Direction:** input + output | **Decision:** `WARN`
 
 **Config:** `CHARACTER_COUNT_MIN` / `CHARACTER_COUNT_MAX` env vars or `{"min": 1, "max": 32000}` in Extra.
 
@@ -658,7 +658,7 @@ Enforces min/max character count constraints.
 
 Blocks requests using unapproved models. Only whitelisted models pass.
 
-**Type:** `TypeMandatory` | **Direction:** input only | **Decision:** `BLOCK`
+**Required:** yes | **Direction:** input only | **Decision:** `BLOCK`
 
 **Config:** `MODEL_WHITELIST` (comma-separated, e.g. `gpt-4o,gpt-4o-mini,claude-3-opus`) or `{"models": [...]}` in Extra.
 
@@ -668,7 +668,7 @@ Blocks requests using unapproved models. Only whitelisted models pass.
 
 Applies per-model configuration rules. Supports disabling specific models.
 
-**Type:** `TypeMandatory` | **Direction:** input only | **Decision:** `BLOCK`
+**Required:** yes | **Direction:** input only | **Decision:** `BLOCK`
 
 **Config:** `MODEL_RULES` env var (JSON like `{"gpt-4":{"disabled":true}}`) or `{"rules": {...}}` in Extra.
 
@@ -678,7 +678,7 @@ Applies per-model configuration rules. Supports disabling specific models.
 
 Restricts which endpoint/object types are permitted.
 
-**Type:** `TypeMandatory` | **Direction:** input only | **Decision:** `BLOCK`
+**Required:** yes | **Direction:** input only | **Decision:** `BLOCK`
 
 **Config:** `ALLOWED_REQUEST_TYPES` (comma-separated, e.g. `chat.completion,chat.completion.chunk`) or `{"types": [...]}` in Extra.
 
@@ -690,7 +690,7 @@ Restricts which endpoint/object types are permitted.
 
 Delegates guardrail evaluation to an external webhook. Returns decision based on the webhook response.
 
-**Type:** `TypePolicy` (fail-open) | **Direction:** input + output | **Decision:** `BLOCK` (on webhook block) | **Latency:** depends on webhook
+**Required:** no (fail-open) | **Direction:** input + output | **Decision:** `BLOCK` (on webhook block) | **Latency:** depends on webhook
 
 **Config:** `WEBHOOK_GUARD_URL` env var or `{"url": "https://..."}` in Extra.
 
@@ -706,7 +706,7 @@ Transformers modify content rather than blocking. They return `DecisionRedact` (
 
 Logs content without any verdict. Pure observability — always passes.
 
-**Type:** `TypePolicy` | **Direction:** input + output | **Decision:** `PASS`
+**Required:** no | **Direction:** input + output | **Decision:** `PASS`
 
 **When to use:** Debug guardrail pipelines. Insert a `log` guardrail between other guardrails to see the body state at that point in the pipeline. Useful for auditing — log all requests/responses for compliance.
 
@@ -714,7 +714,7 @@ Logs content without any verdict. Pure observability — always passes.
 
 Prepends a string prefix to the content body.
 
-**Type:** `TypePolicy` | **Direction:** input + output | **Decision:** `REDACT`
+**Required:** no | **Direction:** input + output | **Decision:** `REDACT`
 
 **Config:** `ADD_PREFIX_TEXT` env var or `{"prefix": "..."}` in Extra.
 
@@ -724,7 +724,7 @@ Prepends a string prefix to the content body.
 
 Replaces content matching a regex pattern with a replacement string.
 
-**Type:** `TypePolicy` | **Direction:** input + output | **Decision:** `REDACT`
+**Required:** no | **Direction:** input + output | **Decision:** `REDACT`
 
 **Config:** `REGEX_REPLACE_PATTERN` + `REGEX_REPLACE_REPLACEMENT` env vars or `{"pattern": "...", "replacement": "..."}` in Extra.
 
@@ -1082,7 +1082,7 @@ The handler calls `enforcement.Evaluate()` for input guardrails after JSON valid
 | `DecisionRedact` | 200 OK (pipeline continues) | Redacted body forwarded to provider or client |
 | `DecisionWarn` | 200 OK (pipeline continues) | Warning logged to EventBus, body passes through |
 | `DecisionLogOnly` | 200 OK (pipeline continues) | Event logged, no body modification |
-| Guardrail error (mandatory) | 503 Service Unavailable | `{"error": {"type": "guardrail_unavailable", "message": "..."}}` |
+| Guardrail error (Required) | 503 Service Unavailable | `{"error": {"type": "guardrail_unavailable", "message": "..."}}` |
 
 ## Adding a Custom Guardrail
 
@@ -1104,10 +1104,6 @@ func New(strategy guardrail.Strategy) *MyGuardrail {
 
 func (g *MyGuardrail) Name() string {
     return "my_guard"
-}
-
-func (g *MyGuardrail) Type() guardrail.GuardrailType {
-    return guardrail.TypePolicy  // or TypeMandatory for fail-closed
 }
 
 func (g *MyGuardrail) Evaluate(ctx context.Context, dir guardrail.Direction, body []byte) (*guardrail.Result, error) {
@@ -1141,6 +1137,13 @@ func (g *MyGuardrail) Evaluate(ctx context.Context, dir guardrail.Direction, bod
 
 // Register and use
 registry.Register(myguard.New(cfg.Strategy("my_guard")))
+
+// In the GuardrailSet, set Required: true to make it fail-closed:
+inputSet := guardrail.GuardrailSet{
+    Guards: []guardrail.GuardrailSpec{
+        {Name: "my_guard", Required: true},
+    },
+}
 ```
 
 ## Testing
@@ -1160,5 +1163,5 @@ Test files: `guardrail_test.go`, `guardrail_secrets_test.go`, `guardrail_pii_tes
 - **Observable:** Every decision is published as an event through the existing EventBus. Metrics are tracked with atomic counters.
 - **Configurable:** Per-guardrail mode via environment variables. Guardrail sets are defined per direction.
 - **Extensible:** The `Guardrail` interface allows future integration with external engines (LiteLLM, Bifrost, etc.). PII supports pluggable `Detector` implementations. Custom guardrails implement a single `Evaluate` method.
-- **Fail-safe:** Mandatory guardrails fail-closed (block on error); policy guardrails fail-open (pass on error).
-- **Zero dependencies:** Uses only the Go standard library (except for the project-internal `observability` package).
+- **Fail-safe:** Guardrails with `Required: true` fail-closed (block on error); optional guardrails fail-open (pass on error).
+- **Dependencies:** The `secrets` guardrail uses gitleaks for secret detection; the rest of the guardrail framework uses only the Go standard library (plus the project-internal `observability` package).

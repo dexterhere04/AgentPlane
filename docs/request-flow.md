@@ -8,129 +8,91 @@ The complete lifecycle of a `POST /chat` request through AgentPlane.
 Client
   |
   | POST /chat (JSON body)
+  | Authorization: Bearer ap_live_<key_id>_<secret>
   |
   v
-main.go                           [cmd/server/main.go]
+Authenticator.Middleware()          [internal/auth/middleware.go]
   |
-  | http.NewServeMux()
-  | mux.HandleFunc("/chat", handlers.Chat)
-  | http.ListenAndServe(":3001", mux)
-  |
-  v
-handlers.Chat()                   [internal/handlers/chat.go:17]
-  |
-  | 1. Validate HTTP method       [line 36]
-  |    - Reject non-POST → 405
-  |
-  | 2. Read request body          [line 44]
-  |    - io.ReadAll(r.Body)
-  |    - Failed read → 500
-  |    - defer r.Body.Close()
-  |
-  | 3. Publish parsed body        [line 55-58]
-  |    - JSON-decode and publish to EventBus
-  |    - (just observability, non-valid JSON skips publish)
-  |
-  | 4. Validate JSON              [line 61]
-  |    - json.Valid(body)
-  |    - Invalid → 400
-  |
-  | 5. Run input guardrails       [line 70-90]
-  |    - enforcement.Evaluate(ctx, requestID, DirectionInput, body, inputSet)
-  |    - Block → 403 Forbidden (JSON error)
-  |    - Redact → replace body with redacted version
-  |    - Warn/LogOnly → log, continue
-  |    - Mandatory guardrail error → 503 Service Unavailable (JSON error)
-  |    - Skip if enforcement is nil or inputSet is empty
-  |
-  | 6. Forward to provider        [line 93-94]
-  |    - provider.Forward(ctx, body, requestID)
+  | 1. Require Authorization: Bearer <api-key>
+  | 2. Authenticate (parse key → hash → constant-time compare → resolve user)
+  | 3. Attach user to request context
+  |    - failure → 401 Unauthorized
   |
   v
-proxy.OpenAIProvider.Forward()    [internal/proxy/openai.go]
+handlers.Chat()                     [internal/handlers/chat.go]
   |
-  | 7. Load API key               [config.OpenAIKey()]
-  |    - Empty → error
+  | 4. Validate HTTP method (POST) → else 405
+  | 5. Read request body → read failure 500
+  | 6. Validate JSON → invalid 400
   |
-  | 8. Create outbound request    [http.NewRequest(POST, openAIURL, body)]
+  | 7. Run input guardrails (enforcement.Evaluate, DirectionInput)
+  |    - Block → 403, Redact → rewrite body, Warn/LogOnly → continue
+  |    - Required guardrail error → 503 (fail-closed)
   |
-  | 9. Set headers
-  |    - Content-Type: application/json
-  |    - Authorization: Bearer <key>
+  | 8. provider.Forward(ctx, body, requestID)
   |
-  | 10. Create HTTP client        [Timeout: 60 seconds]
+  v
+proxy.OpenAIProvider.Forward()      [internal/proxy/openai.go]
   |
-  | 11. Send request              [client.Do(req)]
-  |     - Network error → error
-  |
-  | 12. Read response body        [io.ReadAll(resp.Body)]
-  |     - Read error → error
-  |     - defer resp.Body.Close()
-  |
-  | 13. Validate status
-  |     - Status != 200 → error with body
-  |
-  | 14. Return response body
+  | 9. Check API key set → empty error
+  | 10. Dispatch streaming vs non-streaming
+  | 11. Build request, set Content-Type + Authorization headers
+  | 12. Send (60s timeout)
+  | 13. Read response; non-200 → error
+  |     (streaming: consume SSE, rebuild one completion)
   |
   v
 Back in handlers.Chat()
   |
-  | 15. Handle proxy error        [line 98-102]
-  |     - Log error
-  |     - Return 502 Bad Gateway
-  |
-  | 16. Run output guardrails     [line 104-124]
-  |     - enforcement.Evaluate(ctx, requestID, DirectionOutput, respBody, outputSet)
-  |     - Block → 403 Forbidden (JSON error)
-  |     - Redact → replace response body with redacted version
-  |     - Warn/LogOnly → log, continue
-  |     - Mandatory guardrail error → 503 Service Unavailable (JSON error)
-  |     - Skip if enforcement is nil or outputSet is empty
-  |
-  | 17. Write success response    [line 126-128]
-  |     - Set Content-Type: application/json
-  |     - Write status 200
-  |     - Write (possibly redacted) response body
+  | 14. Proxy error → 502 Bad Gateway
+  | 15. Run output guardrails (enforcement.Evaluate, DirectionOutput)
+  |     - Block → 403, Redact → rewrite body, Warn/LogOnly → continue
+  |     - Required guardrail error → 503 (fail-closed)
+  | 16. Write 200 + response body
   |
   v
 Client receives response
 ```
 
-## Guardrail Enforcement Flow (steps 5 & 16)
+## Guardrail Enforcement Flow (steps 7 & 15)
 
 For each `GuardrailSpec` in the `GuardrailSet`, the `EnforcementPoint` performs:
 
-1. Resolve guardrail by name from the Registry → skip if not found
-2. Check `Strategy.Enabled` → skip if disabled
-3. Call `guardrail.Evaluate(ctx, direction, body)` → record metrics and latency
-4. On error:
-   - `TypeMandatory` → return `DecisionBlock` immediately (fail-closed) → 503
-   - `TypePolicy` → skip, continue to next guardrail (fail-open)
-5. Publish raw result to EventBus
-6. Resolve effective decision via mode resolution (`enforce`/`log_only`/`warn`)
-7. On `DecisionBlock` → stop pipeline, return 403
-8. On `DecisionRedact` → update body, continue to next guardrail
-9. On `DecisionPass`/`Warn`/`LogOnly` → continue
+1. Resolve guardrail by name from the Registry.
+   - Not found + `Required` → return `DecisionBlock` (fail-closed) → 503.
+   - Not found + optional → skip.
+2. For `Required` guardrails: evaluate; on error → fail-closed → 503.
+3. For optional guardrails: check `Strategy.Enabled` → skip if disabled.
+4. Call `guardrail.Evaluate(ctx, dir, body)` → record metrics and latency.
+   - On error → skip and continue (fail-open).
+5. Publish the raw result to EventBus.
+6. Resolve effective decision via mode (`enforce`/`log_only`/`warn`):
+   - `enforce` → raw result unchanged
+   - `log_only` → downgrade to `DecisionLogOnly`
+   - `warn` → downgrade `Block` → `Warn`, `Redact` → `LogOnly`
+7. On `DecisionBlock` → stop pipeline, return (handler returns 403).
+8. On `DecisionRedact` → update body, continue.
+9. On `DecisionPass`/`Warn`/`LogOnly` → continue.
+
+> Note: `main.go` currently registers all guardrails as optional (`Required` is unset), so individual guardrails run only when enabled via `GUARDRAIL_*` env vars and errors fail-open. The fail-closed (`Required`) path is implemented but not wired by default.
 
 ## Error Paths
 
 | Step | Error Condition | HTTP Status | Body |
 |------|----------------|-------------|------|
-| 1 | Method is not POST | 405 | `Method not allowed` |
-| 2 | Body read fails | 500 | `Failed to read request body` |
-| 4 | Body is not valid JSON | 400 | `Invalid JSON in request body` |
-| 5 | Input guardrail blocks | 403 | `{"error":{"type":"guardrail_blocked","message":"...","guardrail":"..."}}` |
-| 5 | Input guardrail error (mandatory) | 503 | `{"error":{"type":"guardrail_unavailable","message":"..."}}` |
-| 7 | API key not set | 502 | `OPENAI_API_KEY is not set` |
-| 8 | Request creation fails | 502 | `creating request: ...` |
-| 11 | Network error | 502 | `sending request: ...` |
-| 12 | Response read fails | 502 | `reading response: ...` |
-| 13 | Provider non-200 status | 502 | `OpenAI returned status <code>: <body>` |
-| 16 | Output guardrail blocks | 403 | `{"error":{"type":"guardrail_blocked","message":"...","guardrail":"..."}}` |
-| 16 | Output guardrail error (mandatory) | 503 | `{"error":{"type":"guardrail_unavailable","message":"..."}}` |
+| 1–3 | Missing/invalid API key | 401 | `invalid API key` (or similar) |
+| 4 | Method is not POST | 405 | `Method not allowed` |
+| 5 | Body read fails | 500 | `Failed to read request body` |
+| 6 | Body is not valid JSON | 400 | `Invalid JSON in request body` |
+| 7 | Input guardrail blocks | 403 | `{"error":{"type":"guardrail_blocked",...}}` |
+| 7 | Required guardrail error | 503 | `{"error":{"type":"guardrail_unavailable",...}}` |
+| 9 | API key not set | 502 | `OPENAI_API_KEY is not set` |
+| 11–13 | Request/network/read/non-200 | 502 | wrapped error message |
+| 15 | Output guardrail blocks | 403 | `{"error":{"type":"guardrail_blocked",...}}` |
+| 15 | Required guardrail error | 503 | `{"error":{"type":"guardrail_unavailable",...}}` |
 
 ## Timing
 
-- **Server startup:** Instant (single HTTP mux, one route)
-- **Request timeout:** 60 seconds (set in proxy HTTP client)
-- **No request timeout on the server side** (inherits Go's default, which is none)
+- **Server startup:** establishes a Postgres pool, runs migrations, wires all packages, starts the mux.
+- **Request timeout:** 60 seconds (proxy HTTP client).
+- **No request timeout on the server side** (inherits Go's default, which is none).

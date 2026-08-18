@@ -10,7 +10,9 @@ type SecretStore interface {
 }
 ```
 
-The gateway selects a backend at startup via the `SECRET_STORE` environment variable and passes it to `config.SetStore()`. All callers go through `config.OpenAIKey()`, which delegates to the configured store — callers never know which backend is in use.
+The gateway selects a backend at startup via the `SECRET_STORE` environment variable (see `config.ConfigureSecretStore()`). All callers go through `config.OpenAIKey()` (and `config.KeyPepper()`), which delegate to the configured store — callers never know which backend is in use.
+
+> **Default:** when `SECRET_STORE` is unset or unrecognized, the gateway falls back to HashiCorp Vault.
 
 ## Backends
 
@@ -20,7 +22,7 @@ Reads secrets directly from environment variables.
 
 | Env Var                 | Purpose                          |
 |-------------------------|----------------------------------|
-| *(none)*                | Default when `SECRET_STORE` unset |
+| `SECRET_STORE=env`      | Select this backend              |
 
 **Example:**
 
@@ -95,9 +97,9 @@ VAULT_SECRET_ID=<secret-id>
 
 | Env Var              | Required | Default | Purpose                             |
 |----------------------|----------|---------|-------------------------------------|
-| `SECRET_STORE=vault` | Yes      | —       | Select this backend                 |
-| `VAULT_ADDR`         | Yes      | —       | Vault server URL (e.g. `http://vault:8200`) |
-| `VAULT_MOUNT_PATH`   | Yes      | —       | KV mount path inside Vault          |
+| `SECRET_STORE=vault` | No       | (fallback) | Select this backend; also the default when `SECRET_STORE` is unset |
+| `VAULT_ADDR`         | No       | `http://127.0.0.1:8200` | Vault server URL (e.g. `http://vault:8200`) |
+| `VAULT_MOUNT_PATH`   | No       | `agentplane` | KV mount path inside Vault          |
 | `VAULT_TOKEN`        | No       | —       | Static token; skips AppRole login   |
 | `VAULT_ROLE_ID`      | No       | —       | AppRole Role ID (mutual with SECRET_ID) |
 | `VAULT_SECRET_ID`    | No       | —       | AppRole Secret ID (mutual with ROLE_ID) |
