@@ -70,14 +70,9 @@ func main() {
 	bus := observability.DefaultBus
 
 	// ClickHouse observability store initialization (optional).
+	chCfg := clickhouse.LoadFromEnv()
 	var chURL string
-	if chHost := os.Getenv("CLICKHOUSE_HOST"); chHost != "" {
-		chPort := 9000
-		if v := os.Getenv("CLICKHOUSE_PORT"); v != "" {
-			if n, err := strconv.Atoi(v); err == nil {
-				chPort = n
-			}
-		}
+	if chCfg.Enabled {
 		// HTTP interface used by the analytics endpoint (default 8123).
 		chHTTPPort := 8123
 		if v := os.Getenv("CLICKHOUSE_HTTP_PORT"); v != "" {
@@ -85,9 +80,9 @@ func main() {
 				chHTTPPort = n
 			}
 		}
-		chURL = fmt.Sprintf("http://%s:%d", chHost, chHTTPPort)
+		chURL = fmt.Sprintf("http://%s:%d", chCfg.Host, chHTTPPort)
 		// initialize native ClickHouse client
-		if client, err := clickhouse.New(chHost, chPort); err != nil {
+		if client, err := clickhouse.New(chCfg.Host, chCfg.Port); err != nil {
 			log.Printf("clickhouse native init error: %v", err)
 		} else {
 			adapter := observability.NewClickHouseAdapter(client)
@@ -95,7 +90,7 @@ func main() {
 				log.Printf("clickhouse adapter init error: %v", err)
 			} else {
 				observability.SetStore(adapter)
-				log.Printf("ClickHouse observability enabled (host=%s port=%d)", chHost, chPort)
+				log.Printf("ClickHouse observability enabled (host=%s port=%d)", chCfg.Host, chCfg.Port)
 			}
 		}
 	}

@@ -80,39 +80,12 @@ func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, r
 	start := time.Now()
 	var statusStr string = "success"
 	var inputTokens, outputTokens, totalTokens uint64
-	var model string
 
-	// Extract model from request body early (used in trace and cost calculation)
-	var reqObj map[string]interface{}
-	if json.Valid(body) {
-		if err := json.Unmarshal(body, &reqObj); err == nil {
-			if m, ok := reqObj["model"].(string); ok {
-				model = m
-			}
-		}
-	}
+	model := requestModel(body)
 
 	// Ensure we always record a trace (success or error paths)
 	defer func() {
-		latency := time.Since(start).Milliseconds()
-		// Estimate cost using global pricing table
-		estimatedCost := observability.EstimateRequestCost("openai", model, inputTokens, outputTokens)
-		t := observability.Trace{
-			TraceID:       requestID,
-			RequestID:     requestID,
-			Timestamp:     time.Now(),
-			Provider:      "openai",
-			Model:         model,
-			LatencyMS:     latency,
-			Status:        statusStr,
-			CacheHit:      false,
-			InputTokens:   inputTokens,
-			OutputTokens:  outputTokens,
-			TotalTokens:   totalTokens,
-			EstimatedCost: estimatedCost,
-			Route:         "/chat",
-		}
-		go observability.RecordTrace(t)
+		recordTraceAsync(requestID, model, statusStr, start, inputTokens, outputTokens, totalTokens)
 	}()
 
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageBuildingRequest, "started", fmt.Sprintf("POST %s", url)))
@@ -168,37 +141,7 @@ func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, r
 	bus.Publish(observability.NewDataEvent(requestID, observability.StageResponseSent, "completed", respData))
 
 	// Enforce capture mode for response payload
-	config := observability.GetCaptureConfig()
-	decision := observability.MakeCaptureDecision(config.ResponseMode, respBody, config.SampleRate)
-
-	if decision.ShouldCapture {
-		go func() {
-			var payload []byte
-			captureMode := decision.FinalMode
-
-			if decision.StorePayload {
-				// Full or sampled: compress the payload for storage
-				if compressed, err := observability.CompressPayload(respBody); err == nil {
-					payload = compressed
-				} else {
-					// fallback: store raw payload
-					payload = respBody
-				}
-			} else if decision.ComputeHash {
-				// hash_only mode: pass original data for hashing
-				// The adapter will compute hash but not store the blob
-				payload = respBody
-			}
-
-			_, _ = observability.CaptureResponsePayload(observability.Payload{
-				TraceID:     requestID,
-				RequestID:   requestID,
-				Timestamp:   time.Now(),
-				Payload:     payload,
-				CaptureMode: captureMode,
-			})
-		}()
-	}
+	captureResponseAsync(requestID, respBody)
 
 	// Extract usage tokens when present (updates variables captured by defer)
 	var reasoningTokens uint64
@@ -221,32 +164,29 @@ func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, r
 			cachedInputTokens = uint64(v)
 		}
 		// Record usage event with provider/model from request
-		go func() {
-			estimatedCost := observability.EstimateRequestCost("openai", model, inputTokens, outputTokens)
-			_ = observability.CaptureUsage(observability.UsageEvent{
-				TraceID:           requestID,
-				RequestID:         requestID,
-				Timestamp:         time.Now(),
-				Provider:          "openai",
-				Model:             model,
-				InputTokens:       inputTokens,
-				OutputTokens:      outputTokens,
-				TotalTokens:       totalTokens,
-				ReasoningTokens:   reasoningTokens,
-				CachedInputTokens: cachedInputTokens,
-				Cost:              estimatedCost,
-			})
-		}()
+		captureUsageAsync(requestID, model, inputTokens, outputTokens, totalTokens, reasoningTokens, cachedInputTokens)
 	}
 
 	return respBody, nil
 }
 
 func (p *OpenAIProvider) forwardStreaming(ctx context.Context, body []byte, requestID, url string, bus *observability.EventBus) ([]byte, error) {
+	start := time.Now()
+	var statusStr string = "success"
+	var inputTokens, outputTokens, totalTokens uint64
+
+	model := requestModel(body)
+
+	// Ensure we always record a trace (success or error paths)
+	defer func() {
+		recordTraceAsync(requestID, model, statusStr, start, inputTokens, outputTokens, totalTokens)
+	}()
+
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageBuildingRequest, "started", fmt.Sprintf("POST %s (stream)", url)))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
+		statusStr = "error"
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 
@@ -255,11 +195,13 @@ func (p *OpenAIProvider) forwardStreaming(ctx context.Context, body []byte, requ
 
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
+		statusStr = "error"
 		return nil, fmt.Errorf("sending request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		statusStr = fmt.Sprintf("http_%d", resp.StatusCode)
 		respBody, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("OpenAI returned status %d: %s", resp.StatusCode, string(respBody))
 	}
@@ -283,11 +225,23 @@ func (p *OpenAIProvider) forwardStreaming(ctx context.Context, body []byte, requ
 	}
 
 	if err := scanner.Err(); err != nil {
+		statusStr = "error"
 		return nil, fmt.Errorf("reading stream: %w", err)
 	}
 
 	structuredResponse := p.buildStructuredResponse(allChunks)
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageResponseSent, "completed", fmt.Sprintf("streamed %d chunks", len(allChunks))))
+
+	// Extract usage tokens from the stream (present when stream_options.include_usage is set).
+	inputTokens, outputTokens, totalTokens = parseStreamingUsage(allChunks)
+
+	// Enforce capture mode for response payload
+	captureResponseAsync(requestID, structuredResponse)
+
+	// Record usage event when the stream included a usage chunk.
+	if totalTokens > 0 {
+		captureUsageAsync(requestID, model, inputTokens, outputTokens, totalTokens, 0, 0)
+	}
 
 	return structuredResponse, nil
 }
@@ -385,6 +339,103 @@ func ParseUsageTokens(respBody []byte) (uint64, uint64, uint64) {
 				}
 			}
 		}
+	}
+	return in, out, total
+}
+
+// requestModel extracts the model name from an OpenAI-style request body.
+func requestModel(body []byte) string {
+	var reqObj map[string]interface{}
+	if json.Valid(body) {
+		if err := json.Unmarshal(body, &reqObj); err == nil {
+			if m, ok := reqObj["model"].(string); ok {
+				return m
+			}
+		}
+	}
+	return ""
+}
+
+// recordTraceAsync records a request trace without blocking the caller.
+func recordTraceAsync(requestID, model, status string, start time.Time, in, out, total uint64) {
+	latency := time.Since(start).Milliseconds()
+	estimatedCost := observability.EstimateRequestCost("openai", model, in, out)
+	go observability.RecordTrace(observability.Trace{
+		TraceID:       requestID,
+		RequestID:     requestID,
+		Timestamp:     start,
+		Provider:      "openai",
+		Model:         model,
+		LatencyMS:     latency,
+		Status:        status,
+		CacheHit:      false,
+		InputTokens:   in,
+		OutputTokens:  out,
+		TotalTokens:   total,
+		EstimatedCost: estimatedCost,
+		Route:         "/chat",
+	})
+}
+
+// captureResponseAsync stores a response payload according to the configured
+// capture mode, without blocking the caller.
+func captureResponseAsync(requestID string, respBody []byte) {
+	cfg := observability.GetCaptureConfig()
+	decision := observability.MakeCaptureDecision(cfg.ResponseMode, respBody, cfg.SampleRate)
+	if !decision.ShouldCapture {
+		return
+	}
+	go func() {
+		var payload []byte
+		if decision.StorePayload {
+			if compressed, err := observability.CompressPayload(respBody); err == nil {
+				payload = compressed
+			} else {
+				payload = respBody
+			}
+		} else if decision.ComputeHash {
+			payload = respBody
+		}
+		_, _ = observability.CaptureResponsePayload(observability.Payload{
+			TraceID:     requestID,
+			RequestID:   requestID,
+			Timestamp:   time.Now(),
+			Payload:     payload,
+			CaptureMode: decision.FinalMode,
+		})
+	}()
+}
+
+// captureUsageAsync records a usage event without blocking the caller.
+func captureUsageAsync(requestID, model string, in, out, total, reasoning, cached uint64) {
+	estimatedCost := observability.EstimateRequestCost("openai", model, in, out)
+	go func() {
+		_ = observability.CaptureUsage(observability.UsageEvent{
+			TraceID:           requestID,
+			RequestID:         requestID,
+			Timestamp:         time.Now(),
+			Provider:          "openai",
+			Model:             model,
+			InputTokens:       in,
+			OutputTokens:      out,
+			TotalTokens:       total,
+			ReasoningTokens:   reasoning,
+			CachedInputTokens: cached,
+			Cost:              estimatedCost,
+		})
+	}()
+}
+
+// parseStreamingUsage scans stream chunks for a usage object and returns the
+// most recent token counts. OpenAI emits usage in a final chunk when
+// stream_options.include_usage is set; other providers may omit it entirely.
+func parseStreamingUsage(chunks [][]byte) (in, out, total uint64) {
+	for _, c := range chunks {
+		i, o, t := ParseUsageTokens(c)
+		if i == 0 && o == 0 && t == 0 {
+			continue
+		}
+		in, out, total = i, o, t
 	}
 	return in, out, total
 }

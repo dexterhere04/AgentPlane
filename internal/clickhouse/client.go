@@ -89,14 +89,14 @@ func (c *Client) Query(ctx context.Context, query string, args ...interface{}) (
 func (c *Client) InsertTrace(ctx context.Context, trace *TraceEvent) error {
 	query := `
 		INSERT INTO agentplane.traces (
-			trace_id, request_id, user_id, organization_id, project_id,
+			trace_id, request_id, timestamp, user_id, organization_id, project_id,
 			provider, model, latency_ms, status, cache_hit,
 			input_tokens, output_tokens, total_tokens, estimated_cost,
 			guardrail_action, route
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	return c.Exec(ctx, query,
-		trace.TraceID, trace.RequestID, trace.UserID, trace.OrgID, trace.ProjectID,
+		trace.TraceID, trace.RequestID, trace.Timestamp, trace.UserID, trace.OrgID, trace.ProjectID,
 		trace.Provider, trace.Model, trace.LatencyMs, trace.Status, boolToUint8(trace.CacheHit),
 		trace.InputTokens, trace.OutputTokens, trace.TotalTokens, trace.EstimatedCost,
 		trace.GuardrailAction, trace.Route,

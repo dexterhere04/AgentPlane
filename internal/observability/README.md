@@ -277,6 +277,8 @@ Verify `trace_id` values match across tables and payloads are compressed (compre
 | --------------------------- | ------ | ------------- | ------------------------------------------ |
 | `CLICKHOUSE_HOST`           | string | (none)        | `127.0.0.1`                                |
 | `CLICKHOUSE_PORT`           | int    | 9000          | `9000`                                     |
+| `CLICKHOUSE_HTTP_PORT`      | int    | 8123          | `8123` (analytics endpoint)                |
+| `CLICKHOUSE_ENABLED`        | bool   | (auto)        | `false` (force-disable observability)      |
 | `OBSERVE_PROMPT_MODE`       | string | `full`        | `full`, `disabled`, `sampled`, `hash_only` |
 | `OBSERVE_RESPONSE_MODE`     | string | `full`        | `full`, `disabled`, `sampled`, `hash_only` |
 | `OBSERVE_SAMPLE_RATE`       | float  | 1.0           | `0.1` (10%)                                |
