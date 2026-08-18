@@ -78,6 +78,14 @@ func main() {
 				chPort = n
 			}
 		}
+		// HTTP interface used by the analytics endpoint (default 8123).
+		chHTTPPort := 8123
+		if v := os.Getenv("CLICKHOUSE_HTTP_PORT"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				chHTTPPort = n
+			}
+		}
+		chURL = fmt.Sprintf("http://%s:%d", chHost, chHTTPPort)
 		// initialize native ClickHouse client
 		if client, err := clickhouse.New(chHost, chPort); err != nil {
 			log.Printf("clickhouse native init error: %v", err)
@@ -258,7 +266,7 @@ func main() {
 					hours = n
 				}
 			}
-			q := fmt.Sprintf("SELECT count() AS cnt FROM traces WHERE timestamp >= now() - INTERVAL %d HOUR", hours)
+			q := fmt.Sprintf("SELECT count() AS cnt FROM agentplane.traces WHERE timestamp >= now() - INTERVAL %d HOUR", hours)
 			resp, err := http.Post(chURL+"/?query="+url.QueryEscape(q), "", nil)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadGateway)

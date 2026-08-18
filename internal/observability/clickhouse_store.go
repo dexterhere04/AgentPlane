@@ -2,9 +2,9 @@ package observability
 
 import (
 	"context"
-	"io/ioutil"
 	"log"
-	"path/filepath"
+	"os"
+	"strings"
 
 	ch "github.com/dexterhere04/AgentPlane/internal/clickhouse"
 )
@@ -19,20 +19,45 @@ func NewClickHouseAdapter(client *ch.Client) Store {
 
 func (c *clickhouseAdapter) Init() error {
 	// Try to read migration SQL and execute to ensure tables exist.
-	path := filepath.FromSlash("migrations/clickhouse/001_create_tables.sql")
-	b, err := ioutil.ReadFile(path)
+	path := "migrations/clickhouse/001_create_tables.sql"
+	b, err := os.ReadFile(path)
 	if err != nil {
 		// migration file not available; skip automatic creation
 		log.Printf("observability: migration file not found at %s, skipping automatic schema init", path)
 		return nil
 	}
-	// Execute the migration body as-is. ClickHouse driver supports Exec of full script.
-	if err := c.client.Exec(context.Background(), string(b)); err != nil {
-		log.Printf("observability: error initializing ClickHouse schema: %v", err)
-		return err
+	// The ClickHouse native protocol does not support multi-statement Exec,
+	// so split the script into individual statements and execute each one.
+	for _, stmt := range splitSQLStatements(string(b)) {
+		if err := c.client.Exec(context.Background(), stmt); err != nil {
+			log.Printf("observability: error initializing ClickHouse schema: %v", err)
+			return err
+		}
 	}
 	log.Println("observability: ClickHouse schema initialized successfully")
 	return nil
+}
+
+// splitSQLStatements splits a SQL script into individual statements on
+// semicolons, stripping comment lines and blank statements.
+func splitSQLStatements(script string) []string {
+	var out []string
+	for _, stmt := range strings.Split(script, ";") {
+		var lines []string
+		for _, line := range strings.Split(stmt, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" || strings.HasPrefix(trimmed, "--") {
+				continue
+			}
+			lines = append(lines, trimmed)
+		}
+		cleaned := strings.TrimSpace(strings.Join(lines, "\n"))
+		if cleaned == "" {
+			continue
+		}
+		out = append(out, cleaned)
+	}
+	return out
 }
 
 func (c *clickhouseAdapter) Close() error {
@@ -217,7 +242,6 @@ func (c *clickhouseAdapter) StoreUsage(u UsageEvent) error {
 		Model:             u.Model,
 		InputTokens:       uint32(u.InputTokens),
 		OutputTokens:      uint32(u.OutputTokens),
-		TotalTokens:       uint32(u.TotalTokens),
 		ReasoningTokens:   uint32(u.ReasoningTokens),
 		CachedInputTokens: uint32(u.CachedInputTokens),
 		EstimatedCost:     u.Cost,

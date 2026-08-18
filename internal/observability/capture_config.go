@@ -26,8 +26,8 @@ type CaptureConfig struct {
 }
 
 var (
-	configMu sync.RWMutex
-	config   CaptureConfig = CaptureConfig{
+	configMu      sync.RWMutex
+	captureConfig CaptureConfig = CaptureConfig{
 		PromptMode:   CaptureModeFull,
 		ResponseMode: CaptureModeFull,
 		SampleRate:   1.0,
@@ -58,21 +58,21 @@ func init() {
 	if mode := os.Getenv("OBSERVE_PROMPT_MODE"); mode != "" {
 		if m := parseCaptureMode(mode); m != "" {
 			configMu.Lock()
-			config.PromptMode = m
+			captureConfig.PromptMode = m
 			configMu.Unlock()
 		}
 	}
 	if mode := os.Getenv("OBSERVE_RESPONSE_MODE"); mode != "" {
 		if m := parseCaptureMode(mode); m != "" {
 			configMu.Lock()
-			config.ResponseMode = m
+			captureConfig.ResponseMode = m
 			configMu.Unlock()
 		}
 	}
 	if rate := os.Getenv("OBSERVE_SAMPLE_RATE"); rate != "" {
 		if f, err := strconv.ParseFloat(rate, 64); err == nil && f >= 0.0 && f <= 1.0 {
 			configMu.Lock()
-			config.SampleRate = f
+			captureConfig.SampleRate = f
 			configMu.Unlock()
 		}
 	}
@@ -82,12 +82,12 @@ func init() {
 func GetCaptureConfig() CaptureConfig {
 	configMu.RLock()
 	defer configMu.RUnlock()
-	return config
+	return captureConfig
 }
 
 // SetCaptureConfig updates the capture configuration
 func SetCaptureConfig(c CaptureConfig) {
 	configMu.Lock()
 	defer configMu.Unlock()
-	config = c
+	captureConfig = c
 }

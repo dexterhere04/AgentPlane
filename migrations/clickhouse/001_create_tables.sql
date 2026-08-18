@@ -91,9 +91,9 @@ ORDER BY (created_at, provider, model)
 TTL created_at + INTERVAL 365 DAY;
 
 -- Indices for fast queries
-ALTER TABLE agentplane.traces ADD INDEX IF NOT EXISTS idx_org (organization_id) TYPE set(1000000) GRANULARITY 1;
-ALTER TABLE agentplane.traces ADD INDEX IF NOT EXISTS idx_user (user_id) TYPE set(1000000) GRANULARITY 1;
-ALTER TABLE agentplane.traces ADD INDEX IF NOT EXISTS idx_model (model) TYPE set(1000) GRANULARITY 1;
+ALTER TABLE agentplane.traces ADD INDEX IF NOT EXISTS idx_org (organization_id) TYPE bloom_filter GRANULARITY 1;
+ALTER TABLE agentplane.traces ADD INDEX IF NOT EXISTS idx_user (user_id) TYPE bloom_filter GRANULARITY 1;
+ALTER TABLE agentplane.traces ADD INDEX IF NOT EXISTS idx_model (model) TYPE bloom_filter GRANULARITY 1;
 ALTER TABLE agentplane.prompt_events ADD INDEX IF NOT EXISTS idx_trace (trace_id) TYPE bloom_filter GRANULARITY 1;
 ALTER TABLE agentplane.response_events ADD INDEX IF NOT EXISTS idx_trace (trace_id) TYPE bloom_filter GRANULARITY 1;
 ALTER TABLE agentplane.tool_call_events ADD INDEX IF NOT EXISTS idx_trace (trace_id) TYPE bloom_filter GRANULARITY 1;
