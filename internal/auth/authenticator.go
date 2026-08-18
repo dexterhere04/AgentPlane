@@ -96,6 +96,8 @@ func (a *Authenticator) Authenticate(
 // into key ID and secret.
 func parseAPIKey(fullKey string) (string, string, error) {
 	const prefix = "ap_live_"
+	const keyIDLength = 11
+	const secretLength = 43
 
 	if !strings.HasPrefix(fullKey, prefix) {
 		return "", "", ErrInvalidAPIKey
@@ -103,13 +105,16 @@ func parseAPIKey(fullKey string) (string, string, error) {
 
 	remaining := strings.TrimPrefix(fullKey, prefix)
 
-	separator := strings.IndexByte(remaining, '_')
-	if separator <= 0 || separator == len(remaining)-1 {
+	if len(remaining) != keyIDLength+1+secretLength {
 		return "", "", ErrInvalidAPIKey
 	}
 
-	keyID := remaining[:separator]
-	secret := remaining[separator+1:]
+	if remaining[keyIDLength] != '_' {
+		return "", "", ErrInvalidAPIKey
+	}
+
+	keyID := remaining[:keyIDLength]
+	secret := remaining[keyIDLength+1:]
 
 	if keyID == "" || secret == "" {
 		return "", "", ErrInvalidAPIKey
