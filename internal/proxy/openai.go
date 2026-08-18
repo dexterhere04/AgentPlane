@@ -77,6 +77,44 @@ func (p *OpenAIProvider) isStreaming(body []byte) bool {
 }
 
 func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, requestID, url string, bus *observability.EventBus) ([]byte, error) {
+	start := time.Now()
+	var statusStr string = "success"
+	var inputTokens, outputTokens, totalTokens uint64
+	var model string
+
+	// Extract model from request body early (used in trace and cost calculation)
+	var reqObj map[string]interface{}
+	if json.Valid(body) {
+		if err := json.Unmarshal(body, &reqObj); err == nil {
+			if m, ok := reqObj["model"].(string); ok {
+				model = m
+			}
+		}
+	}
+
+	// Ensure we always record a trace (success or error paths)
+	defer func() {
+		latency := time.Since(start).Milliseconds()
+		// Estimate cost using global pricing table
+		estimatedCost := observability.EstimateRequestCost("openai", model, inputTokens, outputTokens)
+		t := observability.Trace{
+			TraceID:       requestID,
+			RequestID:     requestID,
+			Timestamp:     time.Now(),
+			Provider:      "openai",
+			Model:         model,
+			LatencyMS:     latency,
+			Status:        statusStr,
+			CacheHit:      false,
+			InputTokens:   inputTokens,
+			OutputTokens:  outputTokens,
+			TotalTokens:   totalTokens,
+			EstimatedCost: estimatedCost,
+			Route:         "/chat",
+		}
+		go observability.RecordTrace(t)
+	}()
+
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageBuildingRequest, "started", fmt.Sprintf("POST %s", url)))
 	buildStart := time.Now()
 
@@ -117,16 +155,89 @@ func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, r
 	bus.Publish(observability.NewDurationEvent(requestID, observability.StageReadingResponse, "completed", time.Since(readStart)))
 
 	if resp.StatusCode != http.StatusOK {
+		statusStr = fmt.Sprintf("http_%d", resp.StatusCode)
 		bus.Publish(observability.NewMessageEvent(requestID, observability.StageValidatingStatus, "error", fmt.Sprintf("HTTP %d", resp.StatusCode)))
 		return nil, fmt.Errorf("OpenAI returned status %d: %s", resp.StatusCode, string(respBody))
 	}
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageValidatingStatus, "completed", "HTTP 200"))
 
-	var respData interface{}
+	var respData map[string]interface{}
 	if json.Valid(respBody) {
 		json.Unmarshal(respBody, &respData)
 	}
 	bus.Publish(observability.NewDataEvent(requestID, observability.StageResponseSent, "completed", respData))
+
+	// Enforce capture mode for response payload
+	config := observability.GetCaptureConfig()
+	decision := observability.MakeCaptureDecision(config.ResponseMode, respBody, config.SampleRate)
+
+	if decision.ShouldCapture {
+		go func() {
+			var payload []byte
+			captureMode := decision.FinalMode
+
+			if decision.StorePayload {
+				// Full or sampled: compress the payload for storage
+				if compressed, err := observability.CompressPayload(respBody); err == nil {
+					payload = compressed
+				} else {
+					// fallback: store raw payload
+					payload = respBody
+				}
+			} else if decision.ComputeHash {
+				// hash_only mode: pass original data for hashing
+				// The adapter will compute hash but not store the blob
+				payload = respBody
+			}
+
+			_, _ = observability.CaptureResponsePayload(observability.Payload{
+				TraceID:     requestID,
+				RequestID:   requestID,
+				Timestamp:   time.Now(),
+				Payload:     payload,
+				CaptureMode: captureMode,
+			})
+		}()
+	}
+
+	// Extract usage tokens when present (updates variables captured by defer)
+	var reasoningTokens uint64
+	var cachedInputTokens uint64
+	if usage, ok := respData["usage"].(map[string]interface{}); ok {
+		if v, ok := usage["prompt_tokens"].(float64); ok {
+			inputTokens = uint64(v)
+		}
+		if v, ok := usage["completion_tokens"].(float64); ok {
+			outputTokens = uint64(v)
+		}
+		if v, ok := usage["total_tokens"].(float64); ok {
+			totalTokens = uint64(v)
+		}
+		// Extract extended token fields if provider supplies them
+		if v, ok := usage["reasoning_tokens"].(float64); ok {
+			reasoningTokens = uint64(v)
+		}
+		if v, ok := usage["cached_input_tokens"].(float64); ok {
+			cachedInputTokens = uint64(v)
+		}
+		// Record usage event with provider/model from request
+		go func() {
+			estimatedCost := observability.EstimateRequestCost("openai", model, inputTokens, outputTokens)
+			_ = observability.CaptureUsage(observability.UsageEvent{
+				TraceID:           requestID,
+				RequestID:         requestID,
+				Timestamp:         time.Now(),
+				Provider:          "openai",
+				Model:             model,
+				InputTokens:       inputTokens,
+				OutputTokens:      outputTokens,
+				TotalTokens:       totalTokens,
+				ReasoningTokens:   reasoningTokens,
+				CachedInputTokens: cachedInputTokens,
+				Cost:              estimatedCost,
+			})
+		}()
+	}
 
 	return respBody, nil
 }
@@ -254,4 +365,26 @@ func (p *OpenAIProvider) buildStructuredResponse(chunks [][]byte) []byte {
 
 	result, _ := json.Marshal(resp)
 	return result
+}
+
+// ParseUsageTokens extracts prompt/completion/total tokens from an OpenAI-style response body.
+func ParseUsageTokens(respBody []byte) (uint64, uint64, uint64) {
+	var in, out, total uint64
+	var respData map[string]interface{}
+	if json.Valid(respBody) {
+		if err := json.Unmarshal(respBody, &respData); err == nil {
+			if usage, ok := respData["usage"].(map[string]interface{}); ok {
+				if v, ok := usage["prompt_tokens"].(float64); ok {
+					in = uint64(v)
+				}
+				if v, ok := usage["completion_tokens"].(float64); ok {
+					out = uint64(v)
+				}
+				if v, ok := usage["total_tokens"].(float64); ok {
+					total = uint64(v)
+				}
+			}
+		}
+	}
+	return in, out, total
 }

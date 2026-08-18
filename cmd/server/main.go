@@ -2,8 +2,17 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"net/url"
+	"os"
+	"strconv"
+
 	"github.com/dexterhere04/AgentPlane/internal/api"
 	"github.com/dexterhere04/AgentPlane/internal/auth"
+	"github.com/dexterhere04/AgentPlane/internal/clickhouse"
 	"github.com/dexterhere04/AgentPlane/internal/config"
 	"github.com/dexterhere04/AgentPlane/internal/dashboard"
 	"github.com/dexterhere04/AgentPlane/internal/db"
@@ -25,10 +34,6 @@ import (
 	"github.com/dexterhere04/AgentPlane/internal/users"
 	"github.com/dexterhere04/AgentPlane/migrations"
 	"github.com/joho/godotenv"
-
-	"log"
-	"net/http"
-	"os"
 )
 
 func main() {
@@ -63,6 +68,29 @@ func main() {
 	}
 
 	bus := observability.DefaultBus
+
+	// ClickHouse observability store initialization (optional).
+	var chURL string
+	if chHost := os.Getenv("CLICKHOUSE_HOST"); chHost != "" {
+		chPort := 9000
+		if v := os.Getenv("CLICKHOUSE_PORT"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				chPort = n
+			}
+		}
+		// initialize native ClickHouse client
+		if client, err := clickhouse.New(chHost, chPort); err != nil {
+			log.Printf("clickhouse native init error: %v", err)
+		} else {
+			adapter := observability.NewClickHouseAdapter(client)
+			if err := adapter.Init(); err != nil {
+				log.Printf("clickhouse adapter init error: %v", err)
+			} else {
+				observability.SetStore(adapter)
+				log.Printf("ClickHouse observability enabled (host=%s port=%d)", chHost, chPort)
+			}
+		}
+	}
 
 	if err := config.ConfigureSecretStore(); err != nil {
 		log.Fatalf("Secret store: %v", err)
@@ -222,6 +250,26 @@ func main() {
 		),
 	)
 	mux.HandleFunc("/events", observability.SSEHandler(bus))
+	if chURL != "" {
+		mux.HandleFunc("/analytics/traces_count", func(w http.ResponseWriter, r *http.Request) {
+			hours := 24
+			if v := r.URL.Query().Get("hours"); v != "" {
+				if n, err := strconv.Atoi(v); err == nil {
+					hours = n
+				}
+			}
+			q := fmt.Sprintf("SELECT count() AS cnt FROM traces WHERE timestamp >= now() - INTERVAL %d HOUR", hours)
+			resp, err := http.Post(chURL+"/?query="+url.QueryEscape(q), "", nil)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+			defer resp.Body.Close()
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(resp.StatusCode)
+			io.Copy(w, resp.Body)
+		})
+	}
 	mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(dashboard.HTML))
