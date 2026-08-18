@@ -138,7 +138,17 @@ func main() {
 		"/chat",
 		authenticator.Middleware(http.HandlerFunc(handlers.Chat)),
 	)
-	mux.Handle("/provision/user", handlers.ProvisionUser(provisioner))
+	// SECURITY: /provision/user creates users and mints API keys, so it is
+	// gated behind the same admin authentication as /admin/api-keys/revoke.
+	// It must never be reachable without adminToken — this is what mints
+	// the credentials that everything else in the gateway trusts.
+	mux.Handle(
+		"/provision/user",
+		auth.AdminMiddleware(
+			adminToken,
+			handlers.ProvisionUser(provisioner),
+		),
+	)
 	mux.Handle(
 		"/admin/api-keys/revoke",
 		auth.AdminMiddleware(
