@@ -2,5 +2,8 @@
 build/
 bin/
 logs/
-server
-agentplane
+
+# Compiled binaries (anchored to the repo root so they don't also match
+# the cmd/server/ source directory).
+/server
+/agentplane
