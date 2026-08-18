@@ -11,11 +11,14 @@ AgentPlane is an **AI Gateway** that sits between AI applications and Large Lang
 
 Instead of applications communicating directly with OpenAI, Anthropic, Gemini, or other providers, they communicate with AgentPlane. The gateway is responsible for securely forwarding requests to the appropriate provider.
 
-The first version (V0) intentionally focuses on doing **one thing well**:
+The gateway:
 
-> Accept an HTTP request, attach the provider API key, forward it to the LLM provider, and return the response.
+> Accepts an HTTP request, authenticates the caller's API key, runs configurable
+> guardrails, attaches the provider API key, forwards the request to the LLM
+> provider, and returns the response.
 
-No request transformation, authentication, routing, or databases are included in this version.
+Request-level authentication (API keys mapped to users) and a PostgreSQL
+backend for users and API keys are included.
 
 ---
 
@@ -50,28 +53,27 @@ No request transformation, authentication, routing, or databases are included in
 agentplane/
 │
 ├── cmd/
-│   └── server/
+│   ├── server/
+│   │   └── main.go
+│   └── keygeneration/
 │       └── main.go
 │
 ├── internal/
-│   ├── config/
-│   │   └── config.go
-│   │
-│   ├── handlers/
-│   │   └── chat.go
-│   │
-│   ├── guardrail/
-│   │   ├── guardrail.go
-│   │   ├── pipeline.go
-│   │   ├── prompt_injection.go
-│   │   ├── secrets.go
-│   │   ├── pii.go
-│   │   └── content_moderation.go
-│   │
-│   └── proxy/
-│       └── openai.go
+│   ├── config/          # configuration + secret-store wiring
+│   ├── db/              # Postgres pool + embedded migrations
+│   ├── api/             # API-key generation + persistence
+│   ├── auth/            # API-key authentication + middleware
+│   ├── users/           # user persistence
+│   ├── provisioning/    # user + API-key provisioning flow
+│   ├── handlers/        # HTTP handlers (chat, provision, revoke, metrics)
+│   ├── guardrail/       # guardrail pipeline + providers
+│   ├── observability/   # event bus / SSE
+│   ├── proxy/           # provider forwarding
+│   └── secrets/         # secret stores (Vault, AWS, Azure, env, file)
 │
+├── migrations/          # embedded SQL migrations
 ├── .env
+├── .env.example
 ├── .gitignore
 ├── go.mod
 └── README.md
@@ -428,10 +430,59 @@ Each package owns exactly one concern.
 | `cmd/server` | Application startup      |
 | `config`     | Configuration management |
 | `handlers`   | HTTP request handling    |
+| `auth`       | API-key authentication   |
+| `users`      | User persistence         |
+| `api`        | API-key lifecycle        |
+| `provisioning` | User + key provisioning |
+| `db`         | Postgres pool + migrations |
 | `guardrail`  | Policy enforcement       |
 | `proxy`      | Provider communication   |
 
 Because responsibilities are isolated, changing one package should not require changes to others.
+
+---
+
+# Authentication & Database
+
+AgentPlane authenticates callers with API keys and persists users and keys in
+PostgreSQL.
+
+## Endpoints
+
+| Method | Path                     | Auth              | Purpose                                    |
+| ------ | ------------------------ | ----------------- | ------------------------------------------ |
+| POST   | `/chat`                  | Bearer API key    | Forward a request to the LLM provider      |
+| POST   | `/provision/user`        | Bearer admin token | Create a user and mint an API key          |
+| POST   | `/admin/api-keys/revoke` | Bearer admin token | Revoke an API key by `key_id`              |
+| GET    | `/events`                | —                 | Server-sent event stream                   |
+| GET    | `/dashboard`             | —                 | HTML dashboard                             |
+| GET    | `/metrics`               | —                 | Metrics                                    |
+
+## Configuration
+
+Required environment variables are documented in `.env.example`:
+
+- `DATABASE_URL` — PostgreSQL connection string (tables are created
+  automatically on startup via the embedded migrations in `migrations/`).
+- `API_KEY_PEPPER` — server-side secret mixed into API-key hashes.
+- `AGENTPLANE_ADMIN_TOKEN` — token for the admin endpoints.
+- `OPENAI_API_KEY` — upstream provider key (loaded via the configured secret
+  store).
+
+## Provisioning flow
+
+```text
+POST /provision/user   (admin token)
+        │
+        ▼
+Create user ──► Generate API key ──► Store key_id + secret_hash only
+        │
+        ▼
+Return full API key (shown exactly once)
+```
+
+Only the SHA-256 hash of the key secret (mixed with the pepper) is stored;
+the plaintext key is returned once and never persisted.
 
 ---
 
