@@ -99,14 +99,52 @@ Returned when the request body cannot be read.
 Failed to read request body
 ```
 
+#### 403 Forbidden — Guardrail Blocked
+
+Returned when a guardrail blocks the request or response.
+
+```json
+{
+  "error": {
+    "type": "guardrail_blocked",
+    "message": "guardrail blocked: potential prompt injection detected",
+    "guardrail": "prompt_injection",
+    "findings": [
+      {
+        "guardrail": "prompt_injection",
+        "type": "prompt_injection",
+        "severity": "high",
+        "start": 0,
+        "end": 28,
+        "entity": "injection_attempt",
+        "value": "ignore previous instructions"
+      }
+    ]
+  }
+}
+```
+
+#### 503 Service Unavailable — Guardrail Error
+
+Returned when a mandatory guardrail encounters an internal error (fail-closed).
+
+```json
+{
+  "error": {
+    "type": "guardrail_unavailable",
+    "message": "Request could not be evaluated by mandatory security controls"
+  }
+}
+```
+
 #### 502 Bad Gateway
 
-Returned when the proxy fails to communicate with OpenAI. The response body contains the error message.
+Returned when the proxy fails to communicate with the upstream provider. The response body contains the error message.
 
 Possible causes:
 - `OPENAI_API_KEY` environment variable not set
 - Network connectivity issues
-- OpenAI API returns a non-200 status code (rate limiting, auth errors, etc.)
+- Provider API returns a non-200 status code (rate limiting, auth errors, etc.)
 - Request timeout (60 seconds)
 
 ### Example: curl
