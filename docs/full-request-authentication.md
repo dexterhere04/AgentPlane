@@ -33,25 +33,24 @@ The selected architecture keeps API key persistence, authentication, provisionin
 | File | Purpose |
 |---|---|
 | `internal/api/store.go` | Persists API key records, including creation and application-level revocation. Defines `APIKeyRecord`, status constants, and database errors. |
-| `internal/api/apikey.go` | Generates API key material and provides the hashing implementation used for secret storage and verification. |
+| `internal/api/api_generation.go` | Generates API key material and provides the hashing implementation used for secret storage and verification. |
 | `internal/api/store_integration_test.go` | Real PostgreSQL integration coverage for API key creation, hash-only storage, and revocation. |
 | `internal/auth/authenticator.go` | Parses and verifies API keys, checks status/revocation/expiration, resolves the owning user, and performs constant-time hash comparison. |
 | `internal/auth/store.go` | Looks up authentication credentials from PostgreSQL and updates `last_used_at` after successful authentication. |
 | `internal/auth/middleware.go` | Extracts `Authorization: Bearer <api-key>`, authenticates it, and attaches the resolved user to request context. |
-| `internal/auth/*_test.go` | Unit and integration coverage for valid, invalid, missing, empty, and revoked API keys plus context behavior. |
+| `internal/auth/middleware_test.go`, `internal/auth/middleware_integration_test.go`, `internal/auth/last_used_integration_test.go` | Unit and integration coverage for valid, invalid, missing, empty, and revoked API keys plus context behavior. |
 | `internal/provisioning/provisioning.go` | Orchestrates user creation, API-key generation, persistence, and bounded key-ID collision retry, while ensuring only the generated plaintext key is returned to the caller. |
 | `internal/handlers/provision.go` | HTTP provisioning endpoint at `POST /provision/user`. |
 | `internal/handlers/revoke.go` | HTTP administrative revocation endpoint at `POST /admin/api-keys/revoke`. |
 | `internal/auth/admin.go` | Validates the configured administrative token for protected revocation operations. |
 | `internal/config/admin_token.go` | Loads the administrative token configuration. |
-| `internal/config/apikey_pepper.go` | Loads and validates `API_KEY_PEPPER`. |
+| `internal/config/pepper.go` | Loads and validates `API_KEY_PEPPER`. |
 | `internal/users/store.go` | Persists users and performs application-level validation/defaulting for user creation. |
-| `internal/users/lookup.go` | Resolves a user by ID for provisioning and authentication. |
 | `internal/users/store_test.go` | Unit tests for user validation and defaulting behavior. |
 | `internal/provisioning/provisioning_integration_test.go` | Real PostgreSQL integration coverage for end-to-end user and API-key provisioning. |
 | `migrations/000002_create_api_keys_table.up.sql` | Defines the PostgreSQL API key schema, including `user_id`, `secret_hash`, `status`, `expires_at`, `last_used_at`, and `revoked_at`. |
 | `cmd/server/main.go` | Registers the provisioning, authentication, chat, events, dashboard, and administrative revocation HTTP routes. |
-| `docs/authentication-flow.md` | Documents the request/authentication flow and bearer-key handling. |
+| `docs/full-request-authentication.md` | Documents the request/authentication flow and bearer-key handling. |
 | `Readme.md` | Updated project-level API/authentication documentation where applicable. |
 
 ## 3. Decisions and rationale
