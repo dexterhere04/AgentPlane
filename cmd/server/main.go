@@ -86,27 +86,10 @@ func main() {
 	apiKeyStore := api.NewStore(pool)
 	authStore := auth.NewStore(pool)
 
-	pepper, err := config.KeyPepper()
-	if err != nil {
-		log.Fatalf("API key pepper: %v", err)
-	}
-
 	adminToken, err := config.AdminToken()
 	if err != nil {
 		log.Fatalf("Admin token: %v", err)
 	}
-
-	provisioner := provisioning.NewProvisioner(
-		userStore,
-		apiKeyStore,
-		pepper,
-	)
-
-	authenticator := auth.NewAuthenticator(
-		authStore,
-		userStore,
-		pepper,
-	)
 
 	bus := observability.DefaultBus
 
@@ -139,6 +122,23 @@ func main() {
 		log.Printf("Secrets backend: Vault (%s)", envOrDefault("VAULT_ADDR", "http://127.0.0.1:8200"))
 		config.SetStore(newVaultStore())
 	}
+
+	pepper, err := config.KeyPepper()
+	if err != nil {
+		log.Fatalf("API key pepper: %v", err)
+	}
+
+	provisioner := provisioning.NewProvisioner(
+		userStore,
+		apiKeyStore,
+		pepper,
+	)
+
+	authenticator := auth.NewAuthenticator(
+		authStore,
+		userStore,
+		pepper,
+	)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -250,32 +250,32 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-mux.Handle(
-	"/chat",
-	authenticator.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		handlers.Chat(w, r, enforcement, mandatoryInput, mandatoryOutput, provider)
-	})),
-)
+	mux.Handle(
+		"/chat",
+		authenticator.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handlers.Chat(w, r, enforcement, mandatoryInput, mandatoryOutput, provider)
+		})),
+	)
 
-// SECURITY: /provision/user creates users and mints API keys, so it is
-// gated behind the same admin authentication as /admin/api-keys/revoke.
-// It must never be reachable without adminToken — this is what mints
-// the credentials that everything else in the gateway trusts.
-mux.Handle(
-	"/provision/user",
-	auth.AdminMiddleware(
-		adminToken,
-		handlers.ProvisionUser(provisioner),
-	),
-)
+	// SECURITY: /provision/user creates users and mints API keys, so it is
+	// gated behind the same admin authentication as /admin/api-keys/revoke.
+	// It must never be reachable without adminToken — this is what mints
+	// the credentials that everything else in the gateway trusts.
+	mux.Handle(
+		"/provision/user",
+		auth.AdminMiddleware(
+			adminToken,
+			handlers.ProvisionUser(provisioner),
+		),
+	)
 
-mux.Handle(
-	"/admin/api-keys/revoke",
-	auth.AdminMiddleware(
-		adminToken,
-		handlers.RevokeAPIKey(apiKeyStore),
-	),
-)
+	mux.Handle(
+		"/admin/api-keys/revoke",
+		auth.AdminMiddleware(
+			adminToken,
+			handlers.RevokeAPIKey(apiKeyStore),
+		),
+	)
 	mux.HandleFunc("/events", observability.SSEHandler(bus))
 	mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

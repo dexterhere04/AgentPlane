@@ -15,7 +15,6 @@ import (
 	"github.com/dexterhere04/AgentPlane/internal/api"
 	"github.com/dexterhere04/AgentPlane/internal/auth"
 	"github.com/dexterhere04/AgentPlane/internal/db"
-	"github.com/dexterhere04/AgentPlane/internal/handlers"
 	"github.com/dexterhere04/AgentPlane/internal/provisioning"
 	"github.com/dexterhere04/AgentPlane/internal/users"
 )
@@ -103,9 +102,11 @@ func TestProvisionChatRevokeLifecycle(t *testing.T) {
 	})
 
 	// 2. Build the protected /chat handler.
-	protectedChat := authenticator.Middleware(
-		http.HandlerFunc(handlers.Chat),
-	)
+	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	protectedChat := authenticator.Middleware(testHandler)
 
 	// We deliberately use a fake downstream provider here. The purpose of
 	// this test is authentication/revocation, not OpenAI connectivity.

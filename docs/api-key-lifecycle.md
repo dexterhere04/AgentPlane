@@ -37,12 +37,12 @@ user resolution, request-context attachment, usage tracking, and revocation.
            │
            │ Generate API key
            ▼
-┌─────────────────────────────┐
-│ API Key Generator           │
-│ internal/api/apikey.go      │
-│                             │
-│ ap_live_<key_id>_<secret>   │
-└──────────┬──────────────────┘
+┌───────────────────────────────┐
+│ API Key Generator             │
+│ internal/api/api_generation.go│
+│                               │
+│ ap_live_<key_id>_<secret>     │
+└──────────┬────────────────────┘
            │
            │ Split into:
            │
@@ -220,7 +220,7 @@ After revocation:
 
 | Component | Location | Responsibility |
 |---|---|---|
-| API-key generation | `internal/api/apikey.go` | Generates the API key |
+| API-key generation | `internal/api/api_generation.go` | Generates the API key |
 | API-key persistence | `internal/api/store.go` | Creates and revokes keys |
 | Provisioning | `internal/provisioning/` | Creates users and their API keys |
 | Credential lookup | `internal/auth/store.go` | Loads authentication data |
