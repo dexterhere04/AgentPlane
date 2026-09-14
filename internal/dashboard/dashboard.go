@@ -300,6 +300,40 @@ main{padding:20px 28px 40px;max-width:1440px;margin:0 auto}
   .chat-section{grid-template-columns:1fr}
   .guardrails-grid{grid-template-columns:1fr}
 }
+
+/* Dashboard shell / information architecture */
+.app-shell{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:calc(100vh - 54px)}
+.sidebar{border-right:1px solid var(--border);background:var(--surface);padding:18px 12px;position:sticky;top:54px;height:calc(100vh - 54px);align-self:start}
+.sidebar-label{padding:0 10px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:var(--text-dim);font-weight:700}
+.primary-nav{display:flex;flex-direction:column;gap:3px}
+.nav-item{appearance:none;width:100%;border:1px solid transparent;background:transparent;color:var(--text-dim);font:600 12px/1.2 inherit;text-align:left;padding:10px;border-radius:7px;cursor:pointer;display:flex;align-items:center;gap:10px;outline:none}
+.nav-item:hover{background:var(--surface2);color:var(--text)}
+.nav-item:focus-visible{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-dim);color:var(--text-bright)}
+.nav-item.active{background:var(--accent-dim);border-color:rgba(104,136,240,.2);color:var(--text-bright)}
+.nav-icon{width:18px;text-align:center;color:inherit;font-size:13px}
+.content-area{min-width:0}
+.page-section{display:none}
+.page-section.active{display:block}
+.page-header{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;margin-bottom:20px}
+.page-eyebrow{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--text-dim);font-weight:700;margin-bottom:5px}
+.page-title{font-family:inherit;font-size:22px;line-height:1.2;letter-spacing:-.02em;color:var(--text-bright);font-weight:700}
+.page-description{margin-top:6px;color:var(--text-dim);font-size:11px;line-height:1.5;max-width:650px}
+.section-stack{display:flex;flex-direction:column}
+.section-note{font-size:11px;color:var(--text-dim);padding:28px;border:1px dashed var(--border-light);border-radius:10px;background:var(--surface);text-align:center}
+@media(max-width:900px){
+  .app-shell{grid-template-columns:1fr}
+  .sidebar{position:sticky;top:54px;height:auto;border-right:0;border-bottom:1px solid var(--border);padding:8px 12px;z-index:15}
+  .sidebar-label{display:none}
+  .primary-nav{flex-direction:row;overflow-x:auto;padding-bottom:1px}
+  .nav-item{width:auto;white-space:nowrap;padding:9px 11px}
+  .nav-icon{display:none}
+}
+@media(max-width:600px){
+  main{padding:16px 14px 30px}
+  .stats-bar{grid-template-columns:1fr 1fr;gap:8px}
+  .page-title{font-size:19px}
+  .page-description{font-size:10px}
+}
 </style>
 </head>
 <body>
@@ -312,37 +346,103 @@ main{padding:20px 28px 40px;max-width:1440px;margin:0 auto}
     <span class="stat">Evt<span class="stat-val" id="event-count">0</span></span>
   </div>
 </header>
-<main>
+<div class="app-shell">
+  <aside class="sidebar" aria-label="Dashboard navigation">
+    <div class="sidebar-label">Workspace</div>
+    <nav class="primary-nav" id="primary-nav">
+      <button class="nav-item active" type="button" data-section="overview" aria-current="page"><span class="nav-icon">⌂</span>Overview</button>
+      <button class="nav-item" type="button" data-section="requests"><span class="nav-icon">↗</span>Requests</button>
+      <button class="nav-item" type="button" data-section="guardrails"><span class="nav-icon">◇</span>Guardrails</button>
+      <button class="nav-item" type="button" data-section="usage"><span class="nav-icon">▥</span>Usage</button>
+      <button class="nav-item" type="button" data-section="diagnostics"><span class="nav-icon">⌁</span>Diagnostics</button>
+    </nav>
+  </aside>
 
-  <div class="stats-bar">
-    <div class="stat-card">
-      <span class="stat-label">Requests</span>
-      <span class="stat-value" id="stat-requests">0</span>
-      <span class="stat-sub">total tracked</span>
-    </div>
-    <div class="stat-card">
-      <span class="stat-label">Active</span>
-      <span class="stat-value" id="stat-active">0</span>
-      <span class="stat-sub">in progress</span>
-    </div>
-    <div class="stat-card block-stat">
-      <span class="stat-label">Blocked</span>
-      <span class="stat-value" id="stat-blocked">0</span>
-      <span class="stat-sub">guardrail blocks</span>
-    </div>
-    <div class="stat-card">
-      <span class="stat-label">Events</span>
-      <span class="stat-value" id="stat-events">0</span>
-      <span class="stat-sub">streamed via SSE</span>
-    </div>
-    <div class="stat-card">
-      <span class="stat-label">Last Latency</span>
-      <span class="stat-value" id="stat-latency">--</span>
-      <span class="stat-sub">request duration</span>
-    </div>
+  <div class="content-area">
+    <main>
+      <section class="page-section active" id="section-overview" data-page-section="overview" aria-labelledby="overview-title">
+        <div class="page-header">
+          <div>
+            <div class="page-eyebrow">Operations</div>
+            <h1 class="page-title" id="overview-title">Overview</h1>
+            <p class="page-description">Monitor request health, guardrail outcomes, and recent activity from a single operational view.</p>
+          </div>
+        </div>
+
+        <div class="stats-bar">
+          <div class="stat-card">
+            <span class="stat-label">Requests</span><span class="stat-value" id="stat-requests">0</span><span class="stat-sub">total tracked</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Active</span><span class="stat-value" id="stat-active">0</span><span class="stat-sub">in progress</span>
+          </div>
+          <div class="stat-card block-stat">
+            <span class="stat-label">Blocked</span><span class="stat-value" id="stat-blocked">0</span><span class="stat-sub">guardrail blocks</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Events</span><span class="stat-value" id="stat-events">0</span><span class="stat-sub">streamed via SSE</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Last Latency</span><span class="stat-value" id="stat-latency">--</span><span class="stat-sub">request duration</span>
+          </div>
+        </div>
+
+        <div id="overview-pipeline-slot"></div>
+        <div id="overview-activity-slot"></div>
+      </section>
+
+      <section class="page-section" id="section-requests" data-page-section="requests" aria-labelledby="requests-title">
+        <div class="page-header">
+          <div>
+            <div class="page-eyebrow">Traffic</div>
+            <h1 class="page-title" id="requests-title">Requests</h1>
+            <p class="page-description">Inspect the current request pipeline and interact with the gateway through the existing request surface.</p>
+          </div>
+        </div>
+        <div id="requests-pipeline-slot"></div>
+        <div id="requests-chat-slot"></div>
+      </section>
+
+      <section class="page-section" id="section-guardrails" data-page-section="guardrails" aria-labelledby="guardrails-title">
+        <div class="page-header">
+          <div>
+            <div class="page-eyebrow">Security</div>
+            <h1 class="page-title" id="guardrails-title">Guardrails</h1>
+            <p class="page-description">Review input and output policy decisions, including blocked, warned, redacted, and passed checks.</p>
+          </div>
+        </div>
+        <div id="guardrails-summary-slot"></div>
+        <div id="guardrails-panels-slot"></div>
+      </section>
+
+      <section class="page-section" id="section-usage" data-page-section="usage" aria-labelledby="usage-title">
+        <div class="page-header">
+          <div>
+            <div class="page-eyebrow">Capacity</div>
+            <h1 class="page-title" id="usage-title">Usage</h1>
+            <p class="page-description">Usage and cost analytics will be surfaced here when the existing telemetry provides those metrics.</p>
+          </div>
+        </div>
+        <div class="section-note">No usage or cost metrics are currently exposed by the dashboard data stream.</div>
+      </section>
+
+      <section class="page-section" id="section-diagnostics" data-page-section="diagnostics" aria-labelledby="diagnostics-title">
+        <div class="page-header">
+          <div>
+            <div class="page-eyebrow">Observability</div>
+            <h1 class="page-title" id="diagnostics-title">Diagnostics</h1>
+            <p class="page-description">Follow the live event stream and inspect request lifecycle activity as it arrives.</p>
+          </div>
+        </div>
+        <div id="diagnostics-events-slot"></div>
+      </section>
+    </main>
   </div>
+</div>
 
-  <div class="pipeline-card">
+<!-- Existing operational surfaces are placed into the navigation sections below. -->
+<div id="legacy-surfaces" style="display:none">
+  <div class="pipeline-card" id="pipeline-card">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
       <h2 style="margin:0">Request Pipeline</h2>
       <span style="font-size:10px;color:var(--text-dim)" id="pipeline-req-id"></span>
@@ -350,57 +450,44 @@ main{padding:20px 28px 40px;max-width:1440px;margin:0 auto}
     <div id="pipeline-container" class="pipeline"></div>
   </div>
 
-  <div class="chat-section">
+  <div class="chat-section" id="chat-section">
     <div class="chat-panel" id="chat-panel">
       <h2>Chat</h2>
       <div class="chat-messages" id="chat-messages">
         <div class="empty-state"><span class="em">&#x1F4AC;</span>Send a message to get started</div>
       </div>
       <div class="chat-input-wrap">
-        <input type="text" id="chat-input" placeholder="Type a message..." value="Hello, how are you?" autocomplete="off" onkeydown="if(event.key==='Enter')sendChatMessage()">
-        <button onclick="sendChatMessage()" id="chat-send-btn">Send</button>
+        <input type="text" id="chat-input" placeholder="Type a message..." value="Hello, how are you?" autocomplete="off" aria-label="Chat message" onkeydown="if(event.key==='Enter')sendChatMessage()">
+        <button onclick="sendChatMessage()" id="chat-send-btn" type="button">Send</button>
       </div>
     </div>
 
     <div class="guardrail-summary" id="gr-summary">
-      <h2>
-        Guardrails
-        <span class="dir-badge" id="gr-current-dir">waiting</span>
-      </h2>
+      <h2>Guardrails <span class="dir-badge" id="gr-current-dir">waiting</span></h2>
       <div class="guardrail-list" id="gr-summary-list">
         <div class="empty-state"><span class="em">&#x1F6E1;</span>No guardrail data yet</div>
       </div>
     </div>
   </div>
 
-  <div class="guardrails-grid">
+  <div class="guardrails-grid" id="guardrails-grid">
     <div class="guardrail-panel">
-      <h2>
-        Input Guardrails
-        <span class="panel-count" id="input-gr-count">0 checks</span>
-      </h2>
-      <div class="panel-items" id="input-gr-items">
-        <div class="empty-state"><span class="em">&#x2B06;</span>Awaiting request</div>
-      </div>
+      <h2>Input Guardrails <span class="panel-count" id="input-gr-count">0 checks</span></h2>
+      <div class="panel-items" id="input-gr-items"><div class="empty-state"><span class="em">&#x2B06;</span>Awaiting request</div></div>
     </div>
     <div class="guardrail-panel">
-      <h2>
-        Output Guardrails
-        <span class="panel-count" id="output-gr-count">0 checks</span>
-      </h2>
-      <div class="panel-items" id="output-gr-items">
-        <div class="empty-state"><span class="em">&#x2B07;</span>Awaiting response</div>
-      </div>
+      <h2>Output Guardrails <span class="panel-count" id="output-gr-count">0 checks</span></h2>
+      <div class="panel-items" id="output-gr-items"><div class="empty-state"><span class="em">&#x2B07;</span>Awaiting response</div></div>
     </div>
   </div>
 
-  <div class="event-section">
+  <div class="event-section" id="event-section">
     <div class="event-card">
       <h2>Live Events</h2>
       <div class="event-log" id="event-log"><div class="empty-state" style="padding:20px">Waiting for events&#8230;</div></div>
     </div>
   </div>
-</main>
+</div>
 
 <script>
 var STAGES=[
@@ -778,6 +865,46 @@ function addEventLog(evt,stageName){
 function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 function escAttr(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 
+function initNavigation(){
+  var buttons=document.querySelectorAll('.nav-item');
+  var sections=document.querySelectorAll('[data-page-section]');
+  buttons.forEach(function(btn){
+    btn.addEventListener('click',function(){
+      var target=btn.getAttribute('data-section');
+      buttons.forEach(function(b){
+        var active=b.getAttribute('data-section')===target;
+        b.classList.toggle('active',active);
+        if(active)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');
+      });
+      sections.forEach(function(section){section.classList.toggle('active',section.getAttribute('data-page-section')===target);});
+      renderSection(target);
+    });
+  });
+}
+
+function renderSection(target){
+  var targets={
+    overview:[['pipeline-card','overview-pipeline-slot'],['event-section','overview-activity-slot']],
+    requests:[['pipeline-card','requests-pipeline-slot'],['chat-section','requests-chat-slot']],
+    guardrails:[['gr-summary','guardrails-summary-slot'],['guardrails-grid','guardrails-panels-slot']],
+    diagnostics:[['event-section','diagnostics-events-slot']]
+  };
+  Object.keys(targets).forEach(function(key){
+    targets[key].forEach(function(pair){
+      var node=document.getElementById(pair[0]);
+      if(node)node.style.display=(key===target)?'':'none';
+    });
+  });
+  (targets[target]||[]).forEach(function(pair){
+    var node=document.getElementById(pair[0]);
+    var host=document.getElementById(pair[1]);
+    if(node&&host&&node.parentNode!==host)host.appendChild(node);
+    if(node)node.style.display='';
+  });
+}
+
+initNavigation();
+renderSection('overview');
 buildPipeline();
 
 setInterval(function(){

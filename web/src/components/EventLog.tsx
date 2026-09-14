@@ -46,11 +46,25 @@ export default function EventLog({ stream }: { stream: StreamState }) {
 
   return (
     <Card
-      title="Live event stream"
-      subtitle="Raw SSE from the gateway — every stage, decision, and error, in the order it arrives."
+      title="Request activity"
+      subtitle="Every stage, decision and error the gateway emits — in arrival order."
       right={
         <div className="row">
-          <input className="input" placeholder="filter…" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <span className="ev-count">{log.length} events</span>
+          <div className="ev-search">
+            <Icon name="search" size={13} />
+            <input
+              className="input ev-search-input"
+              placeholder="filter…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {search && (
+              <button className="ev-clear" onClick={() => setSearch('')} aria-label="Clear filter">
+                <Icon name="x" size={12} />
+              </button>
+            )}
+          </div>
           <select className="select" value={requestId} onChange={(e) => setRequestId(e.target.value)}>
             <option value="">all requests</option>
             {[...stream.requests].reverse().map((r) => (
@@ -58,7 +72,7 @@ export default function EventLog({ stream }: { stream: StreamState }) {
             ))}
           </select>
           <button className="btn ghost sm" onClick={togglePause}>
-            {paused ? <Icon name="bolt" size={14} /> : <Icon name="list" size={14} />}
+            <span className={'live-dot ' + (paused ? '' : 'on')} />
             {paused ? 'Resume' : 'Pause'}
           </button>
         </div>
@@ -70,21 +84,39 @@ export default function EventLog({ stream }: { stream: StreamState }) {
           <span>stage</span>
           <span>status</span>
           <span>request</span>
+          <span>duration</span>
           <span>message</span>
         </div>
         <div className="event-body" ref={bodyRef}>
           {log.length === 0 && (
             <div className="empty">
               <span className="empty-icon"><Icon name="list" size={20} /></span>
-              <span>No events yet.</span>
+              <div>
+                <span className="ev-empty-title">{requestId || search ? 'No matching events' : 'No events yet'}</span>
+                <span className="ev-empty-sub">
+                  {requestId || search
+                    ? 'Nothing in the stream matches the current filter.'
+                    : 'Send a request from the chat, pipeline, or guardrail playground.'}
+                </span>
+              </div>
             </div>
           )}
           {log.map((e) => (
             <div className="event-row" key={e.id}>
               <span className="e-time">{fmtTime(e.timestamp)}</span>
-              <span className={'e-stage ' + stageClass(e.stage)}>{e.stage}</span>
+              <span className={'e-stage ' + stageClass(e.stage)}>
+                <i className="e-dot" />
+                {e.stage}
+              </span>
               <span className="e-status"><StatusBadge status={e.status} /></span>
-              <span className="e-req">#{shortId(e.request_id)}</span>
+              <button
+                className="e-req"
+                onClick={() => setRequestId(e.request_id === requestId ? '' : e.request_id)}
+                title={requestId === e.request_id ? 'Clear request filter' : 'Filter to this request'}
+              >
+                #{shortId(e.request_id)}
+              </button>
+              <span className="e-dur">{e.duration > 0 ? e.duration + ' ms' : ''}</span>
               <span className="e-msg" title={e.message}>{e.message}</span>
             </div>
           ))}
