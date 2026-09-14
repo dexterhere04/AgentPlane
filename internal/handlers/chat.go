@@ -33,7 +33,10 @@ func Chat(
 
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageRequestReceived, "started", r.Method+" /chat"))
 
+	var userID, username string
 	if user, ok := auth.UserFromContext(r.Context()); ok {
+		userID = user.ID.String()
+		username = user.Username
 		bus.Publish(observability.NewDataEvent(requestID, observability.StageRequestReceived, "authenticated", map[string]string{
 			"user_id":  user.ID.String(),
 			"username": user.Username,
@@ -84,6 +87,8 @@ func Chat(
 			_, _ = observability.CapturePromptPayload(observability.Payload{
 				TraceID:     requestID,
 				RequestID:   requestID,
+				UserID:      userID,
+				Username:    username,
 				Timestamp:   time.Now(),
 				Payload:     payload,
 				CaptureMode: captureMode,

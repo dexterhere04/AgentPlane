@@ -1,14 +1,12 @@
 .git
-.gitignore
 .env
 build/
 bin/
 logs/
 server
+agentplane
+web/
 testing/
 tests/
 docs/
 *.md
-Dockerfile
-docker-compose.yml
-.dockerignore
