@@ -9,10 +9,9 @@ function fmtMoney(n: number): string {
   return '$' + n.toFixed(4);
 }
 
-export default function UserAnalytics() {
+export default function UserAnalytics({ hours }: { hours: number }) {
   const [users, setUsers] = useState<UserUsageRow[]>([]);
   const [prompts, setPrompts] = useState<UserPromptRow[]>([]);
-  const [hours, setHours] = useState(24);
   const [user, setUser] = useState('');
   const [q, setQ] = useState('');
   const [debouncedQ, setDebouncedQ] = useState('');
@@ -36,13 +35,11 @@ export default function UserAnalytics() {
         setUsers(res.users);
         setPrompts(res.prompts);
       } else {
-        setErr('HTTP ' + res.status + ' · analytics unavailable (is ClickHouse up?)');
+        setErr('HTTP ' + res.status + ' · user analytics unavailable');
       }
       setLoading(false);
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [hours, user, debouncedQ, reload]);
 
   const totalSpend = useMemo(() => users.reduce((s, u) => s + u.total_cost, 0), [users]);
@@ -51,28 +48,22 @@ export default function UserAnalytics() {
 
   return (
     <Card
-      title="User analytics"
-      subtitle="GET /admin/analytics/users — per-user spend, token usage, and a searchable prompt log from ClickHouse."
+      title="Usage by user"
+      subtitle="Attributed requests, tokens, estimated spend, and searchable prompts."
       right={
-        <div className="row">
-          <select className="select" value={hours} onChange={(e) => setHours(Number(e.target.value))}>
-            <option value={24}>24h</option>
-            <option value={168}>7d</option>
-            <option value={720}>30d</option>
-          </select>
-          <button className="btn ghost sm" onClick={() => setReload((n) => n + 1)} disabled={loading}>
-            <Icon name="refresh" size={14} />
-            {loading ? 'Loading…' : 'Refresh'}
-          </button>
-        </div>
+        <button className="btn ghost sm" onClick={() => setReload((n) => n + 1)} disabled={loading}>
+          <Icon name="refresh" size={14} />
+          {loading ? 'Loading…' : 'Refresh'}
+        </button>
       }
     >
       {err && <div className="alert error">{err}</div>}
 
       <div className="ua-totals">
         <div className="ua-total">
-          <span className="ua-total-label">Total spend</span>
+          <span className="ua-total-label">Attributed spend</span>
           <span className="ua-total-value">{fmtMoney(totalSpend)}</span>
+          <span className="ua-total-note">estimated, not billing data</span>
         </div>
         <div className="ua-total">
           <span className="ua-total-label">Requests</span>
@@ -84,39 +75,48 @@ export default function UserAnalytics() {
         </div>
       </div>
 
-      <h4 className="ua-h">Per-user spend</h4>
+      <h4 className="ua-h">Users</h4>
       {users.length === 0 ? (
-        <EmptyState icon={<Icon name="activity" size={20} />} text="No attributed usage in this window — send some requests first." />
+        <EmptyState icon={<Icon name="activity" size={20} />} text="No attributed usage in this window." />
       ) : (
-        <table className="table">
-          <thead>
-            <tr>
-              <th>User</th>
-              <th>Requests</th>
-              <th>Tokens</th>
-              <th>Spend</th>
-              <th>Avg latency</th>
-              <th>Last seen</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((u) => (
-              <tr
-                key={u.user_id}
-                className={'ua-user-row' + (user === u.username ? ' selected' : '')}
-                onClick={() => setUser((cur) => (cur === u.username ? '' : u.username))}
-                title="Click to filter prompts by this user"
-              >
-                <td><span className="ua-username">{u.username}</span></td>
-                <td>{fmtNum(u.request_count)}</td>
-                <td>{fmtNum(u.total_tokens)}</td>
-                <td><span className="ua-cost">{fmtMoney(u.total_cost)}</span></td>
-                <td>{Math.round(u.avg_latency_ms)} ms</td>
-                <td><span className="ua-dim">{u.last_seen}</span></td>
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Requests</th>
+                <th>Tokens</th>
+                <th>Spend</th>
+                <th>Avg latency</th>
+                <th>Last seen</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {users.map((u) => (
+                <tr
+                  key={u.user_id}
+                  className={'ua-user-row' + (user === u.username ? ' selected' : '')}
+                  onClick={() => setUser((cur) => (cur === u.username ? '' : u.username))}
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setUser((cur) => (cur === u.username ? '' : u.username));
+                    }
+                  }}
+                  title="Select user to filter prompts"
+                >
+                  <td><span className="ua-username">{u.username}</span></td>
+                  <td>{fmtNum(u.request_count)}</td>
+                  <td>{fmtNum(u.total_tokens)}</td>
+                  <td><span className="ua-cost">{fmtMoney(u.total_cost)}</span></td>
+                  <td>{Math.round(u.avg_latency_ms)} ms</td>
+                  <td><span className="ua-dim">{u.last_seen}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       <div className="ua-search">
@@ -125,30 +125,31 @@ export default function UserAnalytics() {
           className="input ua-search-input"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search prompts (case-insensitive)…"
+          placeholder="Search captured prompts…"
+          aria-label="Search captured prompts"
         />
         {user && (
-          <span className="ua-filter" onClick={() => setUser('')}>
+          <button className="ua-filter" onClick={() => setUser('')} aria-label={`Clear user filter ${user}`}>
             user: {user} <Icon name="x" size={13} />
-          </span>
+          </button>
         )}
       </div>
 
       {prompts.length === 0 ? (
-        <EmptyState icon={<Icon name="message" size={20} />} text={q || user ? 'No prompts match.' : 'No prompts captured in this window.'} />
+        <EmptyState icon={<Icon name="message" size={20} />} text={q || user ? 'No prompts match the current filters.' : 'No prompts captured in this window.'} />
       ) : (
         <div className="ua-prompts">
           {prompts.map((p) => (
-            <div className="ua-prompt" key={p.trace_id}>
+            <article className="ua-prompt" key={p.trace_id}>
               <div className="ua-prompt-head">
-                <span className="ua-username">{p.username || '—'}</span>
-                <span className="ua-dim">{p.model}</span>
-                <span className="ua-dim">{p.created_at}</span>
-                <span className="ua-dim">{fmtNum(p.total_tokens)} tok</span>
+                <span className="ua-username">{p.username || 'Unknown user'}</span>
+                <span className="ua-meta">{p.model || 'Unknown model'}</span>
+                <span className="ua-meta">{p.created_at}</span>
+                <span className="ua-meta">{fmtNum(p.total_tokens)} tok</span>
                 <span className="ua-cost">{fmtMoney(p.estimated_cost)}</span>
               </div>
               <div className="ua-prompt-text">{p.prompt}</div>
-            </div>
+            </article>
           ))}
         </div>
       )}

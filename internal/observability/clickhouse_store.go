@@ -19,13 +19,26 @@ func NewClickHouseAdapter(client *ch.Client) Store {
 
 func (c *clickhouseAdapter) Init() error {
 	// Try to read migration SQL and execute to ensure tables exist.
-	path := "migrations/clickhouse/001_create_tables.sql"
-	b, err := os.ReadFile(path)
+	paths := []string{
+		"migrations/clickhouse/001_create_tables.sql",
+		"/migrations/clickhouse/001_create_tables.sql",
+	}
+
+	var b []byte
+	var path string
+	var err error
+	for _, candidate := range paths {
+		b, err = os.ReadFile(candidate)
+		if err == nil {
+			path = candidate
+			break
+		}
+	}
 	if err != nil {
-		// migration file not available; skip automatic creation
-		log.Printf("observability: migration file not found at %s, skipping automatic schema init", path)
+		log.Printf("observability: migration file not found, tried %v; skipping automatic schema init", paths)
 		return nil
 	}
+	log.Printf("observability: loading ClickHouse migration from %s", path)
 	// The ClickHouse native protocol does not support multi-statement Exec,
 	// so split the script into individual statements and execute each one.
 	for _, stmt := range splitSQLStatements(string(b)) {

@@ -5,7 +5,6 @@ import { getAdminToken, setAdminToken, getUserKey, setUserKey } from './api';
 import { createEventQueue, EventQueue, FlowMode } from './queue';
 import { Icon, IconName } from './icons';
 import { Section } from './components/ui';
-
 import Overview from './components/Overview';
 import PipelineView from './components/PipelineView';
 import ChatPanel from './components/ChatPanel';
@@ -30,7 +29,7 @@ const SECTIONS: SectionDef[] = [
   { id: 'guardrails', index: '03', label: 'Guardrails', icon: 'shield' },
   { id: 'events', index: '04', label: 'Event Log', icon: 'list' },
   { id: 'keys', index: '05', label: 'Keys & Vault', icon: 'key' },
-  { id: 'usage', index: '06', label: 'API Key Usage', icon: 'activity' },
+  { id: 'usage', index: '06', label: 'Usage & Cost', icon: 'activity' },
   { id: 'observability', index: '07', label: 'Observability', icon: 'chart' }
 ];
 
@@ -44,8 +43,9 @@ export default function App() {
   );
   const [tab, setTab] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(
-    () => localStorage.getItem('agentplane.sidebar') !== 'closed'
-  );
+  () => window.innerWidth > 860 && localStorage.getItem('agentplane.sidebar') !== 'closed'
+);
+  
   const [flowMode, setFlowMode] = useState<FlowMode>('stepped');
   const [queueDepth, setQueueDepth] = useState(0);
   const seenRef = useRef<Set<string>>(new Set());
@@ -115,7 +115,7 @@ export default function App() {
 
   return (
     <div className={'app' + (sidebarOpen ? '' : ' collapsed')}>
-      <aside className="sidebar">
+      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="brand">
           <div className="brand-mark">A</div>
           <div>
@@ -129,7 +129,13 @@ export default function App() {
             <button
               key={s.id}
               className={'nav-item' + (tab === s.id ? ' active' : '')}
-              onClick={() => setTab(s.id)}
+              onClick={() => {
+  setTab(s.id);
+  if (window.innerWidth <= 860) {
+    setSidebarOpen(false);
+    localStorage.setItem('agentplane.sidebar', 'closed');
+  }
+}}
             >
               <span className="nav-icon"><Icon name={s.icon} size={16} /></span>
               {s.label}
@@ -146,9 +152,11 @@ export default function App() {
 
       <div className="shell">
         <header className="topbar">
+
           <button className="icon-btn menu-btn" onClick={toggleSidebar} title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}>
             <Icon name="menu" size={17} />
           </button>
+          
           <span className="crumb">AgentPlane <b>/</b> {activeLabel}</span>
           <div className="topbar-spacer" />
           <span className="lstat">
@@ -241,8 +249,8 @@ export default function App() {
           )}
 
           {tab === 'usage' && (
-            <Section id="usage" index="06" title="API Key Usage"
-              description="Paste a user key, verify the identity it resolves to, and see every request attributed to it.">
+            <Section id="usage" index="06" title="Usage & Cost"
+              description="Track token consumption, estimated cost, model/provider usage, and key-attributed activity.">
               <UsageView userKey={userKey} onUserKeyChange={updateUserKey} stream={stream} />
             </Section>
           )}
