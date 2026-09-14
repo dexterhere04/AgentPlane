@@ -11,6 +11,7 @@ import (
 	"github.com/dexterhere04/AgentPlane/internal/auth"
 	"github.com/dexterhere04/AgentPlane/internal/guardrail"
 	"github.com/dexterhere04/AgentPlane/internal/observability"
+	"github.com/dexterhere04/AgentPlane/internal/policy"
 	"github.com/dexterhere04/AgentPlane/internal/proxy"
 )
 
@@ -18,6 +19,7 @@ func Chat(
 	w http.ResponseWriter,
 	r *http.Request,
 	enforcement *guardrail.EnforcementPoint,
+	policyEP *policy.EnforcementPoint,
 	inputSet guardrail.GuardrailSet,
 	outputSet guardrail.GuardrailSet,
 	provider proxy.Provider,
@@ -112,6 +114,31 @@ func Chat(
 
 	ctx := r.Context()
 
+	// Authorization: chat:invoke is enforced by middleware (it needs no body).
+	// Per-model access is the dynamic half of the RBAC check and must run
+	// here, after the body has been read and validated.
+	if policyEP != nil {
+		if user, ok := auth.UserFromContext(ctx); ok {
+			if model := requestModelFromBody(body); model != "" {
+				permission := "model:" + model
+				decision, err := policyEP.Authorize(ctx, policy.Request{
+					UserID:     user.ID,
+					Permission: permission,
+				})
+				if err != nil {
+					bus.Publish(observability.NewMessageEvent(requestID, observability.StageRequestReceived, "error", "policy unavailable for "+permission))
+					policy.WriteUnavailable(w, permission)
+					return
+				}
+				if decision == policy.DecisionDeny {
+					bus.Publish(observability.NewMessageEvent(requestID, observability.StageRequestReceived, "error", "policy denied "+permission))
+					policy.WriteDenied(w, permission)
+					return
+				}
+			}
+		}
+	}
+
 	if enforcement != nil && len(inputSet.Guards) > 0 {
 		result, err := enforcement.Evaluate(ctx, requestID, guardrail.DirectionInput, body, inputSet)
 		if err != nil {
@@ -171,6 +198,19 @@ func Chat(
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(respBody)
+}
+
+// requestModelFromBody extracts the "model" field from an OpenAI-style
+// request body. It returns "" when the field is absent or the body is not
+// valid JSON.
+func requestModelFromBody(body []byte) string {
+	var req struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return ""
+	}
+	return req.Model
 }
 
 func writeGuardrailBlock(w http.ResponseWriter, result *guardrail.Result, requestID string) {

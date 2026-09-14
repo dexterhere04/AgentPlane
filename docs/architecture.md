@@ -16,6 +16,11 @@ AgentPlane uses a layered architecture following the Single Responsibility Princ
                     |
                     v
           +------------------+
+          |   Policy (RBAC)  |  (internal/policy/) authorize identity
+          +--------+---------+
+                    |
+                    v
+          +------------------+
           |     Handler      |  (internal/handlers/chat.go)
           +--------+---------+
                     |
@@ -50,6 +55,8 @@ agentplane/
 |   +-- db/                    # Postgres pool + embedded migrations
 |   +-- api/                   # API-key generation + persistence
 |   +-- auth/                  # API-key authentication + admin middleware
+|   +-- policy/                # identity-based authorization (RBAC)
+|   |   +-- rbac/              # roles, permissions, assignments
 |   +-- users/                 # user persistence
 |   +-- provisioning/          # user + API-key provisioning flow
 |   +-- handlers/              # chat, provision, revoke, metrics
@@ -77,6 +84,7 @@ agentplane/
 | `cmd/server` | `main.go` | Composition root, route registration, startup | Call OpenAI, read request bodies, store configuration |
 | `config` | `config/` | Provide configuration + select secret store | Implement business logic |
 | `auth` | `auth/` | API-key parsing/verification, admin token check | Touch provider or handler logic |
+| `policy` | `policy/` | Identity-based authorization (RBAC roles/permissions) | Inspect request content or forward requests |
 | `handlers` | `handlers/` | HTTP validation, body reading, response writing | Know provider-specific details |
 | `guardrail` | `guardrail/` | Policy enforcement (input + output) | Forward requests |
 | `proxy` | `proxy/` | Provider communication, key injection, forwarding | Handle HTTP concerns beyond outbound calls |
@@ -104,6 +112,15 @@ The `proxy` package encapsulates provider-specific knowledge behind a `Provider`
 ### Config Abstraction
 
 The `config` package wraps secret access behind a pluggable `secrets.SecretStore`. Callers use `config.OpenAIKey()`, `config.KeyPepper()`, etc. and never depend on where secrets live (env, file, Vault, AWS, Azure).
+
+### Identity vs Content Policy
+
+Two policy layers with distinct concerns:
+
+- `guardrail` inspects **content** — is this request/response body safe and allowed?
+- `policy` inspects **identity** — is this principal permitted this action?
+
+They are separate packages because they change for different reasons and operate on different inputs. Both use a chain/registry evaluated with a `Decision`, and both fail closed, so the codebase stays consistent without coupling them.
 
 ### Hash-only Secret Storage
 
