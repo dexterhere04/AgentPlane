@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { provisionUser, revokeKey } from '../api';
-import { Card } from './ui';
+import { Alert, Card } from './ui';
 import { Icon } from '../icons';
 
 interface ProvisionResult {
@@ -58,7 +58,7 @@ export default function ApiKeysView() {
     >
       <div className="grid-2">
         <div className="form">
-          <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>Provision a user + mint a key</h4>
+          <h4 className="form-title">Provision a user + mint a key</h4>
           <div className="field">
             <label>username</label>
             <input className="input" value={username} onChange={(e) => setUsername(e.target.value)} />
@@ -74,7 +74,7 @@ export default function ApiKeysView() {
             </button>
           </div>
 
-          {provisionErr && <div className="alert error">{provisionErr}</div>}
+          {provisionErr && <Alert tone="error">{provisionErr}</Alert>}
           {provisioned && (
             <div className="result">
               <div className="kv-row" style={{ padding: 0 }}>
@@ -100,7 +100,7 @@ export default function ApiKeysView() {
         </div>
 
         <div className="form">
-          <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>Revoke a key</h4>
+          <h4 className="form-title">Revoke a key</h4>
           <div className="field">
             <label>key_id</label>
             <input className="input mono" value={revokeId} onChange={(e) => setRevokeId(e.target.value)} placeholder="key_id (public portion)" />
@@ -111,8 +111,8 @@ export default function ApiKeysView() {
               Revoke
             </button>
           </div>
-          {revokeErr && <div className="alert error">{revokeErr}</div>}
-          {revokeResult && <div className="alert ok">{revokeResult}</div>}
+          {revokeErr && <Alert tone="error">{revokeErr}</Alert>}
+          {revokeResult && <Alert tone="ok">{revokeResult}</Alert>}
         </div>
       </div>
     </Card>

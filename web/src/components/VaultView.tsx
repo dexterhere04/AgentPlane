@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { storeProviderKey } from '../api';
-import { Card } from './ui';
+import { Alert, Badge, Card } from './ui';
 import { Icon } from '../icons';
 import ApiKeysView from './ApiKeysView';
 import ProvisionedKeysView from './ProvisionedKeysView';
 
 export default function VaultView() {
   const [provider, setProvider] = useState('openai');
-  const [apiKey, setApiKey] = useState('sk-demo-provider-key-1234567890');
+  const [apiKey, setApiKey] = useState('');
   const [result, setResult] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -30,7 +30,7 @@ export default function VaultView() {
       <Card
         title="Provider secrets"
         subtitle="POST /admin/secrets/provider writes the key to the configured secret store (HashiCorp Vault)."
-        right={<span className="badge accent"><Icon name="lock" size={12} /> vault</span>}
+        right={<Badge tone="accent"><Icon name="lock" size={12} /> vault</Badge>}
       >
         <div className="row-form">
           <div className="field">
@@ -41,7 +41,7 @@ export default function VaultView() {
           </div>
           <div className="field grow">
             <label>api key</label>
-            <input className="input mono" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
+            <input className="input mono" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-…" />
           </div>
           <button className="btn" disabled={busy} onClick={doStore}>
             <Icon name="lock" size={15} />
@@ -49,8 +49,8 @@ export default function VaultView() {
           </button>
         </div>
 
-        {err && <div className="alert error">{err}</div>}
-        {result && <div className="alert ok">{result}</div>}
+        {err && <Alert tone="error">{err}</Alert>}
+        {result && <Alert tone="ok">{result}</Alert>}
 
         <p className="hint">
           The gateway runs with <code>SECRET_STORE=vault</code> and a KV-v2 mount at <code>agentplane/</code>. Writing a key

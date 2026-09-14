@@ -18,6 +18,18 @@ services:
     networks:
       - agentplane
 
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: agentplane-web
+    ports:
+      - "8080:80"
+    depends_on:
+      - gateway
+    networks:
+      - agentplane
+
   vault-init:
     image: hashicorp/vault:1.18
     container_name: agentplane-vault-init

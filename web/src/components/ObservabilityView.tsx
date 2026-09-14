@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AnalyticsRow, fetchAnalytics } from '../api';
-import { Card, Stat, EmptyState, fmtNum } from './ui';
 import { Icon } from '../icons';
+import { Alert, Badge, Card, Metric, EmptyState, fmtNum } from './ui';
 
 type Datasets = Record<string, AnalyticsRow[]>;
 
@@ -61,16 +61,20 @@ export default function ObservabilityView() {
   return (
     <div className="stack">
       {unavailable && (
-        <div className="alert error">
+        <Alert tone="error">
           ClickHouse analytics unreachable — is the <code>clickhouse</code> service up and the admin token correct?
-        </div>
+        </Alert>
       )}
 
-      <div className="stat-grid">
-        <Stat label="Traces (24h)" value={fmtNum(num(row('traces_count').trace_count))} tone="accent" />
-        <Stat label="Avg latency" value={fmtNum(num(row('latency').avg_latency_ms)) + ' ms'} />
-        <Stat label="Total tokens" value={fmtNum(num(row('token_usage').total_tokens_sum))} />
-        <Stat label="Est. cost" value={'$' + fmtNum(num(row('cost').total_cost), 4)} tone="green" small />
+      <div className="metric-grid">
+        <Metric emphasis="primary" icon="activity" tone="accent"
+          label="Traces (24h)" value={fmtNum(num(row('traces_count').trace_count))} />
+        <Metric emphasis="primary" icon="gauge" label="Avg latency"
+          value={fmtNum(num(row('latency').avg_latency_ms)) + ' ms'} />
+        <Metric emphasis="primary" icon="message" label="Total tokens"
+          value={fmtNum(num(row('token_usage').total_tokens_sum))} />
+        <Metric emphasis="primary" icon="chart" tone="green" label="Est. cost"
+          value={'$' + fmtNum(num(row('cost').total_cost), 4)} />
       </div>
 
       <div className="grid-2">
@@ -132,7 +136,7 @@ export default function ObservabilityView() {
                 <tr key={i}>
                   <td className="mono">{String(r.guardrail_name)}</td>
                   <td>{String(r.phase)}</td>
-                  <td><span className="badge" style={{ background: 'var(--surface-3)', color: 'var(--ink-2)' }}>{String(r.action)}</span></td>
+                  <td><Badge tone="neutral">{String(r.action)}</Badge></td>
                   <td>{fmtNum(num(r.event_count))}</td>
                 </tr>
               ))}

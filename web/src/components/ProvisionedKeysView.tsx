@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { APIKeyItem, fetchAPIKeys } from '../api';
-import { Card, EmptyState } from './ui';
+import { Alert, Badge, Card, EmptyState } from './ui';
 import { Icon } from '../icons';
 
 const VISIBLE_CHARS = 3;
@@ -40,7 +40,7 @@ export default function ProvisionedKeysView() {
         </button>
       }
     >
-      {err && <div className="alert error">{err}</div>}
+      {err && <Alert tone="error">{err}</Alert>}
 
       {keys.length === 0 ? (
         <EmptyState icon={<Icon name="key" size={20} />} text="No API keys provisioned yet." />
@@ -62,9 +62,9 @@ export default function ProvisionedKeysView() {
                 <td><span className="key-user">{k.username}</span></td>
                 <td><span className="key-name">{k.name}</span></td>
                 <td>
-                  <span className={'badge ' + (k.revoked_at ? 'neutral' : 'pass')}>
+                  <Badge tone={k.revoked_at ? 'neutral' : 'pass'}>
                     {k.revoked_at ? 'revoked' : k.status}
-                  </span>
+                  </Badge>
                 </td>
                 <td><span className="key-created">{k.created_at.slice(0, 10)}</span></td>
               </tr>
