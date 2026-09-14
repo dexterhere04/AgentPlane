@@ -12,7 +12,6 @@ import (
 	"github.com/dexterhere04/AgentPlane/internal/auth"
 	"github.com/dexterhere04/AgentPlane/internal/clickhouse"
 	"github.com/dexterhere04/AgentPlane/internal/config"
-	"github.com/dexterhere04/AgentPlane/internal/dashboard"
 	"github.com/dexterhere04/AgentPlane/internal/db"
 	"github.com/dexterhere04/AgentPlane/internal/guardrail"
 	guardaim "github.com/dexterhere04/AgentPlane/internal/guardrail/providers/aim"
@@ -280,9 +279,10 @@ func main() {
 		mux.Handle("/admin/analytics", auth.AdminMiddleware(adminToken, handlers.AnalyticsHandler(chURL, "")))
 	}
 	mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write([]byte(dashboard.HTML))
+		http.Redirect(w, r, "/dashboard/", http.StatusFound)
 	})
+	mux.Handle("/dashboard/", http.StripPrefix("/dashboard/", http.FileServer(http.Dir("web/dist"))))
+	mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.Dir("web/dist/assets"))))
 
 	mux.HandleFunc("/metrics", handlers.MetricsHandler())
 
