@@ -25,7 +25,8 @@ export type IconName =
   | 'sun'
   | 'moon'
   | 'minus'
-  | 'menu';
+  | 'menu'
+  | 'users';
 
 const ICONS: Record<IconName, ReactElement> = {
   gauge: (
@@ -125,7 +126,15 @@ const ICONS: Record<IconName, ReactElement> = {
   ),
   moon: <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />,
   minus: <path d="M5 12h14" />,
-  menu: <path d="M3 6h18M3 12h18M3 18h18" />
+  menu: <path d="M3 6h18M3 12h18M3 18h18" />,
+  users: (
+    <>
+      <circle cx="9" cy="8" r="3.2" />
+      <path d="M3.5 20a5.5 5.5 0 0 1 11 0" />
+      <path d="M16 5.2a3.2 3.2 0 0 1 0 5.6" />
+      <path d="M17.5 14.6A5.5 5.5 0 0 1 20.5 20" />
+    </>
+  )
 };
 
 export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
