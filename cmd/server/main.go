@@ -3,13 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"strconv"
-	"time"
 
 	"github.com/dexterhere04/AgentPlane/internal/api"
 	"github.com/dexterhere04/AgentPlane/internal/auth"
@@ -37,14 +34,8 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// Analytics window bounds (in hours) and the HTTP client used to forward
-// analytics queries to ClickHouse's HTTP interface.
-const (
-	minAnalyticsHours = 1
-	maxAnalyticsHours = 720 // 30 days
-)
-
-var analyticsHTTPClient = &http.Client{Timeout: 30 * time.Second}
+// Analytics queries are forwarded to ClickHouse's HTTP interface (see
+// handlers.AnalyticsHandler). The window bounds and HTTP client live there.
 
 func main() {
 	if err := godotenv.Load(); err != nil {
@@ -262,38 +253,31 @@ func main() {
 			handlers.RevokeAPIKey(apiKeyStore),
 		),
 	)
+	mux.Handle(
+		"/admin/api-keys",
+		auth.AdminMiddleware(
+			adminToken,
+			handlers.ListAPIKeys(apiKeyStore),
+		),
+	)
+	mux.Handle(
+		"/admin/analytics/users",
+		auth.AdminMiddleware(
+			adminToken,
+			handlers.UserAnalyticsHandler(),
+		),
+	)
+	mux.Handle(
+		"/admin/secrets/provider",
+		auth.AdminMiddleware(
+			adminToken,
+			handlers.StoreProviderSecret(),
+		),
+	)
 	mux.HandleFunc("/events", observability.SSEHandler(bus))
 	if chURL != "" {
-		analyticsHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			hours := 24
-			if v := r.URL.Query().Get("hours"); v != "" {
-				n, err := strconv.Atoi(v)
-				if err != nil || n < minAnalyticsHours || n > maxAnalyticsHours {
-					http.Error(w, fmt.Sprintf("hours must be an integer between %d and %d", minAnalyticsHours, maxAnalyticsHours), http.StatusBadRequest)
-					return
-				}
-				hours = n
-			}
-
-			q := fmt.Sprintf("SELECT count() AS cnt FROM agentplane.traces WHERE timestamp >= now() - INTERVAL %d HOUR", hours)
-			req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, chURL+"/?query="+url.QueryEscape(q), nil)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadGateway)
-				return
-			}
-
-			resp, err := analyticsHTTPClient.Do(req)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadGateway)
-				return
-			}
-			defer resp.Body.Close()
-
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(resp.StatusCode)
-			io.Copy(w, resp.Body)
-		})
-		mux.Handle("/analytics/traces_count", auth.AdminMiddleware(adminToken, analyticsHandler))
+		mux.Handle("/analytics/traces_count", auth.AdminMiddleware(adminToken, handlers.AnalyticsHandler(chURL, "traces_count")))
+		mux.Handle("/admin/analytics", auth.AdminMiddleware(adminToken, handlers.AnalyticsHandler(chURL, "")))
 	}
 	mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

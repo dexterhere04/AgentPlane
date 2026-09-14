@@ -73,6 +73,52 @@ func (v VaultStore) GetSecret(key string) (string, error) {
 	return extractKV2Data(vr.Data)
 }
 
+// SetSecret writes a secret to the Vault KV mount under the given key.
+// The value is stored under the "value" field to mirror the layout used by
+// the docker-compose vault-init seeding (vault kv put agentplane/KEY value=...).
+func (v VaultStore) SetSecret(key, value string) error {
+	client := v.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
+
+	base := strings.TrimRight(v.Addr, "/")
+	var url string
+	var payload []byte
+	if v.KVVersion == 1 {
+		url = fmt.Sprintf("%s/v1/%s/%s", base, v.MountPath, key)
+		payload, _ = json.Marshal(map[string]string{"value": value})
+	} else {
+		url = fmt.Sprintf("%s/v1/%s/data/%s", base, v.MountPath, key)
+		payload, _ = json.Marshal(map[string]any{
+			"data": map[string]string{"value": value},
+		})
+	}
+
+	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(string(payload)))
+	if err != nil {
+		return fmt.Errorf("vault: building write request: %w", err)
+	}
+	req.Header.Set("X-Vault-Token", v.Token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("vault: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("vault: reading response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("vault: HTTP %d: %s", resp.StatusCode, string(body))
+	}
+	return nil
+}
+
 func extractKV1Data(data json.RawMessage) (string, error) {
 	var m map[string]interface{}
 	if err := json.Unmarshal(data, &m); err != nil {

@@ -7,6 +7,7 @@ type TraceEvent struct {
 	TraceID         string
 	RequestID       string
 	UserID          string
+	Username        string
 	OrgID           string
 	ProjectID       string
 	Provider        string
@@ -26,7 +27,10 @@ type TraceEvent struct {
 // PromptEvent stores prompt payloads
 type PromptEvent struct {
 	TraceID        string
+	UserID         string
+	Username       string
 	PromptBlob     string // compressed
+	PromptText     string // plaintext for search (empty in hash_only mode)
 	PromptHash     string
 	PromptBytes    uint32
 	CompressedSize uint32

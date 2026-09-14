@@ -72,6 +72,7 @@ func (c *clickhouseAdapter) StoreTrace(t Trace) error {
 		TraceID:         t.TraceID,
 		RequestID:       t.RequestID,
 		UserID:          t.UserID,
+		Username:        t.Username,
 		OrgID:           t.OrgID,
 		ProjectID:       t.ProjectID,
 		Provider:        t.Provider,
@@ -104,6 +105,7 @@ func (c *clickhouseAdapter) StorePromptPayload(p Payload) (string, error) {
 	// For other modes: payload is already in the desired format (compressed or original)
 	var promptHash string
 	var promptBlobToStore string
+	var promptTextToStore string
 	var originalSize uint32
 	var compressedSize uint32 = uint32(len(p.Payload))
 
@@ -112,12 +114,14 @@ func (c *clickhouseAdapter) StorePromptPayload(p Payload) (string, error) {
 		promptHash = ComputePayloadHash(p.Payload)
 		originalSize = uint32(len(p.Payload))
 		promptBlobToStore = "" // Don't store the actual payload
+		promptTextToStore = "" // no plaintext in hash_only mode, by design
 	} else if mode == "full" || mode == "sampled" {
 		// full/sampled: payload is already compressed
 		// Try to decompress to get original size and hash
 		if decompressed, err := DecompressPayload(p.Payload); err == nil {
 			originalSize = uint32(len(decompressed))
 			promptHash = ComputePayloadHash(decompressed)
+			promptTextToStore = string(decompressed)
 		} else {
 			// If decompression fails, hash what we have and assume it's uncompressed
 			log.Printf("observability: could not decompress prompt payload (trace_id=%s, mode=%s): %v, hashing as-is", p.TraceID, mode, err)
@@ -130,11 +134,15 @@ func (c *clickhouseAdapter) StorePromptPayload(p Payload) (string, error) {
 		promptHash = ""
 		originalSize = 0
 		promptBlobToStore = ""
+		promptTextToStore = ""
 	}
 
 	pe := &ch.PromptEvent{
 		TraceID:        p.TraceID,
+		UserID:         p.UserID,
+		Username:       p.Username,
 		PromptBlob:     promptBlobToStore,
+		PromptText:     promptTextToStore,
 		PromptHash:     promptHash,
 		PromptBytes:    originalSize,
 		CompressedSize: compressedSize,
@@ -220,10 +228,14 @@ func (c *clickhouseAdapter) StoreToolCall(t ToolCall) error {
 }
 
 func (c *clickhouseAdapter) StoreGuardrail(g GuardrailEvent) error {
+	phase := g.Phase
+	if phase == "" {
+		phase = "input"
+	}
 	ge := &ch.GuardrailEvent{
 		TraceID:       g.TraceID,
 		GuardrailName: g.Rule,
-		Phase:         "input",
+		Phase:         phase,
 		Action:        g.Action,
 		Reason:        g.Details,
 		CreatedAt:     g.Timestamp,

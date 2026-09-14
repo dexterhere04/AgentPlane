@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dexterhere04/AgentPlane/internal/auth"
 	"github.com/dexterhere04/AgentPlane/internal/config"
 	"github.com/dexterhere04/AgentPlane/internal/observability"
 )
@@ -52,6 +53,14 @@ func (p *OpenAIProvider) Forward(ctx context.Context, body []byte, requestID str
 	bus := observability.DefaultBus
 	url := p.baseURL + "/chat/completions"
 
+	// Attribute this request to the authenticated user so traces, prompts,
+	// and usage events can be aggregated per user in ClickHouse.
+	userID, username := "", ""
+	if user, ok := auth.UserFromContext(ctx); ok {
+		userID = user.ID.String()
+		username = user.Username
+	}
+
 	if p.apiKey == "" {
 		bus.Publish(observability.NewMessageEvent(requestID, observability.StageLoadingAPIKey, "error", "OPENAI_API_KEY is not set"))
 		return nil, fmt.Errorf("OPENAI_API_KEY is not set")
@@ -60,10 +69,10 @@ func (p *OpenAIProvider) Forward(ctx context.Context, body []byte, requestID str
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageLoadingAPIKey, "completed", "API key loaded"))
 
 	if p.isStreaming(body) {
-		return p.forwardStreaming(ctx, body, requestID, url, bus)
+		return p.forwardStreaming(ctx, body, requestID, url, bus, userID, username)
 	}
 
-	return p.forwardNonStreaming(ctx, body, requestID, url, bus)
+	return p.forwardNonStreaming(ctx, body, requestID, url, bus, userID, username)
 }
 
 func (p *OpenAIProvider) isStreaming(body []byte) bool {
@@ -76,7 +85,7 @@ func (p *OpenAIProvider) isStreaming(body []byte) bool {
 	return req.Stream
 }
 
-func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, requestID, url string, bus *observability.EventBus) ([]byte, error) {
+func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, requestID, url string, bus *observability.EventBus, userID, username string) ([]byte, error) {
 	start := time.Now()
 	var statusStr string = "success"
 	var inputTokens, outputTokens, totalTokens uint64
@@ -85,7 +94,7 @@ func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, r
 
 	// Ensure we always record a trace (success or error paths)
 	defer func() {
-		recordTraceAsync(requestID, model, statusStr, start, inputTokens, outputTokens, totalTokens)
+		recordTraceAsync(requestID, model, statusStr, start, inputTokens, outputTokens, totalTokens, userID, username)
 	}()
 
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageBuildingRequest, "started", fmt.Sprintf("POST %s", url)))
@@ -170,7 +179,7 @@ func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, r
 	return respBody, nil
 }
 
-func (p *OpenAIProvider) forwardStreaming(ctx context.Context, body []byte, requestID, url string, bus *observability.EventBus) ([]byte, error) {
+func (p *OpenAIProvider) forwardStreaming(ctx context.Context, body []byte, requestID, url string, bus *observability.EventBus, userID, username string) ([]byte, error) {
 	start := time.Now()
 	var statusStr string = "success"
 	var inputTokens, outputTokens, totalTokens uint64
@@ -179,7 +188,7 @@ func (p *OpenAIProvider) forwardStreaming(ctx context.Context, body []byte, requ
 
 	// Ensure we always record a trace (success or error paths)
 	defer func() {
-		recordTraceAsync(requestID, model, statusStr, start, inputTokens, outputTokens, totalTokens)
+		recordTraceAsync(requestID, model, statusStr, start, inputTokens, outputTokens, totalTokens, userID, username)
 	}()
 
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageBuildingRequest, "started", fmt.Sprintf("POST %s (stream)", url)))
@@ -357,13 +366,15 @@ func requestModel(body []byte) string {
 }
 
 // recordTraceAsync records a request trace without blocking the caller.
-func recordTraceAsync(requestID, model, status string, start time.Time, in, out, total uint64) {
+func recordTraceAsync(requestID, model, status string, start time.Time, in, out, total uint64, userID, username string) {
 	latency := time.Since(start).Milliseconds()
 	estimatedCost := observability.EstimateRequestCost("openai", model, in, out)
 	go observability.RecordTrace(observability.Trace{
 		TraceID:       requestID,
 		RequestID:     requestID,
 		Timestamp:     start,
+		UserID:        userID,
+		Username:      username,
 		Provider:      "openai",
 		Model:         model,
 		LatencyMS:     latency,

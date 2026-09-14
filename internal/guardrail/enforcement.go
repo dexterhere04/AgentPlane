@@ -64,11 +64,11 @@ func (ep *EnforcementPoint) Evaluate(
 			}
 
 			if result.Decision == DecisionPass {
-				ep.publishEvent(requestID, g.Name(), dir, result)
+				ep.publishEvent(requestID, g.Name(), dir, result, currentBody)
 				continue
 			}
 
-			ep.publishEvent(requestID, g.Name(), dir, result)
+			ep.publishEvent(requestID, g.Name(), dir, result, currentBody)
 
 			effective := ep.resolve(strategy, result)
 
@@ -102,7 +102,7 @@ func (ep *EnforcementPoint) Evaluate(
 				Guardrail: g.Name(),
 				Decision:  DecisionPass,
 				Message:   fmt.Sprintf("error: %v", err),
-			})
+			}, currentBody)
 			continue
 		}
 
@@ -111,11 +111,11 @@ func (ep *EnforcementPoint) Evaluate(
 		}
 
 		if result.Decision == DecisionPass {
-			ep.publishEvent(requestID, g.Name(), dir, result)
+			ep.publishEvent(requestID, g.Name(), dir, result, currentBody)
 			continue
 		}
 
-		ep.publishEvent(requestID, g.Name(), dir, result)
+		ep.publishEvent(requestID, g.Name(), dir, result, currentBody)
 
 		effective := ep.resolve(strategy, result)
 
@@ -144,7 +144,7 @@ func (ep *EnforcementPoint) failClosed(requestID, name string, dir Direction, er
 		Guardrail: name,
 		Decision:  DecisionBlock,
 		Message:   fmt.Sprintf("%s: %v", ErrGuardrailUnavailable, err),
-	})
+	}, nil)
 	ep.publishBlocked(requestID, &Result{
 		Guardrail: name,
 		Decision:  DecisionBlock,
@@ -194,19 +194,10 @@ func (ep *EnforcementPoint) resolve(strategy Strategy, result *Result) *Result {
 	}
 }
 
-func (ep *EnforcementPoint) publishEvent(requestID, guardrail string, dir Direction, result *Result) {
-	if ep.bus == nil {
-		return
-	}
-
-	var stage observability.Stage
-	switch dir {
-	case DirectionInput:
-		stage = observability.StageGuardrailInput
-	case DirectionOutput:
+func (ep *EnforcementPoint) publishEvent(requestID, guardrail string, dir Direction, result *Result, before []byte) {
+	stage := observability.StageGuardrailInput
+	if dir == DirectionOutput {
 		stage = observability.StageGuardrailOutput
-	default:
-		stage = observability.StageGuardrailInput
 	}
 
 	decision := result.Decision.String()
@@ -217,12 +208,85 @@ func (ep *EnforcementPoint) publishEvent(requestID, guardrail string, dir Direct
 		}
 	}
 
+	ep.captureGuardrail(requestID, guardrail, dir, result, msg)
+
+	if ep.bus == nil {
+		return
+	}
+
 	e := observability.NewMessageEvent(requestID, stage, "info",
 		fmt.Sprintf("%s: %s", guardrail, decision))
 	if result.Decision != DecisionPass && result.Message != "" {
 		e.Message = fmt.Sprintf("%s: %s — %s", guardrail, decision, msg)
 	}
+
+	// Structured payload for the UI: decision, findings, and before/after
+	// body snapshots so redactions/transformations can be visualized.
+	data := map[string]any{
+		"guardrail": guardrail,
+		"decision":  decision,
+		"direction": dir.String(),
+	}
+	if result.Message != "" {
+		data["message"] = result.Message
+	}
+	if len(result.Findings) > 0 {
+		data["findings"] = result.Findings
+	}
+	if before != nil {
+		data["before"] = truncatePayload(before)
+	}
+	if result.Redacted != nil && !bytes.Equal(result.Redacted, before) {
+		data["after"] = truncatePayload(result.Redacted)
+	}
+	if raw, err := json.Marshal(data); err == nil {
+		e.Data = raw
+	}
+
 	ep.bus.Publish(e)
+}
+
+const maxPayloadSnapshot = 2000
+
+func truncatePayload(b []byte) string {
+	s := string(b)
+	if len(s) > maxPayloadSnapshot {
+		return s[:maxPayloadSnapshot] + "…"
+	}
+	return s
+}
+
+// captureGuardrail persists the outcome to the configured observability store
+// (ClickHouse) without blocking the request path. No-op when unset.
+func (ep *EnforcementPoint) captureGuardrail(requestID, guardrail string, dir Direction, result *Result, msg string) {
+	if observability.DefaultStore == nil {
+		return
+	}
+	evt := observability.GuardrailEvent{
+		TraceID:   requestID,
+		RequestID: requestID,
+		Timestamp: time.Now(),
+		Rule:      guardrail,
+		Action:    guardrailActionString(result.Decision),
+		Details:   msg,
+		Phase:     dir.String(),
+	}
+	go observability.CaptureGuardrail(evt)
+}
+
+func guardrailActionString(d Decision) string {
+	switch d {
+	case DecisionBlock:
+		return "blocked"
+	case DecisionRedact:
+		return "redacted"
+	case DecisionWarn:
+		return "warn"
+	case DecisionLogOnly:
+		return "log_only"
+	default:
+		return "allowed"
+	}
 }
 
 func (ep *EnforcementPoint) publishBlocked(requestID string, result *Result) {
