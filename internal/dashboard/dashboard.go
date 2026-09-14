@@ -743,23 +743,17 @@ function sendChatMessage(){
   btn.disabled=true;
   btn.textContent='...';
 
-  fetch('/chat',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({model:'gpt-4o',messages:[{role:'user',content:prompt}],stream:false})
-  }).then(function(r){
-    if(!r.ok)return r.text().then(function(t){throw new Error(t)});
-    return r.json().then(function(data){
-      var content=data.choices?data.choices[0].message.content:'';
-      if(content)addChatMessage('assistant',content);
-    });
-  }).catch(function(err){
-    addChatMessage('error','Error: '+err.message);
-  }).finally(function(){
-    btn.disabled=false;
-    btn.textContent='Send';
-  });
+  var headers={'Content-Type':'application/json'};
+
+if(userKey){
+  headers['Authorization']='Bearer '+userKey;
 }
+
+fetch('/chat',{
+  method:'POST',
+  headers:headers,
+  body:JSON.stringify(...)
+})
 
 function buildPipeline(){
   var container=document.getElementById('pipeline-container');

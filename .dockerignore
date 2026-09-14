@@ -5,8 +5,9 @@ bin/
 logs/
 server
 agentplane
-web/
 testing/
 tests/
 docs/
 *.md
+web/node_modules/
+web/dist/
