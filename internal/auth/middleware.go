@@ -64,3 +64,10 @@ func UserFromContext(ctx context.Context) (*users.User, bool) {
 	user, ok := ctx.Value(authenticatedUserKey).(*users.User)
 	return user, ok
 }
+
+// ContextWithUser returns a copy of ctx carrying the given authenticated
+// user. It is the counterpart to UserFromContext, used to compose middleware
+// and to construct authenticated contexts in tests.
+func ContextWithUser(ctx context.Context, user *users.User) context.Context {
+	return context.WithValue(ctx, authenticatedUserKey, user)
+}

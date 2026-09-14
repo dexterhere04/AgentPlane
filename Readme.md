@@ -63,6 +63,7 @@ agentplane/
 │   ├── db/              # Postgres pool + embedded migrations
 │   ├── api/             # API-key generation + persistence
 │   ├── auth/            # API-key authentication + middleware
+│   ├── policy/          # identity-based authorization (RBAC roles/permissions)
 │   ├── users/           # user persistence
 │   ├── provisioning/    # user + API-key provisioning flow
 │   ├── handlers/        # HTTP handlers (chat, provision, revoke, metrics)
@@ -437,6 +438,7 @@ Each package owns exactly one concern.
 | `config`     | Configuration management |
 | `handlers`   | HTTP request handling    |
 | `auth`       | API-key authentication   |
+| `policy`     | Authorization (RBAC)     |
 | `users`      | User persistence         |
 | `api`        | API-key lifecycle        |
 | `provisioning` | User + key provisioning |
@@ -454,7 +456,9 @@ Because responsibilities are isolated, changing one package should not require c
 # Authentication & Database
 
 AgentPlane authenticates callers with API keys and persists users and keys in
-PostgreSQL.
+PostgreSQL. Requests are then authorized through a deny-by-default RBAC policy
+layer: a user must be assigned a role before they can use the gateway. See
+`docs/policy-rbac.md`.
 
 ## Endpoints
 
@@ -463,6 +467,9 @@ PostgreSQL.
 | POST   | `/chat`                  | Bearer API key    | Forward a request to the LLM provider      |
 | POST   | `/provision/user`        | Bearer admin token | Create a user and mint an API key          |
 | POST   | `/admin/api-keys/revoke` | Bearer admin token | Revoke an API key by `key_id`              |
+| GET    | `/admin/roles`           | Bearer admin token | List roles and their permissions           |
+| POST   | `/admin/roles`           | Bearer admin token | Create a role                              |
+| POST   | `/admin/users/{id}/roles`| Bearer admin token | Assign a role to a user                    |
 | GET    | `/events`                | —                 | Server-sent event stream                   |
 | GET    | `/dashboard`             | —                 | HTML dashboard                             |
 | GET    | `/metrics`               | —                 | Metrics                                    |
@@ -506,6 +513,9 @@ Incoming Request
         │
         ▼
 Authentication
+        │
+        ▼
+Authorization (RBAC)
         │
         ▼
 Rate Limiting

@@ -27,6 +27,8 @@ import (
 	guardzscaler "github.com/dexterhere04/AgentPlane/internal/guardrail/providers/zscaler"
 	"github.com/dexterhere04/AgentPlane/internal/handlers"
 	"github.com/dexterhere04/AgentPlane/internal/observability"
+	"github.com/dexterhere04/AgentPlane/internal/policy"
+	"github.com/dexterhere04/AgentPlane/internal/policy/rbac"
 	"github.com/dexterhere04/AgentPlane/internal/provisioning"
 	"github.com/dexterhere04/AgentPlane/internal/proxy"
 	"github.com/dexterhere04/AgentPlane/internal/users"
@@ -116,6 +118,11 @@ func main() {
 		userStore,
 		pepper,
 	)
+
+	// Policy layer: RBAC is the first (and currently only) policy. Access is
+	// deny-by-default — a user with no assigned role is permitted nothing.
+	rbacStore := rbac.NewStore(pool)
+	policyEP := policy.NewEnforcementPoint(rbac.New(rbacStore))
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -229,9 +236,13 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle(
 		"/chat",
-		authenticator.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handlers.Chat(w, r, enforcement, mandatoryInput, mandatoryOutput, provider)
-		})),
+		authenticator.Middleware(
+			policyEP.Require("chat:invoke")(
+				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					handlers.Chat(w, r, enforcement, policyEP, mandatoryInput, mandatoryOutput, provider)
+				}),
+			),
+		),
 	)
 
 	// SECURITY: /provision/user creates users and mints API keys, so it is
@@ -274,6 +285,18 @@ func main() {
 			handlers.StoreProviderSecret(),
 		),
 	)
+
+	// RBAC role administration. Roles are assigned to users; access is
+	// deny-by-default, so a user must be granted a role (e.g. "member")
+	// before they can use the gateway.
+	mux.Handle("GET /admin/roles", auth.AdminMiddleware(adminToken, handlers.ListRoles(rbacStore)))
+	mux.Handle("POST /admin/roles", auth.AdminMiddleware(adminToken, handlers.CreateRole(rbacStore)))
+	mux.Handle("POST /admin/roles/{name}/permissions", auth.AdminMiddleware(adminToken, handlers.AddRolePermission(rbacStore)))
+	mux.Handle("DELETE /admin/roles/{name}/permissions/{permission}", auth.AdminMiddleware(adminToken, handlers.RemoveRolePermission(rbacStore)))
+	mux.Handle("GET /admin/users", auth.AdminMiddleware(adminToken, handlers.ListUsers(userStore, rbacStore)))
+	mux.Handle("GET /admin/users/{id}/roles", auth.AdminMiddleware(adminToken, handlers.ListUserRoles(rbacStore)))
+	mux.Handle("POST /admin/users/{id}/roles", auth.AdminMiddleware(adminToken, handlers.AssignUserRole(rbacStore)))
+	mux.Handle("DELETE /admin/users/{id}/roles/{role}", auth.AdminMiddleware(adminToken, handlers.RevokeUserRole(rbacStore)))
 	mux.HandleFunc("/events", observability.SSEHandler(bus))
 	if chURL != "" {
 		mux.Handle("/analytics/traces_count", auth.AdminMiddleware(adminToken, handlers.AnalyticsHandler(chURL, "traces_count")))
