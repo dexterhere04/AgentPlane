@@ -72,6 +72,61 @@ export function EmptyState(props: { icon: ReactNode; text: string }) {
   );
 }
 
+export function Spinner() {
+  return <span className="spinner" role="status" aria-hidden="true" />;
+}
+
+export function LoadingState(props: { text?: string; inline?: boolean }) {
+  if (props.inline) {
+    return (
+      <span className="loading-inline">
+        <Spinner />
+        {props.text ?? 'Loading…'}
+      </span>
+    );
+  }
+  return (
+    <div className="loading-state">
+      <Spinner />
+      {props.text ?? 'Loading…'}
+    </div>
+  );
+}
+
+export function Alert(props: { tone: 'error' | 'ok' | 'info' | 'warn'; children: ReactNode; icon?: ReactNode }) {
+  return (
+    <div className={'alert ' + props.tone}>
+      {props.icon}
+      <span>{props.children}</span>
+    </div>
+  );
+}
+
+export interface TabItem {
+  id: string;
+  label: string;
+  icon?: ReactNode;
+}
+
+export function Tabs(props: { items: TabItem[]; active: string; onChange: (id: string) => void }) {
+  return (
+    <div className="tabs" role="tablist">
+      {props.items.map((t) => (
+        <button
+          key={t.id}
+          role="tab"
+          aria-selected={t.id === props.active}
+          className={'tab' + (t.id === props.active ? ' active' : '')}
+          onClick={() => props.onChange(t.id)}
+        >
+          {t.icon}
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function Badge(props: { tone: string; children: ReactNode; dot?: boolean }) {
   return (
     <span className={'badge ' + props.tone}>

@@ -3,7 +3,7 @@ import { RequestState, StreamState } from '../types';
 import { FlowMode } from '../queue';
 import { sendChat } from '../api';
 import { Icon, IconName } from '../icons';
-import { Card, EmptyState, Metric, shortId, fmtTime, fmtNum } from './ui';
+import { Alert, Card, EmptyState, Metric, shortId, fmtTime, fmtNum } from './ui';
 
 // Canonical stage order, read directly from the request flow in
 // internal/handlers/chat.go and internal/proxy/openai.go:
@@ -60,6 +60,16 @@ function stageState(req: RequestState, stageId: string): StageState {
   return 'done';
 }
 
+function pillLabel(state: StageState): string {
+  switch (state) {
+    case 'active': return 'running';
+    case 'pending': return 'waiting';
+    case 'done': return 'done';
+    case 'error': return 'error';
+    case 'blocked': return 'blocked';
+  }
+}
+
 export default function PipelineView({
   stream,
   flowMode,
@@ -96,6 +106,16 @@ export default function PipelineView({
       }).length
     : 0;
   const progress = doneCount > 0 ? (doneCount / STAGES.length) * 100 : 0;
+
+  const selectedState: StageState = selected
+    ? selected.blocked
+      ? 'blocked'
+      : selected.events.some((e) => e.stage === 'error')
+        ? 'error'
+        : selected.endedAt
+          ? 'done'
+          : 'active'
+    : 'pending';
 
   const visible = useMemo(() => {
     const sorted = [...requests].sort((a, b) => a.startedAt - b.startedAt);
@@ -153,15 +173,24 @@ export default function PipelineView({
           <EmptyState icon={<Icon name="route" size={20} />} text="No request yet — send one from the chat overlay or fire one below." />
         ) : (
           <>
-            <div className="flow-progress">
-              <div className="fp-track">
-                <div className="fp-fill" style={{ width: progress + '%' }} />
+            <div className="pipeline-summary">
+              <div className="flow-progress">
+                <div className="fp-track">
+                  <div className="fp-fill" style={{ width: progress + '%' }} />
+                </div>
+                <div className="fp-meta">
+                  <span className="fp-count">{doneCount} / {STAGES.length} stages complete</span>
+                  <span className="fp-count">{selected.endedAt ? fmtNum(selected.endedAt - selected.startedAt, 0) + ' ms total' : 'in progress'}</span>
+                </div>
               </div>
-              <div className="fp-meta">
-                <span className="fp-count">{doneCount} / {STAGES.length} stages complete</span>
-                <span className="fp-count">{selected.endedAt ? fmtNum(selected.endedAt - selected.startedAt, 0) + ' ms' : 'in progress'}</span>
-              </div>
+              <span className={'p-pill big ' + selectedState}>{pillLabel(selectedState)}</span>
             </div>
+
+            {selected.blocked && (
+              <Alert tone="error" icon={<Icon name="warning" size={15} />}>
+                <b>Blocked by guardrails</b> — {selected.blockedMessage || 'request was denied before reaching the provider'}
+              </Alert>
+            )}
 
             <div className="pipeline">
               {STAGES.map((stage, i) => {
@@ -170,13 +199,17 @@ export default function PipelineView({
                 return (
                   <div className="stage-wrap" key={stage.id}>
                     <div className={'stage ' + state}>
-                      <span className="stage-icon"><Icon name={stage.icon} size={16} /></span>
+                      <span className="stage-icon"><Icon name={stage.icon} size={15} /></span>
                       <span className="stage-label">{stage.label}</span>
-                      <span className="stage-msg">{info?.message ? info.message.slice(0, 22) : state === 'blocked' ? selected.blockedMessage?.slice(0, 22) : ''}</span>
-                      <span className="stage-time">{info?.duration ? info.duration + 'ms' : ''}</span>
+                      <span className={'stage-pill p-pill ' + state}>{pillLabel(state)}</span>
+                      <span className="stage-meta">
+                        {info?.duration ? info.duration + ' ms' : info?.message ? info.message.slice(0, 16) : ''}
+                      </span>
                     </div>
                     {i < STAGES.length - 1 && (
-                      <span className={'conn' + (state === 'done' || state === 'blocked' ? ' flow' : '')} />
+                      <span className={'stage-conn' + (state === 'done' || state === 'blocked' ? ' flow' : '')}>
+                        <Icon name="chevron" size={13} />
+                      </span>
                     )}
                   </div>
                 );
@@ -207,10 +240,7 @@ export default function PipelineView({
         </div>
 
         {visible.length === 0 ? (
-          <div className="empty">
-            <span className="empty-icon"><Icon name="layers" size={20} /></span>
-            <span>No requests yet — hit “Fire” to watch them overlap.</span>
-          </div>
+          <EmptyState icon={<Icon name="layers" size={20} />} text="No requests yet — hit “Fire” to watch them overlap." />
         ) : (
           <div className="lanes">
             {[...visible].reverse().map((r) => {
@@ -219,11 +249,14 @@ export default function PipelineView({
               const left = ((start - t0) / span) * 100;
               const width = Math.max(((end - start) / span) * 100, 0.6);
               const tone = r.blocked ? 'blocked' : !r.endedAt ? 'running' : r.events.some((e) => e.stage === 'error') ? 'error' : 'done';
+              const pill = r.blocked ? 'blocked' : !r.endedAt ? 'active' : r.events.some((e) => e.stage === 'error') ? 'error' : 'done';
               return (
                 <div className="lane" key={r.id}>
                   <div className="lane-meta">
+                    <span className={'lane-dot ' + pill} />
                     <span className="mono">#{shortId(r.id)}</span>
                     <span className="lane-prompt">{r.userPrompt ?? ''}</span>
+                    <span className={'p-pill ' + pill}>{pillLabel(pill)}</span>
                     <span className="lane-time">{fmtTime(start)} → {r.endedAt ? fmtTime(end) : '…'}</span>
                   </div>
                   <div className="lane-track">
@@ -242,17 +275,17 @@ export default function PipelineView({
 
       {selected && (
         <Card title={'Stage detail — #' + shortId(selected.id)} subtitle={fmtTime(selected.startedAt)}>
-          <div className="kv">
+          <div className="sd">
             {STAGES.map((stage) => {
               const state = stageState(selected, stage.id);
               const info = selected.stages[stage.id];
               if (!info && state === 'pending') return null;
               return (
-                <div className="kv-row" key={stage.id}>
-                  <span className="kv-key">{stage.label}</span>
-                  <span className="kv-val" style={{ color: stateColor(state) }}>{state}</span>
-                  <span className="kv-msg">{info?.message ?? (state === 'blocked' ? selected.blockedMessage : '')}</span>
-                  <span className="kv-val muted">{info?.duration ? info.duration + 'ms' : ''}</span>
+                <div className="sd-row" key={stage.id}>
+                  <span className="sd-key">{stage.label}</span>
+                  <span className={'p-pill ' + state}>{pillLabel(state)}</span>
+                  <span className="sd-msg">{info?.message ?? (state === 'blocked' ? selected.blockedMessage : '')}</span>
+                  <span className="sd-dur">{info?.duration ? info.duration + ' ms' : ''}</span>
                 </div>
               );
             })}
@@ -261,14 +294,4 @@ export default function PipelineView({
       )}
     </div>
   );
-}
-
-function stateColor(state: string): string {
-  switch (state) {
-    case 'done': return 'var(--green)';
-    case 'error': return 'var(--red)';
-    case 'blocked': return 'var(--red)';
-    case 'active': return 'var(--amber)';
-    default: return 'var(--ink-3)';
-  }
 }

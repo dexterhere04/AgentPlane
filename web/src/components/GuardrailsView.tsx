@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { GuardrailData, RequestState, StreamState } from '../types';
 import { sendChat } from '../api';
-import { Card, DecisionBadge, EmptyState, shortId } from './ui';
+import { Badge, Card, DecisionBadge, EmptyState, Spinner, fmtNum, fmtTime, shortId } from './ui';
 import { Icon, IconName } from '../icons';
 
 interface Preset {
@@ -24,18 +24,22 @@ const isEnforced = (decision: string) => {
   return d !== 'pass';
 };
 
-function GuardrailCard({ g }: { g: GuardrailData }) {
+function GuardrailCard({ g, dir }: { g: GuardrailData; dir: 'input' | 'output' }) {
   const decision = (g.decision || 'pass').toLowerCase();
   const enforced = isEnforced(decision);
   const hasAfter = g.after !== undefined && g.after !== g.before;
   return (
     <div className={'gr-item b-' + decision}>
       <div className="gr-item-head">
+        <span className={'gr-dir gr-dir-' + dir}>{dir === 'input' ? 'Input' : 'Output'}</span>
         <span className="gr-name">{g.guardrail}</span>
-        <DecisionBadge decision={g.decision} />
-        {enforced && <span className="gr-enforced-tag">enforced</span>}
-        <span className="gr-msg">{g.message ?? ''}</span>
+        <span className="gr-item-actions">
+          {enforced && <Badge tone="redact">enforced</Badge>}
+          <DecisionBadge decision={g.decision} />
+        </span>
       </div>
+
+      {g.message && <div className="gr-msg">{g.message}</div>}
 
       {g.findings && g.findings.length > 0 && (
         <div className="gr-findings">
@@ -44,7 +48,7 @@ function GuardrailCard({ g }: { g: GuardrailData }) {
               <span className={'f-sev sev-' + f.severity}>{f.severity}</span>
               <span className="f-type">{f.type}</span>
               <span className="f-entity">{f.entity}</span>
-              <span className="f-value">“{f.value}”</span>
+              <code className="f-value">“{f.value}”</code>
             </div>
           ))}
         </div>
@@ -58,7 +62,7 @@ function GuardrailCard({ g }: { g: GuardrailData }) {
           </div>
           {hasAfter && (
             <>
-              <span className="ba-arrow"><Icon name="arrow" size={16} /></span>
+              <span className="ba-arrow"><Icon name="arrow" size={15} /></span>
               <div className="ba-col">
                 <div className="ba-label after">After</div>
                 <pre className="ba-pre">{g.after}</pre>
@@ -67,7 +71,7 @@ function GuardrailCard({ g }: { g: GuardrailData }) {
           )}
           {!hasAfter && decision === 'block' && (
             <>
-              <span className="ba-arrow"><Icon name="x" size={16} /></span>
+              <span className="ba-arrow"><Icon name="x" size={15} /></span>
               <div className="ba-col">
                 <div className="ba-label after">After</div>
                 <pre className="ba-pre blocked">request blocked — not forwarded</pre>
@@ -130,6 +134,8 @@ export default function GuardrailsView({
 
   const guardOptions = stream.requests.filter((r) => r.inputGuards.length || r.outputGuards.length);
 
+  const reqModel = (selected?.requestBody as { model?: string } | undefined)?.model;
+
   return (
     <div className="stack">
       <Card
@@ -137,6 +143,7 @@ export default function GuardrailsView({
         subtitle="Send any payload — a preset example or your own — and watch each guardrail run, transform, or block."
       >
         <div className="gr-custom">
+          <span className="gr-custom-label">Custom payload</span>
           <textarea
             className="input mono gr-custom-input"
             rows={3}
@@ -147,16 +154,22 @@ export default function GuardrailsView({
             }}
             placeholder="Type your own input here — e.g. paste an email address, an API key, or an injection attempt — then run it through the guardrails…"
           />
-          <button className="btn gr-custom-run" disabled={firing !== null || !customPrompt.trim()} onClick={runCustom}>
-            {firing === 'custom' ? 'Running…' : 'Run through guardrails'}
-          </button>
+          <div className="gr-custom-row">
+            <span className="gr-custom-hint">Ctrl/⌘ + Enter to run</span>
+            <button className="btn gr-custom-run" disabled={firing !== null || !customPrompt.trim()} onClick={runCustom}>
+              {firing === 'custom' ? <Spinner /> : <Icon name="shield" size={14} />}
+              {firing === 'custom' ? 'Running…' : 'Run through guardrails'}
+            </button>
+          </div>
         </div>
 
         <div className="gr-presets-label">Example prompts to test each guardrail</div>
         <div className="presets">
           {PRESETS.map((p) => (
             <button key={p.label} className="preset" disabled={firing !== null} onClick={() => fire(p)}>
-              <span className="preset-icon"><Icon name={p.icon} size={17} /></span>
+              <span className="preset-icon">
+                {firing === p.label ? <Spinner /> : <Icon name={p.icon} size={17} />}
+              </span>
               <span className="preset-label">{p.label}</span>
               <span className="preset-prompt">“{p.prompt}”</span>
               <span className="preset-expect">{p.expect}</span>
@@ -181,6 +194,18 @@ export default function GuardrailsView({
           <EmptyState icon={<Icon name="shield" size={20} />} text="No guardrail activity yet — send an input above." />
         ) : (
           <>
+            <div className="req-meta">
+              <span className="rm-id">#{shortId(selected.id)}</span>
+              <span className="rm-div" />
+              <span className="rm-item">{selected.authenticated ? selected.authenticated.username : 'unauthenticated'}</span>
+              {reqModel && <span className="rm-item">{reqModel}</span>}
+              <span className="rm-item">{fmtTime(selected.startedAt)}</span>
+              {selected.endedAt && <span className="rm-item">{fmtNum(selected.endedAt - selected.startedAt, 0)} ms</span>}
+              <Badge tone={selected.blocked ? 'block' : selected.endedAt ? 'pass' : 'warn'} dot>
+                {selected.blocked ? 'blocked' : selected.endedAt ? 'completed' : 'in progress'}
+              </Badge>
+            </div>
+
             {enforcedGuards.length > 0 ? (
               <div className="gr-summary">
                 <span className="gr-summary-label">Enforced</span>
@@ -197,19 +222,27 @@ export default function GuardrailsView({
 
             <div className="gr-columns">
               <div className="gr-col">
-                <h4><span className="gr-dir-tag">Input</span> <span className="count">{selected.inputGuards.length}</span></h4>
+                <h4>
+                  <span className="gr-col-ic input"><Icon name="arrow" size={12} /></span>
+                  Input checks
+                  <span className="count">{selected.inputGuards.length}</span>
+                </h4>
                 {selected.inputGuards.length === 0 ? (
                   <EmptyState icon={<Icon name="arrow" size={18} />} text="no input checks" />
                 ) : (
-                  selected.inputGuards.map((g, i) => <GuardrailCard g={g} key={i} />)
+                  selected.inputGuards.map((g, i) => <GuardrailCard g={g} dir="input" key={i} />)
                 )}
               </div>
               <div className="gr-col">
-                <h4><span className="gr-dir-tag">Output</span> <span className="count">{selected.outputGuards.length}</span></h4>
+                <h4>
+                  <span className="gr-col-ic output"><Icon name="arrow" size={12} /></span>
+                  Output checks
+                  <span className="count">{selected.outputGuards.length}</span>
+                </h4>
                 {selected.outputGuards.length === 0 ? (
                   <EmptyState icon={<Icon name="arrow" size={18} />} text="no output checks" />
                 ) : (
-                  selected.outputGuards.map((g, i) => <GuardrailCard g={g} key={i} />)
+                  selected.outputGuards.map((g, i) => <GuardrailCard g={g} dir="output" key={i} />)
                 )}
               </div>
             </div>
