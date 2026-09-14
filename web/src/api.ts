@@ -169,3 +169,97 @@ export async function fetchMetrics(): Promise<{ ok: boolean; body: Record<string
   const body = (await parseJSON(res)) as Record<string, unknown>;
   return { ok: res.ok, body };
 }
+
+export interface Role {
+  name: string;
+  description: string;
+  permissions: string[];
+}
+
+export interface AdminUser {
+  id: string;
+  username: string;
+  email?: string;
+  status: string;
+  created_at: string;
+  roles: string[];
+}
+
+function adminHeaders(json = false): HeadersInit {
+  const h: Record<string, string> = { Authorization: 'Bearer ' + getAdminToken() };
+  if (json) h['Content-Type'] = 'application/json';
+  return h;
+}
+
+export async function fetchRoles(): Promise<{ ok: boolean; status: number; roles: Role[] }> {
+  const res = await fetch('/admin/roles', { headers: adminHeaders() });
+  if (!res.ok) return { ok: false, status: res.status, roles: [] };
+  const body = (await parseJSON(res)) as { roles?: Role[] };
+  return { ok: true, status: res.status, roles: body?.roles ?? [] };
+}
+
+export async function createRole(
+  name: string,
+  description: string,
+  permissions: string[]
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  const res = await fetch('/admin/roles', {
+    method: 'POST',
+    headers: adminHeaders(true),
+    body: JSON.stringify({ name, description, permissions })
+  });
+  return { ok: res.ok, status: res.status, body: await parseJSON(res) };
+}
+
+export async function addRolePermission(
+  role: string,
+  permission: string
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  const res = await fetch('/admin/roles/' + encodeURIComponent(role) + '/permissions', {
+    method: 'POST',
+    headers: adminHeaders(true),
+    body: JSON.stringify({ permission })
+  });
+  return { ok: res.ok, status: res.status, body: await parseJSON(res) };
+}
+
+export async function removeRolePermission(
+  role: string,
+  permission: string
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  const res = await fetch(
+    '/admin/roles/' + encodeURIComponent(role) + '/permissions/' + encodeURIComponent(permission),
+    { method: 'DELETE', headers: adminHeaders() }
+  );
+  return { ok: res.ok, status: res.status, body: await parseJSON(res) };
+}
+
+export async function assignRole(
+  userId: string,
+  role: string
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  const res = await fetch('/admin/users/' + encodeURIComponent(userId) + '/roles', {
+    method: 'POST',
+    headers: adminHeaders(true),
+    body: JSON.stringify({ role })
+  });
+  return { ok: res.ok, status: res.status, body: await parseJSON(res) };
+}
+
+export async function revokeRole(
+  userId: string,
+  role: string
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  const res = await fetch(
+    '/admin/users/' + encodeURIComponent(userId) + '/roles/' + encodeURIComponent(role),
+    { method: 'DELETE', headers: adminHeaders() }
+  );
+  return { ok: res.ok, status: res.status, body: await parseJSON(res) };
+}
+
+export async function fetchUsers(): Promise<{ ok: boolean; status: number; users: AdminUser[] }> {
+  const res = await fetch('/admin/users', { headers: adminHeaders() });
+  if (!res.ok) return { ok: false, status: res.status, users: [] };
+  const body = (await parseJSON(res)) as { users?: AdminUser[] };
+  return { ok: true, status: res.status, users: body?.users ?? [] };
+}

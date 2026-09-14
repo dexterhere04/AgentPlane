@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { provisionUser, revokeKey } from '../api';
+import { useEffect, useState } from 'react';
+import { provisionUser, revokeKey, fetchRoles, assignRole, Role } from '../api';
 import { Card } from './ui';
 import { Icon } from '../icons';
 
@@ -17,17 +17,46 @@ export default function ApiKeysView() {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [role, setRole] = useState('');
+  const [roleMsg, setRoleMsg] = useState('');
+  const [roleErr, setRoleErr] = useState('');
+
   const [revokeId, setRevokeId] = useState('');
   const [revokeResult, setRevokeResult] = useState('');
   const [revokeErr, setRevokeErr] = useState('');
+
+  useEffect(() => {
+    fetchRoles().then((res) => {
+      if (res.ok) setRoles(res.roles);
+    });
+  }, []);
 
   const doProvision = async () => {
     setBusy(true);
     setProvisionErr('');
     setProvisioned(null);
+    setRoleMsg('');
+    setRoleErr('');
     const res = await provisionUser(username, keyName);
     if (res.ok && typeof res.body === 'object') {
-      setProvisioned(res.body as ProvisionResult);
+      const body = res.body as ProvisionResult;
+      setProvisioned(body);
+
+      // Two-step: provision the user + key, then assign the selected role.
+      // Access is deny-by-default, so a user with no role cannot use the
+      // gateway until one is assigned.
+      if (role && body.user_id) {
+        const assigned = await assignRole(body.user_id, role);
+        if (assigned.ok) setRoleMsg('Assigned role "' + role + '" to ' + username);
+        else
+          setRoleErr(
+            'User and key created, but role assignment failed: HTTP ' +
+              assigned.status +
+              ' · ' +
+              JSON.stringify(assigned.body)
+          );
+      }
     } else {
       const body = res.body as { error?: string } | string;
       const msg = typeof body === 'object' && body?.error ? body.error : String(body);
@@ -67,6 +96,15 @@ export default function ApiKeysView() {
             <label>key name</label>
             <input className="input" value={keyName} onChange={(e) => setKeyName(e.target.value)} />
           </div>
+          <div className="field">
+            <label>role (optional)</label>
+            <select className="select" value={role} onChange={(e) => setRole(e.target.value)}>
+              <option value="">no role — no access</option>
+              {roles.map((r) => (
+                <option key={r.name} value={r.name}>{r.name}</option>
+              ))}
+            </select>
+          </div>
           <div>
             <button className="btn" disabled={busy} onClick={doProvision}>
               <Icon name="plus" size={15} />
@@ -75,6 +113,8 @@ export default function ApiKeysView() {
           </div>
 
           {provisionErr && <div className="alert error">{provisionErr}</div>}
+          {roleErr && <div className="alert error">{roleErr}</div>}
+          {roleMsg && <div className="alert ok">{roleMsg}</div>}
           {provisioned && (
             <div className="result">
               <div className="kv-row" style={{ padding: 0 }}>

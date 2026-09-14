@@ -14,6 +14,7 @@ import EventLog from './components/EventLog';
 import VaultView from './components/VaultView';
 import UsageView from './components/UsageView';
 import ObservabilityView from './components/ObservabilityView';
+import AccessControlView from './components/AccessControlView';
 import ChatOverlay from './components/ChatOverlay';
 
 interface SectionDef {
@@ -31,7 +32,8 @@ const SECTIONS: SectionDef[] = [
   { id: 'events', index: '04', label: 'Event Log', icon: 'list' },
   { id: 'keys', index: '05', label: 'Keys & Vault', icon: 'key' },
   { id: 'usage', index: '06', label: 'API Key Usage', icon: 'activity' },
-  { id: 'observability', index: '07', label: 'Observability', icon: 'chart' }
+  { id: 'observability', index: '07', label: 'Observability', icon: 'chart' },
+  { id: 'access', index: '08', label: 'Access Control', icon: 'users' }
 ];
 
 export default function App() {
@@ -251,6 +253,13 @@ export default function App() {
             <Section id="observability" index="07" title="Observability"
               description="ClickHouse-backed traces, token usage, cost, models, and guardrail actions.">
               <ObservabilityView />
+            </Section>
+          )}
+
+          {tab === 'access' && (
+            <Section id="access" index="08" title="Access Control"
+              description="Manage RBAC roles and permissions, and assign roles to users. Access is deny-by-default.">
+              <AccessControlView />
             </Section>
           )}
         </main>
