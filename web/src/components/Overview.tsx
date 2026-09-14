@@ -93,32 +93,31 @@ export default function Overview({ stream }: { stream: StreamState }) {
 
   const degraded = !stream.connected || systems.some((s) => s.ok === false);
   const allOperational = !degraded && systems.every((s) => s.ok !== null);
-  const healthLabel = degraded ? 'Degraded' : allOperational ? 'Operational' : 'Scanning…';
+  const healthLabel = degraded ? 'Degraded' : allOperational ? 'Operational' : 'Checking…';
   const healthTone = degraded ? 'red' : allOperational ? 'green' : 'amber';
   const healthDot = degraded ? 'bad' : allOperational ? 'ok' : 'scan';
 
-  const metricsList: MetricDef[] = [
-    { label: 'Requests', value: fmtNum(stream.requests.length), icon: 'bolt', tone: 'accent' },
+  const primary: MetricDef[] = [
     { label: 'Success rate', value: fmtNum(successRate, 1) + '%', icon: 'check', tone: successTone },
     { label: 'In flight', value: fmtNum(stream.active), icon: 'layers', tone: 'amber' },
     { label: 'Blocked', value: fmtNum(stream.blocked), icon: 'shield', tone: 'red' },
+    { label: 'Avg latency', value: fmtNum(avgLatency, 0) + ' ms', icon: 'activity' }
+  ];
+
+  const secondary: MetricDef[] = [
+    { label: 'Requests', value: fmtNum(stream.requests.length), icon: 'bolt', tone: 'accent' },
+    { label: 'Completed', value: fmtNum(completed), icon: 'check', tone: 'green' },
+    { label: 'Failed', value: fmtNum(failed.length), icon: 'warning', tone: 'red' },
     { label: 'Events', value: fmtNum(events), icon: 'list', tone: 'violet' },
     { label: 'Tokens', value: fmtNum(totalTokens), icon: 'message', tone: 'green' },
-    { label: 'Avg latency', value: fmtNum(avgLatency, 0) + ' ms', icon: 'activity' },
     { label: 'Guardrail evals', value: fmtNum(metrics.guardrail_evaluations_total ?? 0), icon: 'gauge', tone: 'accent' }
   ];
 
   const teleMax = Math.max(1, ...TELEMETRY.map((t) => metrics[t.key] ?? 0));
-  const sessionRows: { label: string; icon: IconName; value: string; pct: number; color: string }[] = [
-    { label: 'Completed', icon: 'check', value: fmtNum(completed), pct: ended.length ? (completed / ended.length) * 100 : 0, color: 'var(--green)' },
-    { label: 'Blocked / failed', icon: 'shield', value: fmtNum(failed.length), pct: ended.length ? (failed.length / ended.length) * 100 : 0, color: 'var(--red)' },
-    { label: 'In flight', icon: 'layers', value: fmtNum(stream.active), pct: stream.requests.length ? (stream.active / stream.requests.length) * 100 : 0, color: 'var(--amber)' },
-    { label: 'Events emitted', icon: 'list', value: fmtNum(events), pct: 0, color: 'var(--accent)' }
-  ];
 
   return (
     <div className="stack">
-      <section className="ov-health reveal">
+      <section className={'ov-health tone-' + healthTone + ' reveal'}>
         <div className="ov-health-main">
           <span className={'ov-h-dot ' + healthDot} />
           <div>
@@ -153,23 +152,30 @@ export default function Overview({ stream }: { stream: StreamState }) {
               <span className={'ov-sys-dot ' + (s.ok ? 'ok' : s.ok === null ? 'scan' : 'bad')} />
               <span className="ov-sys-name">{s.label}</span>
               <span className={'ov-sys-val ' + (s.ok ? 'ok' : s.ok === null ? 'scan' : 'bad')}>
-                {s.ok === null ? 'checking…' : s.ok ? s.live : s.down}
+                {s.ok === null ? 'checking' : s.ok ? s.live : s.down}
               </span>
             </div>
           ))}
         </div>
       </section>
 
-      <div className="metric-grid">
-        {metricsList.map((m) => (
-          <Metric key={m.label} label={m.label} value={m.value} icon={m.icon} tone={m.tone} />
+      <div className="metric-grid primary">
+        {primary.map((m) => (
+          <Metric key={m.label} label={m.label} value={m.value} icon={m.icon} tone={m.tone} emphasis="primary" />
+        ))}
+      </div>
+
+      <div className="metric-strip">
+        {secondary.map((m) => (
+          <Metric key={m.label} label={m.label} value={m.value} icon={m.icon} tone={m.tone} emphasis="secondary" />
         ))}
       </div>
 
       <div className="grid-2">
         <Card
+          variant="quiet"
           title="Guardrail telemetry"
-          subtitle="cumulative counters from /metrics"
+          subtitle="Cumulative counters from /metrics"
           right={<Badge tone="accent">/metrics</Badge>}
         >
           <div className="telemetry">
@@ -189,14 +195,15 @@ export default function Overview({ stream }: { stream: StreamState }) {
               );
             })}
             <div className="hint" style={{ marginTop: 6 }}>
-              avg evaluation <b style={{ color: 'var(--ink-2)' }}>{fmtNum(metrics.guardrail_evaluation_duration_avg_ms ?? 0)} ms</b>
+              Average evaluation <b style={{ color: 'var(--ink-2)' }}>{fmtNum(metrics.guardrail_evaluation_duration_avg_ms ?? 0)} ms</b>
             </div>
           </div>
         </Card>
 
         <Card
+          variant="quiet"
           title="Session summary"
-          subtitle="live breakdown of streamed requests"
+          subtitle="Live breakdown of streamed requests"
           right={
             <Badge tone={healthTone === 'green' ? 'pass' : healthTone === 'red' ? 'error' : 'warn'} dot>
               {healthLabel}
@@ -204,7 +211,12 @@ export default function Overview({ stream }: { stream: StreamState }) {
           }
         >
           <div className="ov-sess">
-            {sessionRows.map((s) => (
+            {[
+              { label: 'Completed', icon: 'check' as IconName, value: fmtNum(completed), pct: ended.length ? (completed / ended.length) * 100 : 0, color: 'var(--green)' },
+              { label: 'Blocked / failed', icon: 'shield' as IconName, value: fmtNum(failed.length), pct: ended.length ? (failed.length / ended.length) * 100 : 0, color: 'var(--red)' },
+              { label: 'In flight', icon: 'layers' as IconName, value: fmtNum(stream.active), pct: stream.requests.length ? (stream.active / stream.requests.length) * 100 : 0, color: 'var(--amber)' },
+              { label: 'Events emitted', icon: 'list' as IconName, value: fmtNum(events), pct: 0, color: 'var(--accent)' }
+            ].map((s) => (
               <div className="ov-sess-row" key={s.label}>
                 <div className="ov-sess-head">
                   <span className="ov-sess-icon"><Icon name={s.icon} size={15} /></span>
@@ -215,7 +227,7 @@ export default function Overview({ stream }: { stream: StreamState }) {
                   <div className="ov-sess-fill" style={{ width: s.pct + '%', background: s.color }} />
                 </div>
                 <span className="ov-sess-note">
-                  {s.label === 'Events emitted' ? 'across all streamed requests' : s.pct.toFixed(0) + '% of completed workload'}
+                  {s.label === 'Events emitted' ? 'Across all streamed requests' : s.pct.toFixed(0) + '% of completed workload'}
                 </span>
               </div>
             ))}

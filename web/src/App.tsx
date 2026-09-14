@@ -6,13 +6,10 @@ import { createEventQueue, EventQueue, FlowMode } from './queue';
 import { Icon, IconName } from './icons';
 import { Section } from './components/ui';
 import Overview from './components/Overview';
-import PipelineView from './components/PipelineView';
-import ChatPanel from './components/ChatPanel';
+import RequestActivity from './components/RequestActivity';
 import GuardrailsView from './components/GuardrailsView';
-import EventLog from './components/EventLog';
-import VaultView from './components/VaultView';
 import UsageView from './components/UsageView';
-import ObservabilityView from './components/ObservabilityView';
+import Diagnostics from './components/Diagnostics';
 import ChatOverlay from './components/ChatOverlay';
 
 interface SectionDef {
@@ -20,17 +17,53 @@ interface SectionDef {
   index: string;
   label: string;
   icon: IconName;
+  /** One-line purpose shown in the page header. */
+  blurb: string;
+  /** Optional grouping label rendered above the item in the sidebar. */
+  group?: string;
 }
 
+/**
+ * Primary navigation — five destinations, each with a single clear job.
+ * Everything that used to be a top-level page is now either a tab
+ * inside Request Activity, or a panel inside Diagnostics.
+ */
 const SECTIONS: SectionDef[] = [
-  { id: 'overview', index: '00', label: 'Overview', icon: 'gauge' },
-  { id: 'pipeline', index: '01', label: 'Pipeline', icon: 'route' },
-  { id: 'chat', index: '02', label: 'Live Chat', icon: 'message' },
-  { id: 'guardrails', index: '03', label: 'Guardrails', icon: 'shield' },
-  { id: 'events', index: '04', label: 'Event Log', icon: 'list' },
-  { id: 'keys', index: '05', label: 'Keys & Vault', icon: 'key' },
-  { id: 'usage', index: '06', label: 'Usage & Cost', icon: 'activity' },
-  { id: 'observability', index: '07', label: 'Observability', icon: 'chart' }
+  {
+    id: 'overview',
+    index: '01',
+    label: 'Overview',
+    icon: 'gauge',
+    blurb: 'Health, throughput, and guardrail outcomes at a glance.'
+  },
+  {
+    id: 'activity',
+    index: '02',
+    label: 'Request Activity',
+    icon: 'route',
+    blurb: 'Live pipeline, concurrency, and the raw event stream.'
+  },
+  {
+    id: 'guardrails',
+    index: '03',
+    label: 'Guardrails',
+    icon: 'shield',
+    blurb: 'Send crafted payloads and inspect every guardrail decision.'
+  },
+  {
+    id: 'usage',
+    index: '04',
+    label: 'Usage & Cost',
+    icon: 'activity',
+    blurb: 'Tokens, estimated spend, and per-user attribution.'
+  },
+  {
+    id: 'diagnostics',
+    index: '05',
+    label: 'Diagnostics',
+    icon: 'chart',
+    blurb: 'Secrets, keys, and ClickHouse-backed analytics.'
+  }
 ];
 
 export default function App() {
@@ -43,9 +76,9 @@ export default function App() {
   );
   const [tab, setTab] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(
-  () => window.innerWidth > 860 && localStorage.getItem('agentplane.sidebar') !== 'closed'
-);
-  
+    () => window.innerWidth > 860 && localStorage.getItem('agentplane.sidebar') !== 'closed'
+  );
+
   const [flowMode, setFlowMode] = useState<FlowMode>('stepped');
   const [queueDepth, setQueueDepth] = useState(0);
   const seenRef = useRef<Set<string>>(new Set());
@@ -63,6 +96,13 @@ export default function App() {
       localStorage.setItem('agentplane.sidebar', v ? 'closed' : 'open');
       return !v;
     });
+  };
+
+  const closeSidebarOnMobile = () => {
+    if (window.innerWidth <= 860) {
+      setSidebarOpen(false);
+      localStorage.setItem('agentplane.sidebar', 'closed');
+    }
   };
 
   const toggleFlow = () => {
@@ -102,6 +142,18 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const onResize = () => {
+      if (window.innerWidth > 860 && !sidebarOpen) {
+        if (localStorage.getItem('agentplane.sidebar') !== 'closed') {
+          setSidebarOpen(true);
+        }
+      }
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [sidebarOpen]);
+
   const updateAdminToken = (v: string) => {
     setAdminTokenState(v);
     setAdminToken(v);
@@ -111,10 +163,12 @@ export default function App() {
     setUserKey(v);
   };
 
-  const activeLabel = SECTIONS.find((s) => s.id === tab)?.label ?? '';
+  const active = SECTIONS.find((s) => s.id === tab) ?? SECTIONS[0];
 
   return (
     <div className={'app' + (sidebarOpen ? '' : ' collapsed')}>
+      {sidebarOpen && <div className="sidebar-backdrop" onClick={closeSidebarOnMobile} aria-hidden="true" />}
+
       <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="brand">
           <div className="brand-mark">A</div>
@@ -123,19 +177,17 @@ export default function App() {
             <div className="brand-sub">Control Plane</div>
           </div>
         </div>
-        <nav className="side-nav">
-          <div className="nav-group-label">Gateway</div>
+        <nav className="side-nav" aria-label="Primary">
+          <div className="nav-group-label">Workspace</div>
           {SECTIONS.map((s) => (
             <button
               key={s.id}
               className={'nav-item' + (tab === s.id ? ' active' : '')}
               onClick={() => {
-  setTab(s.id);
-  if (window.innerWidth <= 860) {
-    setSidebarOpen(false);
-    localStorage.setItem('agentplane.sidebar', 'closed');
-  }
-}}
+                setTab(s.id);
+                closeSidebarOnMobile();
+              }}
+              aria-current={tab === s.id ? 'page' : undefined}
             >
               <span className="nav-icon"><Icon name={s.icon} size={16} /></span>
               {s.label}
@@ -152,21 +204,26 @@ export default function App() {
 
       <div className="shell">
         <header className="topbar">
-
-          <button className="icon-btn menu-btn" onClick={toggleSidebar} title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}>
+          <button
+            className="icon-btn menu-btn"
+            onClick={toggleSidebar}
+            title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+          >
             <Icon name="menu" size={17} />
           </button>
-          
-          <span className="crumb">AgentPlane <b>/</b> {activeLabel}</span>
+
+          <span className="crumb">
+            AgentPlane <b>/</b> {active.label}
+          </span>
           <div className="topbar-spacer" />
-          <span className="lstat">
+          <span className="lstat lstat-live">
             <span className={'live-dot ' + (stream.connected ? 'on' : 'off')} />
             {stream.connected ? 'Live' : 'Offline'}
           </span>
-          <span className="lstat">Requests <b>{stream.requests.length}</b></span>
-          <span className="lstat">Active <b>{stream.active}</b></span>
-          <span className="lstat">Blocked <b>{stream.blocked}</b></span>
-          <span className="lstat" title="Events buffered in the processing queue">
+          <span className="lstat lstat-requests">Requests <b>{stream.requests.length}</b></span>
+          <span className="lstat lstat-active">Active <b>{stream.active}</b></span>
+          <span className="lstat lstat-blocked">Blocked <b>{stream.blocked}</b></span>
+          <span className="lstat lstat-queue" title="Events buffered in the processing queue">
             Queue <b>{queueDepth}</b>
           </span>
           <button className="icon-btn" onClick={toggleTheme} title="Toggle theme">
@@ -206,61 +263,36 @@ export default function App() {
         )}
 
         <main className="content">
-          {tab === 'overview' && (
-            <Section id="overview" index="00" title="Overview"
-              description="Live gateway telemetry, guardrail outcomes, and system status at a glance.">
-              <Overview stream={stream} />
-            </Section>
-          )}
+          <Section
+            id={active.id}
+            index={active.index}
+            title={active.label}
+            description={active.blurb}
+          >
+            {tab === 'overview' && <Overview stream={stream} />}
 
-          {tab === 'pipeline' && (
-            <Section id="pipeline" index="01" title="Pipeline"
-              description="Every stage a request passes through, live concurrency, and per-request latency.">
-              <PipelineView stream={stream} flowMode={flowMode} onToggleFlow={toggleFlow} queueDepth={queueDepth} userKey={userKey} />
-            </Section>
-          )}
+            {tab === 'activity' && (
+              <RequestActivity
+                stream={stream}
+                flowMode={flowMode}
+                onToggleFlow={toggleFlow}
+                queueDepth={queueDepth}
+                userKey={userKey}
+              />
+            )}
 
-          {tab === 'chat' && (
-            <Section id="chat" index="02" title="Live Chat"
-              description="A real client application talking to the gateway — auth, guardrails, and provider, transparently.">
-              <ChatPanel userKey={userKey} onUserKeyChange={updateUserKey} />
-            </Section>
-          )}
-
-          {tab === 'guardrails' && (
-            <Section id="guardrails" index="03" title="Guardrails"
-              description="Send crafted payloads and inspect before/after processing for every guardrail decision.">
+            {tab === 'guardrails' && (
               <GuardrailsView stream={stream} userKey={userKey} />
-            </Section>
-          )}
+            )}
 
-          {tab === 'events' && (
-            <Section id="events" index="04" title="Event Log"
-              description="The raw SSE stream — every stage, decision, and error the gateway emits.">
-              <EventLog stream={stream} />
-            </Section>
-          )}
-
-          {tab === 'keys' && (
-            <Section id="keys" index="05" title="Keys & Vault"
-              description="Store provider credentials in Vault and provision / revoke user API keys.">
-              <VaultView />
-            </Section>
-          )}
-
-          {tab === 'usage' && (
-            <Section id="usage" index="06" title="Usage & Cost"
-              description="Track token consumption, estimated cost, model/provider usage, and key-attributed activity.">
+            {tab === 'usage' && (
               <UsageView userKey={userKey} onUserKeyChange={updateUserKey} stream={stream} />
-            </Section>
-          )}
+            )}
 
-          {tab === 'observability' && (
-            <Section id="observability" index="07" title="Observability"
-              description="ClickHouse-backed traces, token usage, cost, models, and guardrail actions.">
-              <ObservabilityView />
-            </Section>
-          )}
+            {tab === 'diagnostics' && (
+              <Diagnostics />
+            )}
+          </Section>
         </main>
       </div>
 

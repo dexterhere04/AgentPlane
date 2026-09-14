@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { sendChat } from '../api';
-import { Badge, Card, Spinner, fmtTime } from './ui';
+import { Badge, Card, Disclosure, EmptyState, JsonBlock, Spinner, fmtTime } from './ui';
 import { Icon } from '../icons';
 
 interface Msg {
@@ -9,6 +9,7 @@ interface Msg {
   status?: number;
   latency?: number;
   model?: string;
+  raw?: unknown;
   ts: number;
 }
 
@@ -16,6 +17,23 @@ function statusTone(status?: number): string {
   if (status === undefined) return 'neutral';
   if (status < 300) return 'pass';
   if (status === 401 || status === 403) return 'block';
+  return 'error';
+}
+
+function latencyTone(ms?: number): string {
+  if (ms === undefined) return '';
+  if (ms < 500) return 'tone-fast';
+  if (ms < 2000) return 'tone-mid';
+  return 'tone-slow';
+}
+
+function errorCode(status?: number): string {
+  if (status === undefined) return 'error';
+  if (status === 401) return 'unauthorized';
+  if (status === 403) return 'forbidden';
+  if (status === 429) return 'rate limited';
+  if (status >= 500) return 'upstream error';
+  if (status >= 400) return 'request rejected';
   return 'error';
 }
 
@@ -55,13 +73,20 @@ export default function ChatPanel({
       if (res.ok) {
         const body = res.body as { choices?: { message?: { content?: string } }[] };
         const content = body?.choices?.[0]?.message?.content ?? JSON.stringify(res.body);
-        push({ role: 'assistant', content, status: res.status, latency, model });
+        push({ role: 'assistant', content, status: res.status, latency, model, raw: res.body });
       } else {
         const body = res.body as { error?: { type?: string; message?: string } } | string;
         if (typeof body === 'object' && body?.error) {
-          push({ role: 'error', content: body.error.message ?? body.error.type ?? 'request blocked', status: res.status, latency, model });
+          push({
+            role: 'error',
+            content: body.error.message ?? body.error.type ?? 'request blocked',
+            status: res.status,
+            latency,
+            model,
+            raw: res.body
+          });
         } else {
-          push({ role: 'error', content: String(res.body), status: res.status, latency, model });
+          push({ role: 'error', content: String(res.body), status: res.status, latency, model, raw: res.body });
         }
       }
     } catch (err) {
@@ -107,19 +132,20 @@ export default function ChatPanel({
     >
       <div className="chat" ref={scrollRef}>
         {messages.length === 0 && (
-          <div className="empty">
-            <span className="empty-icon"><Icon name="message" size={20} /></span>
-            <div>
-              <span className="ev-empty-title">No messages yet</span>
-              <span className="ev-empty-sub">Send a prompt and watch it flow through the full gateway — auth, guardrails, and the provider round-trip.</span>
-            </div>
-          </div>
+          <EmptyState
+            icon={<Icon name="message" size={20} />}
+            text="No messages yet — send a prompt and watch it flow through the full gateway: auth, guardrails, and the provider round-trip."
+          />
         )}
 
         {messages.map((m, i) => (
           <div key={i} className={'msg ' + m.role}>
             <span className={'msg-avatar ' + m.role}>
-              {m.role === 'user' ? <Icon name="bolt" size={13} /> : m.role === 'assistant' ? 'A' : <Icon name="warning" size={13} />}
+              {m.role === 'user'
+                ? <Icon name="bolt" size={13} />
+                : m.role === 'assistant'
+                  ? 'A'
+                  : <Icon name="warning" size={13} />}
             </span>
             <div className="msg-main">
               <div className="msg-head">
@@ -127,15 +153,58 @@ export default function ChatPanel({
                 <span className="msg-time">{fmtTime(m.ts)}</span>
                 {m.status !== undefined && <Badge tone={statusTone(m.status)}>HTTP {m.status}</Badge>}
               </div>
-              <div className="msg-bubble">
-                <div className="msg-body">{m.content}</div>
-                {(m.latency !== undefined || m.model) && (
-                  <div className="msg-foot">
-                    {m.model && <span className="msg-tag">{m.model}</span>}
-                    {m.latency !== undefined && <span className="msg-tag">{m.latency} ms</span>}
+
+              {m.role === 'error' ? (
+                <div className="msg-bubble">
+                  <div className="msg-error-head">
+                    <Icon name="warning" size={14} />
+                    <span>Request failed</span>
+                    <span className="msg-error-code">{errorCode(m.status)}</span>
                   </div>
-                )}
-              </div>
+                  <div className="msg-error-body">{m.content}</div>
+                  {(m.latency !== undefined || m.model || m.raw !== undefined) && (
+                    <div className="msg-meta-rows">
+                      <div className="msg-meta-row">
+                        <span className="msg-meta-label">Timing</span>
+                        {m.latency !== undefined && (
+                          <span className={'msg-tag ' + latencyTone(m.latency)}>{m.latency} ms</span>
+                        )}
+                      </div>
+                      <div className="msg-meta-row">
+                        <span className="msg-meta-label">Model</span>
+                        {m.model && <span className="msg-tag">{m.model}</span>}
+                      </div>
+                    </div>
+                  )}
+                  {m.raw !== undefined && (
+                    <div className="msg-error-details">
+                      <Disclosure title="Raw response" subtitle="Gateway error payload">
+                        <JsonBlock value={m.raw} maxHeight={220} />
+                      </Disclosure>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="msg-bubble">
+                  <div className="msg-body">{m.content}</div>
+                  {(m.latency !== undefined || m.model) && (
+                    <div className="msg-meta-rows">
+                      {m.model && (
+                        <div className="msg-meta-row">
+                          <span className="msg-meta-label">Model</span>
+                          <span className="msg-tag">{m.model}</span>
+                        </div>
+                      )}
+                      {m.latency !== undefined && (
+                        <div className="msg-meta-row">
+                          <span className="msg-meta-label">Latency</span>
+                          <span className={'msg-tag ' + latencyTone(m.latency)}>{m.latency} ms</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         ))}

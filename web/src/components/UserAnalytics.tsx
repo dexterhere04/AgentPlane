@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchUserAnalytics, UserPromptRow, UserUsageRow } from '../api';
-import { Card, EmptyState, fmtNum } from './ui';
+import { Alert, Card, EmptyState, fmtNum } from './ui';
 import { Icon } from '../icons';
 
 function fmtMoney(n: number): string {
@@ -57,7 +57,7 @@ export default function UserAnalytics({ hours }: { hours: number }) {
         </button>
       }
     >
-      {err && <div className="alert error">{err}</div>}
+      {err && <Alert tone="error">{err}</Alert>}
 
       <div className="ua-totals">
         <div className="ua-total">

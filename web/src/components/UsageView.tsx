@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchAnalytics, sendChat } from '../api';
 import { StreamState } from '../types';
-import { Card, DecisionBadge, EmptyState, Stat, fmtNum, shortId } from './ui';
 import { Icon } from '../icons';
 import UserAnalytics from './UserAnalytics';
+import { Card, DecisionBadge, EmptyState, Metric, fmtNum, shortId } from './ui';
 
 const QUERY_KEYS = ['token_usage', 'cost', 'traces_count', 'latency', 'top_models', 'provider_usage'];
 
@@ -116,11 +116,15 @@ export default function UsageView({
         {unavailable && <div className="alert error">Usage analytics are unavailable. Check the ClickHouse service and admin credentials.</div>}
         {partial && <div className="alert warn">Some usage datasets could not be loaded. Showing the metrics that are currently available.</div>}
 
-        <div className="stat-grid">
-          <Stat label="Requests" value={fmtNum(num(row('traces_count').trace_count))} tone="accent" />
-          <Stat label="Total tokens" value={fmtNum(num(row('token_usage').total_tokens_sum))} />
-          <Stat label="Estimated cost" value={fmtMoney(num(row('cost').total_cost))} tone="green" small />
-          <Stat label="Avg cost / request" value={fmtMoney(num(row('cost').avg_cost_per_request))} tone="green" small />
+        <div className="metric-grid">
+          <Metric emphasis="primary" icon="bolt" tone="accent" label="Requests"
+            value={fmtNum(num(row('traces_count').trace_count))} />
+          <Metric emphasis="primary" icon="message" label="Total tokens"
+            value={fmtNum(num(row('token_usage').total_tokens_sum))} />
+          <Metric emphasis="primary" icon="chart" tone="green" label="Estimated cost"
+            value={fmtMoney(num(row('cost').total_cost))} />
+          <Metric emphasis="primary" icon="gauge" tone="green" label="Avg cost / request"
+            value={fmtMoney(num(row('cost').avg_cost_per_request))} />
         </div>
 
         <div className="usage-detail-grid">
