@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { sendChat } from '../api';
+import { markSetup } from '../setup';
 import { Badge, Card, Spinner, fmtTime } from './ui';
 import { Icon } from '../icons';
 
@@ -56,6 +57,7 @@ export default function ChatPanel({
         const body = res.body as { choices?: { message?: { content?: string } }[] };
         const content = body?.choices?.[0]?.message?.content ?? JSON.stringify(res.body);
         push({ role: 'assistant', content, status: res.status, latency, model });
+        markSetup({ firstRequest: true });
       } else {
         const body = res.body as { error?: { type?: string; message?: string } } | string;
         if (typeof body === 'object' && body?.error) {
