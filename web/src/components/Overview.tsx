@@ -3,6 +3,7 @@ import { StreamState } from '../types';
 import { fetchAnalytics, fetchMetrics } from '../api';
 import { Icon, IconName } from '../icons';
 import { Badge, Card, Metric, fmtNum } from './ui';
+import SetupChecklist from './SetupChecklist';
 
 interface MetricDef {
   label: string;
@@ -33,7 +34,47 @@ const TELEMETRY = [
   { key: 'guardrail_errors_total', label: 'Errors', color: 'var(--red)' }
 ];
 
-export default function Overview({ stream }: { stream: StreamState }) {
+const SERVICES: { id: string; label: string; desc: string; icon: IconName }[] = [
+  { id: 'chat', label: 'Playground', desc: 'Send a test prompt through the gateway', icon: 'play' },
+  { id: 'pipeline', label: 'Pipeline', desc: 'Watch every stage of a request live', icon: 'route' },
+  { id: 'guardrails', label: 'Guardrails', desc: 'Test PII, secret and injection checks', icon: 'shield' },
+  { id: 'events', label: 'Event Log', desc: 'Raw SSE events for every request', icon: 'list' },
+  { id: 'keys', label: 'Keys & Vault', desc: 'Provider secrets and user API keys', icon: 'key' },
+  { id: 'usage', label: 'Usage', desc: 'Spend and tokens attributed to keys', icon: 'activity' },
+  { id: 'observability', label: 'Analytics', desc: 'Traces, cost and models from ClickHouse', icon: 'chart' },
+  { id: 'access', label: 'Access Control', desc: 'Roles and permissions for your users', icon: 'users' }
+];
+
+function ServiceGrid({ onNavigate }: { onNavigate: (tab: string) => void }) {
+  return (
+    <div className="svc-grid">
+      {SERVICES.map((s) => (
+        <button key={s.id} className="svc-card" onClick={() => onNavigate(s.id)}>
+          <span className="svc-icon"><Icon name={s.icon} size={17} /></span>
+          <span className="svc-body">
+            <span className="svc-title">
+              {s.label}
+              <Icon name="chevron" size={13} />
+            </span>
+            <span className="svc-desc">{s.desc}</span>
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export default function Overview({
+  stream,
+  adminToken,
+  onNavigate,
+  onOpenSettings
+}: {
+  stream: StreamState;
+  adminToken: string;
+  onNavigate: (tab: string) => void;
+  onOpenSettings: () => void;
+}) {
   const [chOnline, setChOnline] = useState<boolean | null>(null);
   const [metrics, setMetrics] = useState<Record<string, number>>({});
 
@@ -118,6 +159,13 @@ export default function Overview({ stream }: { stream: StreamState }) {
 
   return (
     <div className="stack">
+      <SetupChecklist
+        adminToken={adminToken}
+        stream={stream}
+        onNavigate={onNavigate}
+        onOpenSettings={onOpenSettings}
+      />
+
       <section className="ov-health reveal">
         <div className="ov-health-main">
           <span className={'ov-h-dot ' + healthDot} />
@@ -165,6 +213,10 @@ export default function Overview({ stream }: { stream: StreamState }) {
           <Metric key={m.label} label={m.label} value={m.value} icon={m.icon} tone={m.tone} />
         ))}
       </div>
+
+      <Card title="Quick access" subtitle="Jump straight to any part of the gateway.">
+        <ServiceGrid onNavigate={onNavigate} />
+      </Card>
 
       <div className="grid-2">
         <Card

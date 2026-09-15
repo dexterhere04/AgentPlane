@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { storeProviderKey } from '../api';
+import { markSetup } from '../setup';
 import { Card } from './ui';
 import { Icon } from '../icons';
 import ApiKeysView from './ApiKeysView';
@@ -19,6 +20,7 @@ export default function VaultView() {
     const res = await storeProviderKey(provider, apiKey);
     if (res.ok) {
       setResult('Stored ' + provider + ' key under ' + JSON.stringify(res.body));
+      markSetup({ providerKey: true });
     } else {
       setErr('HTTP ' + res.status + ' · ' + JSON.stringify(res.body));
     }

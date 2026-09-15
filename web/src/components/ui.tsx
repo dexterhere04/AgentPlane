@@ -42,7 +42,8 @@ export function Card(props: {
 
 export function Section(props: {
   id: string;
-  index: string;
+  index?: string;
+  eyebrow?: string;
   title: string;
   description?: string;
   right?: ReactNode;
@@ -51,8 +52,9 @@ export function Section(props: {
   return (
     <section className="section reveal" id={props.id}>
       <header className="section-head">
-        <div className="section-num">{props.index}</div>
-        <div>
+        {props.index && <div className="section-num">{props.index}</div>}
+        <div className="section-heading">
+          {props.eyebrow && <span className="section-eyebrow">{props.eyebrow}</span>}
           <h2>{props.title}</h2>
           {props.description && <p>{props.description}</p>}
         </div>

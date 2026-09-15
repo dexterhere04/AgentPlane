@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { sendChat } from '../api';
+import { markSetup } from '../setup';
 import { Badge, Spinner, fmtTime } from './ui';
 import { Icon } from '../icons';
 
@@ -51,6 +52,7 @@ export default function ChatOverlay({ userKey }: { userKey: string }) {
       if (res.ok) {
         const body = res.body as { choices?: { message?: { content?: string } }[] };
         push({ role: 'assistant', content: body?.choices?.[0]?.message?.content ?? JSON.stringify(res.body), status: res.status });
+        markSetup({ firstRequest: true });
       } else {
         const body = res.body as { error?: { message?: string } } | string;
         if (typeof body === 'object' && body?.error) push({ role: 'error', content: body.error.message ?? 'request blocked', status: res.status });

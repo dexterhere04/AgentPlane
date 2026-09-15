@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { provisionUser, revokeKey, fetchRoles, assignRole, Role } from '../api';
+import { markSetup } from '../setup';
 import { Card } from './ui';
 import { Icon } from '../icons';
 
@@ -42,6 +43,7 @@ export default function ApiKeysView() {
     if (res.ok && typeof res.body === 'object') {
       const body = res.body as ProvisionResult;
       setProvisioned(body);
+      markSetup({ provisioned: true });
 
       // Two-step: provision the user + key, then assign the selected role.
       // Access is deny-by-default, so a user with no role cannot use the
