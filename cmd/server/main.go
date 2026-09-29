@@ -170,12 +170,17 @@ func main() {
 
 	enforcement := guardrail.NewEnforcementPoint(registry, cfg, bus)
 
+	// The core, always-available, locally-evaluated guardrails are marked
+	// Required: true so they run even when their strategy is disabled and fail
+	// closed on any resolution or evaluation error — a guardrail error blocks
+	// the request (503) rather than being skipped. Optional/external guardrails
+	// remain Required: false and are skipped on error (fail open).
 	mandatoryInput := guardrail.GuardrailSet{
 		Guards: []guardrail.GuardrailSpec{
-			{Name: "prompt_injection"},
-			{Name: "secrets"},
-			{Name: "pii"},
-			{Name: "content_moderation"},
+			{Name: "prompt_injection", Required: true},
+			{Name: "secrets", Required: true},
+			{Name: "pii", Required: true},
+			{Name: "content_moderation", Required: true},
 			{Name: "aim"},
 			{Name: "lakera"},
 			{Name: "lumigator"},
@@ -209,9 +214,9 @@ func main() {
 	}
 	mandatoryOutput := guardrail.GuardrailSet{
 		Guards: []guardrail.GuardrailSpec{
-			{Name: "secrets"},
-			{Name: "pii"},
-			{Name: "content_moderation"},
+			{Name: "secrets", Required: true},
+			{Name: "pii", Required: true},
+			{Name: "content_moderation", Required: true},
 			{Name: "aim"},
 			{Name: "lakera"},
 			{Name: "nvidia_content"},
@@ -231,6 +236,16 @@ func main() {
 			{Name: "add_prefix"},
 			{Name: "regex_replace"},
 		},
+	}
+
+	// Fail fast on misconfiguration: every Required guardrail must resolve in
+	// the registry, otherwise the gateway would start unable to enforce a
+	// mandatory security control.
+	if err := enforcement.ValidateSet(mandatoryInput); err != nil {
+		log.Fatalf("mandatory input guardrails: %v", err)
+	}
+	if err := enforcement.ValidateSet(mandatoryOutput); err != nil {
+		log.Fatalf("mandatory output guardrails: %v", err)
 	}
 
 	mux := http.NewServeMux()
