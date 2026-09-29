@@ -30,6 +30,20 @@ func (ep *EnforcementPoint) SetMetrics(m *Metrics) {
 	ep.metrics = m
 }
 
+// Evaluate runs the guardrails in set in order for the given direction.
+//
+// The behavior of each guardrail is governed by GuardrailSpec.Required:
+//
+//   - Required guards always run — even when their strategy is disabled — and
+//     fail closed: a resolution error (guardrail not registered) or an
+//     evaluation error returns DecisionBlock along with the error, so the
+//     caller blocks the request instead of proceeding.
+//   - Non-Required guards run only when their strategy is enabled, and are
+//     skipped on error (fail open): the error is recorded and published, then
+//     evaluation continues with the next guardrail.
+//
+// The pipeline short-circuits on DecisionBlock. A DecisionRedact replaces the
+// body for subsequent guards and is returned as the result's Redacted body.
 func (ep *EnforcementPoint) Evaluate(
 	ctx context.Context,
 	requestID string,
@@ -64,11 +78,11 @@ func (ep *EnforcementPoint) Evaluate(
 			}
 
 			if result.Decision == DecisionPass {
-				ep.publishEvent(requestID, g.Name(), dir, result, currentBody)
+				ep.publishEvent(requestID, g.Name(), dir, result)
 				continue
 			}
 
-			ep.publishEvent(requestID, g.Name(), dir, result, currentBody)
+			ep.publishEvent(requestID, g.Name(), dir, result)
 
 			effective := ep.resolve(strategy, result)
 
@@ -102,7 +116,7 @@ func (ep *EnforcementPoint) Evaluate(
 				Guardrail: g.Name(),
 				Decision:  DecisionPass,
 				Message:   fmt.Sprintf("error: %v", err),
-			}, currentBody)
+			})
 			continue
 		}
 
@@ -111,11 +125,11 @@ func (ep *EnforcementPoint) Evaluate(
 		}
 
 		if result.Decision == DecisionPass {
-			ep.publishEvent(requestID, g.Name(), dir, result, currentBody)
+			ep.publishEvent(requestID, g.Name(), dir, result)
 			continue
 		}
 
-		ep.publishEvent(requestID, g.Name(), dir, result, currentBody)
+		ep.publishEvent(requestID, g.Name(), dir, result)
 
 		effective := ep.resolve(strategy, result)
 
@@ -144,7 +158,7 @@ func (ep *EnforcementPoint) failClosed(requestID, name string, dir Direction, er
 		Guardrail: name,
 		Decision:  DecisionBlock,
 		Message:   fmt.Sprintf("%s: %v", ErrGuardrailUnavailable, err),
-	}, nil)
+	})
 	ep.publishBlocked(requestID, &Result{
 		Guardrail: name,
 		Decision:  DecisionBlock,
@@ -157,6 +171,11 @@ func (ep *EnforcementPoint) failClosed(requestID, name string, dir Direction, er
 	}, err
 }
 
+// ValidateSet verifies that every Required guardrail in set resolves in the
+// registry. Non-Required specs are ignored: they are optional, run only when
+// enabled, and are skipped on error, so a missing optional guardrail is not a
+// misconfiguration. It is intended to be called at startup so a Required guard
+// that cannot be resolved fails fast rather than at request time.
 func (ep *EnforcementPoint) ValidateSet(set GuardrailSet) error {
 	for _, spec := range set.Guards {
 		if !spec.Required {
@@ -194,50 +213,50 @@ func (ep *EnforcementPoint) resolve(strategy Strategy, result *Result) *Result {
 	}
 }
 
-func (ep *EnforcementPoint) publishEvent(requestID, guardrail string, dir Direction, result *Result, before []byte) {
+func (ep *EnforcementPoint) publishEvent(requestID, guardrail string, dir Direction, result *Result) {
 	stage := observability.StageGuardrailInput
 	if dir == DirectionOutput {
 		stage = observability.StageGuardrailOutput
 	}
 
 	decision := result.Decision.String()
-	msg := result.Message
+
+	// Details may contain sensitive context and are persisted only to the
+	// configured observability store, never streamed on the bus.
+	captureMsg := result.Message
 	if result.Details != nil {
 		if detailsJSON, err := json.Marshal(result.Details); err == nil {
-			msg = msg + " " + string(detailsJSON)
+			captureMsg = captureMsg + " " + string(detailsJSON)
 		}
 	}
 
-	ep.captureGuardrail(requestID, guardrail, dir, result, msg)
+	ep.captureGuardrail(requestID, guardrail, dir, result, captureMsg)
 
 	if ep.bus == nil {
 		return
 	}
 
+	// The event bus is streamed unauthenticated: publish only a capped,
+	// details-free message and a sanitized projection of findings (no matched
+	// secret/PII values).
+	msg := capPublishedMessage(result.Message)
+
 	e := observability.NewMessageEvent(requestID, stage, "info",
 		fmt.Sprintf("%s: %s", guardrail, decision))
-	if result.Decision != DecisionPass && result.Message != "" {
+	if result.Decision != DecisionPass && msg != "" {
 		e.Message = fmt.Sprintf("%s: %s — %s", guardrail, decision, msg)
 	}
 
-	// Structured payload for the UI: decision, findings, and before/after
-	// body snapshots so redactions/transformations can be visualized.
 	data := map[string]any{
 		"guardrail": guardrail,
 		"decision":  decision,
 		"direction": dir.String(),
 	}
-	if result.Message != "" {
-		data["message"] = result.Message
+	if msg != "" {
+		data["message"] = msg
 	}
 	if len(result.Findings) > 0 {
-		data["findings"] = result.Findings
-	}
-	if before != nil {
-		data["before"] = truncatePayload(before)
-	}
-	if result.Redacted != nil && !bytes.Equal(result.Redacted, before) {
-		data["after"] = truncatePayload(result.Redacted)
+		data["findings"] = sanitizeFindings(result.Findings)
 	}
 	if raw, err := json.Marshal(data); err == nil {
 		e.Data = raw
@@ -246,14 +265,30 @@ func (ep *EnforcementPoint) publishEvent(requestID, guardrail string, dir Direct
 	ep.bus.Publish(e)
 }
 
-const maxPayloadSnapshot = 2000
+const maxPublishedMessage = 500
 
-func truncatePayload(b []byte) string {
-	s := string(b)
-	if len(s) > maxPayloadSnapshot {
-		return s[:maxPayloadSnapshot] + "…"
+func capPublishedMessage(s string) string {
+	if len(s) > maxPublishedMessage {
+		return s[:maxPublishedMessage]
 	}
 	return s
+}
+
+// sanitizeFindings projects findings for bus publication, omitting the
+// matched Value which may contain a raw secret or PII snippet.
+func sanitizeFindings(findings []Finding) []map[string]any {
+	out := make([]map[string]any, 0, len(findings))
+	for _, f := range findings {
+		out = append(out, map[string]any{
+			"guardrail": f.Guardrail,
+			"type":      f.Type,
+			"severity":  string(f.Severity),
+			"entity":    f.Entity,
+			"start":     f.Start,
+			"end":       f.End,
+		})
+	}
+	return out
 }
 
 // captureGuardrail persists the outcome to the configured observability store

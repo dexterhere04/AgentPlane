@@ -98,10 +98,8 @@ func Chat(
 		}()
 	}
 
-	var payload interface{}
 	if json.Valid(body) {
-		json.Unmarshal(body, &payload)
-		bus.Publish(observability.NewDataEvent(requestID, observability.StageBodyRead, "completed", payload))
+		bus.Publish(observability.NewDataEvent(requestID, observability.StageBodyRead, "completed", map[string]any{"bytes": len(body)}))
 	}
 
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageJSONValidated, "started", "Validating JSON..."))

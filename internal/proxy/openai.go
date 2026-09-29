@@ -147,7 +147,21 @@ func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, r
 	if json.Valid(respBody) {
 		json.Unmarshal(respBody, &respData)
 	}
-	bus.Publish(observability.NewDataEvent(requestID, observability.StageResponseSent, "completed", respData))
+	respMeta := map[string]any{}
+	if m, ok := respData["model"].(string); ok {
+		respMeta["model"] = m
+	}
+	if choices, ok := respData["choices"].([]any); ok {
+		respMeta["choices"] = len(choices)
+		if len(choices) > 0 {
+			if c0, ok := choices[0].(map[string]any); ok {
+				if fr, ok := c0["finish_reason"].(string); ok {
+					respMeta["finish_reason"] = fr
+				}
+			}
+		}
+	}
+	bus.Publish(observability.NewDataEvent(requestID, observability.StageResponseSent, "completed", respMeta))
 
 	// Enforce capture mode for response payload
 	captureResponseAsync(requestID, respBody)
