@@ -90,7 +90,7 @@ export default function App() {
     );
     queueRef.current = queue;
 
-    const es = new EventSource('/events');
+    const es = new EventSource('/events?token=' + encodeURIComponent(getAdminToken()));
     es.onopen = () => setStream((s) => streamConnected(s, true));
     es.onerror = () => setStream((s) => streamConnected(s, false));
     es.onmessage = (e) => {

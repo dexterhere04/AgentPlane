@@ -165,7 +165,9 @@ export async function fetchAnalytics(type: string, hours = 24): Promise<{ ok: bo
 }
 
 export async function fetchMetrics(): Promise<{ ok: boolean; body: Record<string, unknown> }> {
-  const res = await fetch('/metrics');
+  const res = await fetch('/metrics', {
+    headers: { Authorization: 'Bearer ' + getAdminToken() }
+  });
   const body = (await parseJSON(res)) as Record<string, unknown>;
   return { ok: res.ok, body };
 }

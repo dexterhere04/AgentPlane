@@ -312,17 +312,21 @@ func main() {
 	mux.Handle("GET /admin/users/{id}/roles", auth.AdminMiddleware(adminToken, handlers.ListUserRoles(rbacStore)))
 	mux.Handle("POST /admin/users/{id}/roles", auth.AdminMiddleware(adminToken, handlers.AssignUserRole(rbacStore)))
 	mux.Handle("DELETE /admin/users/{id}/roles/{role}", auth.AdminMiddleware(adminToken, handlers.RevokeUserRole(rbacStore)))
-	mux.HandleFunc("/events", observability.SSEHandler(bus))
+	// Operator-only observability endpoints. All three require the admin
+	// token; the browser-facing /events and /dashboard also accept it via the
+	// "token" query parameter since EventSource and top-level navigation
+	// cannot set request headers.
+	mux.Handle("/events", auth.AdminMiddlewareQuery(adminToken, observability.SSEHandler(bus)))
 	if chURL != "" {
 		mux.Handle("/analytics/traces_count", auth.AdminMiddleware(adminToken, handlers.AnalyticsHandler(chURL, "traces_count")))
 		mux.Handle("/admin/analytics", auth.AdminMiddleware(adminToken, handlers.AnalyticsHandler(chURL, "")))
 	}
-	mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/dashboard", auth.AdminMiddlewareQuery(adminToken, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(dashboard.HTML))
-	})
+	})))
 
-	mux.HandleFunc("/metrics", handlers.MetricsHandler())
+	mux.Handle("/metrics", auth.AdminMiddleware(adminToken, handlers.MetricsHandler()))
 
 	log.Printf("AgentPlane Dev Mode")
 	log.Printf("  Gateway   → http://localhost:%s/chat (%s)", port, provider.Name())

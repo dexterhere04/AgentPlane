@@ -470,9 +470,9 @@ layer: a user must be assigned a role before they can use the gateway. See
 | GET    | `/admin/roles`           | Bearer admin token | List roles and their permissions           |
 | POST   | `/admin/roles`           | Bearer admin token | Create a role                              |
 | POST   | `/admin/users/{id}/roles`| Bearer admin token | Assign a role to a user                    |
-| GET    | `/events`                | —                 | Server-sent event stream                   |
-| GET    | `/dashboard`             | —                 | HTML dashboard                             |
-| GET    | `/metrics`               | —                 | Metrics                                    |
+| GET    | `/events`                | Bearer admin token (`?token=` allowed) | Server-sent event stream                   |
+| GET    | `/dashboard`             | Bearer admin token (`?token=` allowed) | HTML dashboard                             |
+| GET    | `/metrics`               | Bearer admin token | Metrics                                    |
 
 ## Configuration
 
