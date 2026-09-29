@@ -11,7 +11,7 @@ Keys are minted via `POST /provision/user`.
 
 ## Authorization
 
-`/chat` is gated by the policy layer. The authenticated user must hold the `chat:invoke` permission, and (when the request names a model) a matching `model:<name>` permission. Access is **deny-by-default** — a user with no assigned role is permitted nothing. See [Policy Layer & RBAC](policy-rbac.md) for roles and permissions.
+`/chat` is gated by the policy layer. The authenticated user must hold the `chat:invoke` permission, and a matching `model:<name>` permission for the request's effective model — the request's `model` field, or the configured `DEFAULT_MODEL` when the request omits it. A request with no resolvable model is rejected. Access is **deny-by-default** — a user with no assigned role is permitted nothing. See [Policy Layer & RBAC](policy-rbac.md) for roles and permissions.
 
 Grant access by assigning a role (for example the built-in `member`) via `POST /admin/users/{id}/roles`.
 
@@ -75,10 +75,19 @@ The provider response is returned (possibly redacted). Content-Type is `applicat
 
 #### 400 Bad Request
 
-Returned when the request body is not valid JSON.
+Returned when the request body is not valid JSON, or when no effective model can be resolved (the request omits `model` and no `DEFAULT_MODEL` is configured).
 
 ```
 Invalid JSON in request body
+```
+
+```json
+{
+  "error": {
+    "type": "model_required",
+    "message": "a resolvable model is required to authorize this request"
+  }
+}
 ```
 
 #### 401 Unauthorized

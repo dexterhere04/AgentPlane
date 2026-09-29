@@ -110,30 +110,44 @@ func Chat(
 	}
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageJSONValidated, "completed", "JSON valid"))
 
+	// Resolve the effective model up front (injecting a configured default) so
+	// guardrails and authorization all evaluate the same request.
+	body = proxy.ApplyDefaultModel(body)
+
 	ctx := r.Context()
 
 	// Authorization: chat:invoke is enforced by middleware (it needs no body).
 	// Per-model access is the dynamic half of the RBAC check and must run
 	// here, after the body has been read and validated.
 	if policyEP != nil {
-		if user, ok := auth.UserFromContext(ctx); ok {
-			if model := requestModelFromBody(body); model != "" {
-				permission := "model:" + model
-				decision, err := policyEP.Authorize(ctx, policy.Request{
-					UserID:     user.ID,
-					Permission: permission,
-				})
-				if err != nil {
-					bus.Publish(observability.NewMessageEvent(requestID, observability.StageRequestReceived, "error", "policy unavailable for "+permission))
-					policy.WriteUnavailable(w, permission)
-					return
-				}
-				if decision == policy.DecisionDeny {
-					bus.Publish(observability.NewMessageEvent(requestID, observability.StageRequestReceived, "error", "policy denied "+permission))
-					policy.WriteDenied(w, permission)
-					return
-				}
-			}
+		user, ok := auth.UserFromContext(ctx)
+		if !ok {
+			bus.Publish(observability.NewMessageEvent(requestID, observability.StageRequestReceived, "error", "missing authenticated user for model authorization"))
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		model := proxy.ResolveModel(body)
+		if model == "" {
+			bus.Publish(observability.NewMessageEvent(requestID, observability.StageRequestReceived, "error", "request has no resolvable model"))
+			writeModelRequired(w)
+			return
+		}
+
+		permission := "model:" + model
+		decision, err := policyEP.Authorize(ctx, policy.Request{
+			UserID:     user.ID,
+			Permission: permission,
+		})
+		if err != nil {
+			bus.Publish(observability.NewMessageEvent(requestID, observability.StageRequestReceived, "error", "policy unavailable for "+permission))
+			policy.WriteUnavailable(w, permission)
+			return
+		}
+		if decision == policy.DecisionDeny {
+			bus.Publish(observability.NewMessageEvent(requestID, observability.StageRequestReceived, "error", "policy denied "+permission))
+			policy.WriteDenied(w, permission)
+			return
 		}
 	}
 
@@ -198,17 +212,16 @@ func Chat(
 	w.Write(respBody)
 }
 
-// requestModelFromBody extracts the "model" field from an OpenAI-style
-// request body. It returns "" when the field is absent or the body is not
-// valid JSON.
-func requestModelFromBody(body []byte) string {
-	var req struct {
-		Model string `json:"model"`
+func writeModelRequired(w http.ResponseWriter) {
+	errResp := map[string]interface{}{
+		"error": map[string]interface{}{
+			"type":    "model_required",
+			"message": "a resolvable model is required to authorize this request",
+		},
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
-		return ""
-	}
-	return req.Model
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusBadRequest)
+	json.NewEncoder(w).Encode(errResp)
 }
 
 func writeGuardrailBlock(w http.ResponseWriter, result *guardrail.Result, requestID string) {

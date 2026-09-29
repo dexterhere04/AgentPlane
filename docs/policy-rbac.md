@@ -102,13 +102,14 @@ auth.Authenticator.Middleware        # resolves user, 401 on failure
               └── guardrails (input) → provider → guardrails (output)
 ```
 
-If a request has no `model` field, the model check is skipped — `chat:invoke` already gates access and the upstream provider will reject a malformed request.
+The effective model is the request's `model` field when present, otherwise the configured `DEFAULT_MODEL`. A request with no resolvable model is rejected with `400 Bad Request` (`model_required`) — access is deny-by-default, so the model check is never skipped.
 
 ### Failure semantics
 
 | Condition | Response |
 |-----------|----------|
 | No authenticated user | `401 Unauthorized` |
+| No resolvable model (no request `model`, no `DEFAULT_MODEL`) | `400 Bad Request` (`model_required`) |
 | Explicit deny | `403 Forbidden` (`policy_denied`) |
 | Policy could not be evaluated (e.g. database error) | `503 Service Unavailable` (`policy_unavailable`) |
 

@@ -31,9 +31,10 @@ handlers.Chat()                     [internal/handlers/chat.go]
   | 6. Read request body → read failure 500
   | 7. Validate JSON → invalid 400
   |
-  | 8. Authorize model (policyEP.Authorize, permission "model:<name>")
+  | 8. Resolve effective model (request "model" or DEFAULT_MODEL), then
+  |    authorize it (policyEP.Authorize, permission "model:<name>")
+  |    - no resolvable model → 400 model_required
   |    - deny → 403 policy_denied, evaluation error → 503 policy_unavailable
-  |    - no "model" field → skipped
   |
   | 9. Run input guardrails (enforcement.Evaluate, DirectionInput)
   |    - Block → 403, Redact → rewrite body, Warn/LogOnly → continue
@@ -71,7 +72,7 @@ Authorization is deny-by-default: a user with no assigned role holds no permissi
 1. `EnforcementPoint.Require("chat:invoke")` runs after authentication. It reads the user from context (401 if absent) and calls `Authorize`.
 2. `Authorize` runs each registered `Policy` in order; the first explicit deny wins. A policy error fails closed and is surfaced as 503.
 3. RBAC (`internal/policy/rbac`) loads the user's effective permissions from `user_roles → role_permissions` and allows when any granted permission matches the requested one (`*` matches all; `model:*` is a prefix wildcard).
-4. Inside `handlers.Chat`, after the body is validated, the same enforcement point authorizes `model:<name>` using the `model` field from the request.
+4. Inside `handlers.Chat`, after the body is validated, the effective model is resolved (the request `model` field, or `DEFAULT_MODEL` when the request omits it) and the same enforcement point authorizes `model:<name>`. A request with no resolvable model is rejected with `400 model_required` rather than forwarded.
 
 > The `chat:invoke` check is static (middleware, before the body is read); the model check is dynamic (needs the parsed body).
 
@@ -107,6 +108,7 @@ For each `GuardrailSpec` in the `GuardrailSet`, the `EnforcementPoint` performs:
 | 5 | Method is not POST | 405 | `Method not allowed` |
 | 6 | Body read fails | 500 | `Failed to read request body` |
 | 7 | Body is not valid JSON | 400 | `Invalid JSON in request body` |
+| 8 | No resolvable model | 400 | `{"error":{"type":"model_required",...}}` |
 | 8 | Model not permitted | 403 | `{"error":{"type":"policy_denied",...}}` |
 | 8 | Policy evaluation error | 503 | `{"error":{"type":"policy_unavailable",...}}` |
 | 9 | Input guardrail blocks | 403 | `{"error":{"type":"guardrail_blocked",...}}` |

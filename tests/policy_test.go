@@ -99,3 +99,52 @@ func TestChatPolicy_WildcardModelAllows(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestChatPolicy_MissingModelRejected(t *testing.T) {
+	t.Setenv("DEFAULT_MODEL", "")
+	body := []byte(`{"messages":[{"role":"user","content":"hi"}]}`)
+
+	rec := chatWithPolicy(t, []string{"chat:invoke", "model:*"}, body)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON response: %v", err)
+	}
+	if resp["error"]["type"] != "model_required" {
+		t.Fatalf("expected model_required, got %v", resp["error"]["type"])
+	}
+}
+
+func TestChatPolicy_DefaultModelDenied(t *testing.T) {
+	t.Setenv("DEFAULT_MODEL", "gpt-4o-mini")
+	body := []byte(`{"messages":[{"role":"user","content":"hi"}]}`)
+
+	rec := chatWithPolicy(t, []string{"chat:invoke", "model:gpt-4o"}, body)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON response: %v", err)
+	}
+	if resp["error"]["permission"] != "model:gpt-4o-mini" {
+		t.Fatalf("expected denied permission model:gpt-4o-mini, got %v", resp["error"]["permission"])
+	}
+}
+
+func TestChatPolicy_DefaultModelAllowed(t *testing.T) {
+	t.Setenv("DEFAULT_MODEL", "gpt-4o")
+	body := []byte(`{"messages":[{"role":"user","content":"hi"}]}`)
+
+	rec := chatWithPolicy(t, []string{"chat:invoke", "model:gpt-4o"}, body)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
