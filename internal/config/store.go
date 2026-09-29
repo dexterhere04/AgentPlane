@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/dexterhere04/AgentPlane/internal/secrets"
@@ -47,6 +48,25 @@ func ConfigureSecretStore() error {
 	return nil
 }
 
+// readAppRoleFile parses a KEY=VALUE env file (as written by the compose
+// vault-init service to /vault-creds/creds.env) for AppRole credentials.
+func readAppRoleFile(path string) (roleID, secretID string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(line, "VAULT_ROLE_ID="):
+			roleID = strings.TrimSpace(strings.TrimPrefix(line, "VAULT_ROLE_ID="))
+		case strings.HasPrefix(line, "VAULT_SECRET_ID="):
+			secretID = strings.TrimSpace(strings.TrimPrefix(line, "VAULT_SECRET_ID="))
+		}
+	}
+	return roleID, secretID
+}
+
 func envOrDefault(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -54,8 +74,8 @@ func envOrDefault(key, fallback string) string {
 	return fallback
 }
 
-func newVaultStore() (secrets.VaultStore, error) {
-	store := secrets.VaultStore{
+func newVaultStore() (*secrets.VaultStore, error) {
+	store := &secrets.VaultStore{
 		Addr:       envOrDefault("VAULT_ADDR", "http://127.0.0.1:8200"),
 		Token:      os.Getenv("VAULT_TOKEN"),
 		MountPath:  envOrDefault("VAULT_MOUNT_PATH", "agentplane"),
@@ -65,16 +85,30 @@ func newVaultStore() (secrets.VaultStore, error) {
 	if os.Getenv("VAULT_KV_VERSION") == "1" {
 		store.KVVersion = 1
 	}
-	if store.Token == "" {
-		roleID := os.Getenv("VAULT_ROLE_ID")
-		secretID := os.Getenv("VAULT_SECRET_ID")
-		if roleID != "" && secretID != "" {
-			token, err := secrets.VaultAppRoleLogin(store.Addr, roleID, secretID)
-			if err != nil {
-				return secrets.VaultStore{}, fmt.Errorf("Vault AppRole login: %w", err)
-			}
-			store.Token = token
+
+	// AppRole credentials let the store re-issue tokens when the cached one
+	// expires. They come from the environment (exported by docker-entrypoint.sh)
+	// or, as a fallback, straight from the file vault-init writes.
+	roleID := os.Getenv("VAULT_ROLE_ID")
+	secretID := os.Getenv("VAULT_SECRET_ID")
+	if roleID == "" || secretID == "" {
+		fileRole, fileSecret := readAppRoleFile(envOrDefault("VAULT_APPROLE_FILE", "/vault-creds/creds.env"))
+		if roleID == "" {
+			roleID = fileRole
 		}
+		if secretID == "" {
+			secretID = fileSecret
+		}
+	}
+	store.RoleID = roleID
+	store.SecretID = secretID
+
+	if store.Token == "" && store.RoleID != "" && store.SecretID != "" {
+		token, err := secrets.VaultAppRoleLogin(store.Addr, store.RoleID, store.SecretID)
+		if err != nil {
+			return nil, fmt.Errorf("Vault AppRole login: %w", err)
+		}
+		store.Token = token
 	}
 	return store, nil
 }

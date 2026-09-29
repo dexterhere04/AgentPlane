@@ -10,6 +10,13 @@ type SecretStore interface {
 	GetSecret(key string) (string, error)
 }
 
+// SecretWriter is implemented by secret stores that support persisting
+// secrets (e.g. Vault). Read-only backends (env, file, aws, azure) do not.
+type SecretWriter interface {
+	SecretStore
+	SetSecret(key, value string) error
+}
+
 type EnvStore struct{}
 
 func (e EnvStore) GetSecret(key string) (string, error) {

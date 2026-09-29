@@ -82,3 +82,53 @@ func TestCreateUser_RealPostgres(t *testing.T) {
 	}
 
 }
+
+func TestListUsers_RealPostgres(t *testing.T) {
+	databaseURL, err := config.DatabaseURL()
+	if err != nil {
+		t.Skipf("DATABASE_URL not configured: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	pool, err := db.NewPool(ctx, databaseURL)
+	if err != nil {
+		t.Fatalf("failed to connect to PostgreSQL: %v", err)
+	}
+	defer pool.Close()
+
+	store := NewStore(pool)
+
+	suffix := time.Now().Format("20060102150405.000000000")
+	username := "listusers_test_" + suffix
+	email := username + "@example.com"
+
+	created, err := store.CreateUser(ctx, CreateUserParams{Username: username, Email: &email})
+	if err != nil {
+		t.Fatalf("CreateUser failed: %v", err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, created.ID) })
+
+	list, err := store.ListUsers(ctx)
+	if err != nil {
+		t.Fatalf("ListUsers failed: %v", err)
+	}
+
+	var found *User
+	for i := range list {
+		if list[i].ID == created.ID {
+			found = &list[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("expected newly created user %s in ListUsers result", created.ID)
+	}
+	if found.Username != username {
+		t.Errorf("expected username %q, got %q", username, found.Username)
+	}
+	if found.Status != StatusActive {
+		t.Errorf("expected status %q, got %q", StatusActive, found.Status)
+	}
+}

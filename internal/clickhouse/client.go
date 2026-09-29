@@ -25,14 +25,15 @@ var (
 func New(host string, port int) (*Client, error) {
 	var err error
 	once.Do(func() {
+		user, password := Credentials()
 		conn, connErr := clickhouse.Open(&clickhouse.Options{
 			Addr: []string{fmt.Sprintf("%s:%d", host, port)},
 			Auth: clickhouse.Auth{
 				// Connect to the server's default database; the "agentplane"
 				// database is created by the schema migration at init time and
 				// all table writes are fully qualified (agentplane.*).
-				Username: "default",
-				Password: "",
+				Username: user,
+				Password: password,
 			},
 			ClientInfo: clickhouse.ClientInfo{
 				Products: []struct{ Name, Version string }{
@@ -91,14 +92,14 @@ func (c *Client) Query(ctx context.Context, query string, args ...interface{}) (
 func (c *Client) InsertTrace(ctx context.Context, trace *TraceEvent) error {
 	query := `
 		INSERT INTO agentplane.traces (
-			trace_id, request_id, timestamp, user_id, organization_id, project_id,
+			trace_id, request_id, timestamp, user_id, username, organization_id, project_id,
 			provider, model, latency_ms, status, cache_hit,
 			input_tokens, output_tokens, total_tokens, estimated_cost,
 			guardrail_action, route
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	return c.Exec(ctx, query,
-		trace.TraceID, trace.RequestID, trace.Timestamp, trace.UserID, trace.OrgID, trace.ProjectID,
+		trace.TraceID, trace.RequestID, trace.Timestamp, trace.UserID, trace.Username, trace.OrgID, trace.ProjectID,
 		trace.Provider, trace.Model, trace.LatencyMs, trace.Status, boolToUint8(trace.CacheHit),
 		trace.InputTokens, trace.OutputTokens, trace.TotalTokens, trace.EstimatedCost,
 		trace.GuardrailAction, trace.Route,
@@ -109,10 +110,10 @@ func (c *Client) InsertTrace(ctx context.Context, trace *TraceEvent) error {
 func (c *Client) InsertPrompt(ctx context.Context, p *PromptEvent) error {
 	query := `
 		INSERT INTO agentplane.prompt_events (
-			trace_id, prompt_blob, prompt_hash, prompt_bytes, compressed_size, capture_mode
-		) VALUES (?, ?, ?, ?, ?, ?)
+			trace_id, user_id, username, prompt_blob, prompt_text, prompt_hash, prompt_bytes, compressed_size, capture_mode
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
-	return c.Exec(ctx, query, p.TraceID, p.PromptBlob, p.PromptHash, p.PromptBytes, p.CompressedSize, p.CaptureMode)
+	return c.Exec(ctx, query, p.TraceID, p.UserID, p.Username, p.PromptBlob, p.PromptText, p.PromptHash, p.PromptBytes, p.CompressedSize, p.CaptureMode)
 }
 
 // InsertResponse inserts a response event

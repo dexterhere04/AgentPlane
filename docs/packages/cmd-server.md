@@ -30,9 +30,9 @@ There is also a second executable, `cmd/keygeneration/main.go`, which generates 
 | `/chat` | `handlers.Chat` wrapped in `authenticator.Middleware` | Bearer API key |
 | `/provision/user` | `handlers.ProvisionUser` wrapped in `auth.AdminMiddleware` | Bearer admin token |
 | `/admin/api-keys/revoke` | `handlers.RevokeAPIKey` wrapped in `auth.AdminMiddleware` | Bearer admin token |
-| `/events` | `observability.SSEHandler` | — |
-| `/dashboard` | inline handler serving `dashboard.HTML` | — |
-| `/metrics` | `handlers.MetricsHandler` | — |
+| `/events` | `observability.SSEHandler` wrapped in `auth.AdminMiddlewareQuery` | Bearer admin token (`?token=` allowed) |
+| `/dashboard` | inline handler serving `dashboard.HTML` wrapped in `auth.AdminMiddlewareQuery` | Bearer admin token (`?token=` allowed) |
+| `/metrics` | `handlers.MetricsHandler` wrapped in `auth.AdminMiddleware` | Bearer admin token |
 
 ## Functions
 

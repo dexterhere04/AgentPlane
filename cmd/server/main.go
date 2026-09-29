@@ -3,13 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"strconv"
-	"time"
 
 	"github.com/dexterhere04/AgentPlane/internal/api"
 	"github.com/dexterhere04/AgentPlane/internal/auth"
@@ -30,6 +27,8 @@ import (
 	guardzscaler "github.com/dexterhere04/AgentPlane/internal/guardrail/providers/zscaler"
 	"github.com/dexterhere04/AgentPlane/internal/handlers"
 	"github.com/dexterhere04/AgentPlane/internal/observability"
+	"github.com/dexterhere04/AgentPlane/internal/policy"
+	"github.com/dexterhere04/AgentPlane/internal/policy/rbac"
 	"github.com/dexterhere04/AgentPlane/internal/provisioning"
 	"github.com/dexterhere04/AgentPlane/internal/proxy"
 	"github.com/dexterhere04/AgentPlane/internal/users"
@@ -37,14 +36,8 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// Analytics window bounds (in hours) and the HTTP client used to forward
-// analytics queries to ClickHouse's HTTP interface.
-const (
-	minAnalyticsHours = 1
-	maxAnalyticsHours = 720 // 30 days
-)
-
-var analyticsHTTPClient = &http.Client{Timeout: 30 * time.Second}
+// Analytics queries are forwarded to ClickHouse's HTTP interface (see
+// handlers.AnalyticsHandler). The window bounds and HTTP client live there.
 
 func main() {
 	if err := godotenv.Load(); err != nil {
@@ -126,6 +119,11 @@ func main() {
 		pepper,
 	)
 
+	// Policy layer: RBAC is the first (and currently only) policy. Access is
+	// deny-by-default — a user with no assigned role is permitted nothing.
+	rbacStore := rbac.NewStore(pool)
+	policyEP := policy.NewEnforcementPoint(rbac.New(rbacStore))
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "3001"
@@ -172,12 +170,17 @@ func main() {
 
 	enforcement := guardrail.NewEnforcementPoint(registry, cfg, bus)
 
+	// The core, always-available, locally-evaluated guardrails are marked
+	// Required: true so they run even when their strategy is disabled and fail
+	// closed on any resolution or evaluation error — a guardrail error blocks
+	// the request (503) rather than being skipped. Optional/external guardrails
+	// remain Required: false and are skipped on error (fail open).
 	mandatoryInput := guardrail.GuardrailSet{
 		Guards: []guardrail.GuardrailSpec{
-			{Name: "prompt_injection"},
-			{Name: "secrets"},
-			{Name: "pii"},
-			{Name: "content_moderation"},
+			{Name: "prompt_injection", Required: true},
+			{Name: "secrets", Required: true},
+			{Name: "pii", Required: true},
+			{Name: "content_moderation", Required: true},
 			{Name: "aim"},
 			{Name: "lakera"},
 			{Name: "lumigator"},
@@ -211,9 +214,9 @@ func main() {
 	}
 	mandatoryOutput := guardrail.GuardrailSet{
 		Guards: []guardrail.GuardrailSpec{
-			{Name: "secrets"},
-			{Name: "pii"},
-			{Name: "content_moderation"},
+			{Name: "secrets", Required: true},
+			{Name: "pii", Required: true},
+			{Name: "content_moderation", Required: true},
 			{Name: "aim"},
 			{Name: "lakera"},
 			{Name: "nvidia_content"},
@@ -235,12 +238,26 @@ func main() {
 		},
 	}
 
+	// Fail fast on misconfiguration: every Required guardrail must resolve in
+	// the registry, otherwise the gateway would start unable to enforce a
+	// mandatory security control.
+	if err := enforcement.ValidateSet(mandatoryInput); err != nil {
+		log.Fatalf("mandatory input guardrails: %v", err)
+	}
+	if err := enforcement.ValidateSet(mandatoryOutput); err != nil {
+		log.Fatalf("mandatory output guardrails: %v", err)
+	}
+
 	mux := http.NewServeMux()
 	mux.Handle(
 		"/chat",
-		authenticator.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handlers.Chat(w, r, enforcement, mandatoryInput, mandatoryOutput, provider)
-		})),
+		authenticator.Middleware(
+			policyEP.Require("chat:invoke")(
+				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					handlers.Chat(w, r, enforcement, policyEP, mandatoryInput, mandatoryOutput, provider)
+				}),
+			),
+		),
 	)
 
 	// SECURITY: /provision/user creates users and mints API keys, so it is
@@ -262,45 +279,54 @@ func main() {
 			handlers.RevokeAPIKey(apiKeyStore),
 		),
 	)
-	mux.HandleFunc("/events", observability.SSEHandler(bus))
+	mux.Handle(
+		"/admin/api-keys",
+		auth.AdminMiddleware(
+			adminToken,
+			handlers.ListAPIKeys(apiKeyStore),
+		),
+	)
+	mux.Handle(
+		"/admin/analytics/users",
+		auth.AdminMiddleware(
+			adminToken,
+			handlers.UserAnalyticsHandler(),
+		),
+	)
+	mux.Handle(
+		"/admin/secrets/provider",
+		auth.AdminMiddleware(
+			adminToken,
+			handlers.StoreProviderSecret(),
+		),
+	)
+
+	// RBAC role administration. Roles are assigned to users; access is
+	// deny-by-default, so a user must be granted a role (e.g. "member")
+	// before they can use the gateway.
+	mux.Handle("GET /admin/roles", auth.AdminMiddleware(adminToken, handlers.ListRoles(rbacStore)))
+	mux.Handle("POST /admin/roles", auth.AdminMiddleware(adminToken, handlers.CreateRole(rbacStore)))
+	mux.Handle("POST /admin/roles/{name}/permissions", auth.AdminMiddleware(adminToken, handlers.AddRolePermission(rbacStore)))
+	mux.Handle("DELETE /admin/roles/{name}/permissions/{permission}", auth.AdminMiddleware(adminToken, handlers.RemoveRolePermission(rbacStore)))
+	mux.Handle("GET /admin/users", auth.AdminMiddleware(adminToken, handlers.ListUsers(userStore, rbacStore)))
+	mux.Handle("GET /admin/users/{id}/roles", auth.AdminMiddleware(adminToken, handlers.ListUserRoles(rbacStore)))
+	mux.Handle("POST /admin/users/{id}/roles", auth.AdminMiddleware(adminToken, handlers.AssignUserRole(rbacStore)))
+	mux.Handle("DELETE /admin/users/{id}/roles/{role}", auth.AdminMiddleware(adminToken, handlers.RevokeUserRole(rbacStore)))
+	// Operator-only observability endpoints. All three require the admin
+	// token; the browser-facing /events and /dashboard also accept it via the
+	// "token" query parameter since EventSource and top-level navigation
+	// cannot set request headers.
+	mux.Handle("/events", auth.AdminMiddlewareQuery(adminToken, observability.SSEHandler(bus)))
 	if chURL != "" {
-		analyticsHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			hours := 24
-			if v := r.URL.Query().Get("hours"); v != "" {
-				n, err := strconv.Atoi(v)
-				if err != nil || n < minAnalyticsHours || n > maxAnalyticsHours {
-					http.Error(w, fmt.Sprintf("hours must be an integer between %d and %d", minAnalyticsHours, maxAnalyticsHours), http.StatusBadRequest)
-					return
-				}
-				hours = n
-			}
-
-			q := fmt.Sprintf("SELECT count() AS cnt FROM agentplane.traces WHERE timestamp >= now() - INTERVAL %d HOUR", hours)
-			req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, chURL+"/?query="+url.QueryEscape(q), nil)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadGateway)
-				return
-			}
-
-			resp, err := analyticsHTTPClient.Do(req)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadGateway)
-				return
-			}
-			defer resp.Body.Close()
-
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(resp.StatusCode)
-			io.Copy(w, resp.Body)
-		})
-		mux.Handle("/analytics/traces_count", auth.AdminMiddleware(adminToken, analyticsHandler))
+		mux.Handle("/analytics/traces_count", auth.AdminMiddleware(adminToken, handlers.AnalyticsHandler(chURL, "traces_count")))
+		mux.Handle("/admin/analytics", auth.AdminMiddleware(adminToken, handlers.AnalyticsHandler(chURL, "")))
 	}
-	mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/dashboard", auth.AdminMiddlewareQuery(adminToken, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(dashboard.HTML))
-	})
+	})))
 
-	mux.HandleFunc("/metrics", handlers.MetricsHandler())
+	mux.Handle("/metrics", auth.AdminMiddleware(adminToken, handlers.MetricsHandler()))
 
 	log.Printf("AgentPlane Dev Mode")
 	log.Printf("  Gateway   → http://localhost:%s/chat (%s)", port, provider.Name())

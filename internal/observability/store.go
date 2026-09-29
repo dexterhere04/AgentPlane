@@ -12,6 +12,7 @@ type Trace struct {
 	RequestID       string
 	Timestamp       time.Time
 	UserID          string
+	Username        string
 	OrgID           string
 	ProjectID       string
 	Provider        string
@@ -31,6 +32,8 @@ type Payload struct {
 	ID          string
 	TraceID     string
 	RequestID   string
+	UserID      string
+	Username    string
 	Timestamp   time.Time
 	Payload     []byte
 	CaptureMode CaptureMode // "disabled", "full", "sampled", "hash_only"
@@ -56,6 +59,7 @@ type GuardrailEvent struct {
 	Rule      string
 	Action    string
 	Details   string
+	Phase     string // "input" or "output"
 }
 
 type UsageEvent struct {

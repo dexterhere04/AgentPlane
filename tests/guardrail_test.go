@@ -1,10 +1,15 @@
 package tests
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/dexterhere04/AgentPlane/internal/guardrail"
+	"github.com/dexterhere04/AgentPlane/internal/handlers"
 	"github.com/dexterhere04/AgentPlane/internal/observability"
 )
 
@@ -339,10 +344,10 @@ func TestEnforcementFailClosedOnMandatoryError(t *testing.T) {
 	bus := observability.NewEventBus(10)
 
 	mock := &testGuardrail{
-		NameStr:  "failing_mandatory",
-		InputErr: context.DeadlineExceeded,
+		NameStr:    "failing_mandatory",
+		InputErr:   context.DeadlineExceeded,
 		BlockInput: true,
-		BlockMsg: "error",
+		BlockMsg:   "error",
 	}
 	registry := guardrail.NewRegistry()
 	registry.Register(mock)
@@ -468,8 +473,8 @@ func TestEnforcementOptionalMissingSkipped(t *testing.T) {
 func TestEnforcementRequiredShortCircuitsOnBlock(t *testing.T) {
 	cfg := guardrail.Config{
 		Strategies: map[string]guardrail.Strategy{
-			"req_blocker":  {Name: "req_blocker", Mode: guardrail.ModeEnforce, Enabled: true},
-			"req_second":   {Name: "req_second", Mode: guardrail.ModeEnforce, Enabled: true},
+			"req_blocker": {Name: "req_blocker", Mode: guardrail.ModeEnforce, Enabled: true},
+			"req_second":  {Name: "req_second", Mode: guardrail.ModeEnforce, Enabled: true},
 		},
 	}
 	bus := observability.NewEventBus(10)
@@ -511,6 +516,27 @@ func TestEnforcementValidateSet(t *testing.T) {
 	badSet := guardrail.GuardrailSet{Guards: []guardrail.GuardrailSpec{{Name: "not_registered", Required: true}}}
 	if err := ep.ValidateSet(badSet); err == nil {
 		t.Error("expected error for unregistered required guardrail")
+	}
+}
+
+func TestHandlerRequiredGuardrailErrorFailsClosed(t *testing.T) {
+	g := &testGuardrail{NameStr: "required_secrets", InputErr: errors.New("guardrail backend down")}
+	enforcement := newTestEnforcement(g)
+	inputSet := requiredEnforcementSet(g)
+	provider := &testCallingProvider{NameStr: "mock", Response: []byte(`{"ok":true}`)}
+
+	body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handlers.Chat(w, req, enforcement, nil, inputSet, guardrail.GuardrailSet{}, provider)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503 when required guardrail errors, got %d: %s", w.Code, w.Body.String())
+	}
+	if provider.Called {
+		t.Error("provider should not be called when a required guardrail errors")
 	}
 }
 
