@@ -51,6 +51,7 @@ func (p *OpenAIProvider) Name() string {
 
 func (p *OpenAIProvider) Forward(ctx context.Context, body []byte, requestID string) ([]byte, error) {
 	bus := observability.DefaultBus
+	body = ApplyDefaultModel(body)
 	url := p.baseURL + "/chat/completions"
 
 	// Attribute this request to the authenticated user so traces, prompts,
@@ -377,6 +378,39 @@ func requestModel(body []byte) string {
 		}
 	}
 	return ""
+}
+
+// ApplyDefaultModel returns body with the configured DEFAULT_MODEL injected as
+// its "model" field when the body is valid JSON and has no non-empty "model".
+// It is a no-op when no default is configured or the body already names a model.
+func ApplyDefaultModel(body []byte) []byte {
+	def := strings.TrimSpace(os.Getenv("DEFAULT_MODEL"))
+	if def == "" || !json.Valid(body) {
+		return body
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return body
+	}
+	if m, _ := doc["model"].(string); strings.TrimSpace(m) != "" {
+		return body
+	}
+	doc["model"] = def
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return body
+	}
+	return out
+}
+
+// ResolveModel returns the effective model for a request: the request's "model"
+// field if present, otherwise the configured DEFAULT_MODEL. It returns "" when
+// neither is available.
+func ResolveModel(body []byte) string {
+	if m := requestModel(body); m != "" {
+		return m
+	}
+	return strings.TrimSpace(os.Getenv("DEFAULT_MODEL"))
 }
 
 // recordTraceAsync records a request trace without blocking the caller.
