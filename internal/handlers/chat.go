@@ -11,6 +11,7 @@ import (
 	"github.com/dexterhere04/AgentPlane/internal/auth"
 	"github.com/dexterhere04/AgentPlane/internal/guardrail"
 	"github.com/dexterhere04/AgentPlane/internal/observability"
+	"github.com/dexterhere04/AgentPlane/internal/policy"
 	"github.com/dexterhere04/AgentPlane/internal/proxy"
 )
 
@@ -18,6 +19,7 @@ func Chat(
 	w http.ResponseWriter,
 	r *http.Request,
 	enforcement *guardrail.EnforcementPoint,
+	policyEP *policy.EnforcementPoint,
 	inputSet guardrail.GuardrailSet,
 	outputSet guardrail.GuardrailSet,
 	provider proxy.Provider,
@@ -33,7 +35,10 @@ func Chat(
 
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageRequestReceived, "started", r.Method+" /chat"))
 
+	var userID, username string
 	if user, ok := auth.UserFromContext(r.Context()); ok {
+		userID = user.ID.String()
+		username = user.Username
 		bus.Publish(observability.NewDataEvent(requestID, observability.StageRequestReceived, "authenticated", map[string]string{
 			"user_id":  user.ID.String(),
 			"username": user.Username,
@@ -84,6 +89,8 @@ func Chat(
 			_, _ = observability.CapturePromptPayload(observability.Payload{
 				TraceID:     requestID,
 				RequestID:   requestID,
+				UserID:      userID,
+				Username:    username,
 				Timestamp:   time.Now(),
 				Payload:     payload,
 				CaptureMode: captureMode,
@@ -91,10 +98,8 @@ func Chat(
 		}()
 	}
 
-	var payload interface{}
 	if json.Valid(body) {
-		json.Unmarshal(body, &payload)
-		bus.Publish(observability.NewDataEvent(requestID, observability.StageBodyRead, "completed", payload))
+		bus.Publish(observability.NewDataEvent(requestID, observability.StageBodyRead, "completed", map[string]any{"bytes": len(body)}))
 	}
 
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageJSONValidated, "started", "Validating JSON..."))
@@ -105,7 +110,46 @@ func Chat(
 	}
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageJSONValidated, "completed", "JSON valid"))
 
+	// Resolve the effective model up front (injecting a configured default) so
+	// guardrails and authorization all evaluate the same request.
+	body = proxy.ApplyDefaultModel(body)
+
 	ctx := r.Context()
+
+	// Authorization: chat:invoke is enforced by middleware (it needs no body).
+	// Per-model access is the dynamic half of the RBAC check and must run
+	// here, after the body has been read and validated.
+	if policyEP != nil {
+		user, ok := auth.UserFromContext(ctx)
+		if !ok {
+			bus.Publish(observability.NewMessageEvent(requestID, observability.StageRequestReceived, "error", "missing authenticated user for model authorization"))
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		model := proxy.ResolveModel(body)
+		if model == "" {
+			bus.Publish(observability.NewMessageEvent(requestID, observability.StageRequestReceived, "error", "request has no resolvable model"))
+			writeModelRequired(w)
+			return
+		}
+
+		permission := "model:" + model
+		decision, err := policyEP.Authorize(ctx, policy.Request{
+			UserID:     user.ID,
+			Permission: permission,
+		})
+		if err != nil {
+			bus.Publish(observability.NewMessageEvent(requestID, observability.StageRequestReceived, "error", "policy unavailable for "+permission))
+			policy.WriteUnavailable(w, permission)
+			return
+		}
+		if decision == policy.DecisionDeny {
+			bus.Publish(observability.NewMessageEvent(requestID, observability.StageRequestReceived, "error", "policy denied "+permission))
+			policy.WriteDenied(w, permission)
+			return
+		}
+	}
 
 	if enforcement != nil && len(inputSet.Guards) > 0 {
 		result, err := enforcement.Evaluate(ctx, requestID, guardrail.DirectionInput, body, inputSet)
@@ -166,6 +210,18 @@ func Chat(
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(respBody)
+}
+
+func writeModelRequired(w http.ResponseWriter) {
+	errResp := map[string]interface{}{
+		"error": map[string]interface{}{
+			"type":    "model_required",
+			"message": "a resolvable model is required to authorize this request",
+		},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusBadRequest)
+	json.NewEncoder(w).Encode(errResp)
 }
 
 func writeGuardrailBlock(w http.ResponseWriter, result *guardrail.Result, requestID string) {

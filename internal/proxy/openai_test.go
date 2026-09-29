@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"encoding/json"
 	"testing"
 )
 
@@ -50,5 +51,48 @@ func TestParseStreamingUsageNoUsage(t *testing.T) {
 	in, out, total := parseStreamingUsage(chunks)
 	if in != 0 || out != 0 || total != 0 {
 		t.Fatalf("expected zeros, got %d %d %d", in, out, total)
+	}
+}
+
+func TestResolveModel(t *testing.T) {
+	t.Setenv("DEFAULT_MODEL", "")
+	if m := ResolveModel([]byte(`{"model":"gpt-4o"}`)); m != "gpt-4o" {
+		t.Fatalf("ResolveModel = %q, want gpt-4o", m)
+	}
+	if m := ResolveModel([]byte(`{"messages":[]}`)); m != "" {
+		t.Fatalf("ResolveModel without model/default = %q, want empty", m)
+	}
+
+	t.Setenv("DEFAULT_MODEL", "gpt-4o-mini")
+	if m := ResolveModel([]byte(`{"model":"gpt-4o"}`)); m != "gpt-4o" {
+		t.Fatalf("ResolveModel = %q, want gpt-4o", m)
+	}
+	if m := ResolveModel([]byte(`{"messages":[]}`)); m != "gpt-4o-mini" {
+		t.Fatalf("ResolveModel with default = %q, want gpt-4o-mini", m)
+	}
+}
+
+func TestApplyDefaultModel(t *testing.T) {
+	t.Setenv("DEFAULT_MODEL", "gpt-4o-mini")
+
+	out := ApplyDefaultModel([]byte(`{"messages":[]}`))
+	var doc map[string]any
+	if err := json.Unmarshal(out, &doc); err != nil {
+		t.Fatalf("ApplyDefaultModel produced invalid JSON: %v", err)
+	}
+	if doc["model"] != "gpt-4o-mini" {
+		t.Fatalf("model = %v, want gpt-4o-mini", doc["model"])
+	}
+
+	if got := ApplyDefaultModel([]byte(`{"model":"gpt-4o"}`)); string(got) != `{"model":"gpt-4o"}` {
+		t.Fatalf("existing model body changed: %s", got)
+	}
+	if got := ApplyDefaultModel([]byte(`not-json`)); string(got) != "not-json" {
+		t.Fatalf("invalid JSON body changed: %s", got)
+	}
+
+	t.Setenv("DEFAULT_MODEL", "")
+	if got := ApplyDefaultModel([]byte(`{"messages":[]}`)); string(got) != `{"messages":[]}` {
+		t.Fatalf("body changed with no default: %s", got)
 	}
 }

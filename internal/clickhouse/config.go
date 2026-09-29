@@ -50,3 +50,15 @@ func LoadFromEnv() Config {
 	}
 	return c
 }
+
+// Credentials returns the ClickHouse user/password from the environment.
+// Defaults to the "default" user with no password, matching a stock
+// ClickHouse deployment; set CLICKHOUSE_USER/CLICKHOUSE_PASSWORD to override.
+func Credentials() (user, password string) {
+	user = os.Getenv("CLICKHOUSE_USER")
+	if user == "" {
+		user = "default"
+	}
+	password = os.Getenv("CLICKHOUSE_PASSWORD")
+	return user, password
+}

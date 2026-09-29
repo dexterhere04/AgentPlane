@@ -106,7 +106,7 @@ func doChat(body []byte, guards ...guardrail.Guardrail) *httptest.ResponseRecord
 	req.Header.Set("Content-Type", "application/json")
 	enforcement := newTestEnforcement(guards...)
 	set := enforcementSet(guards...)
-	handlers.Chat(w, req, enforcement, set, set, provider)
+	handlers.Chat(w, req, enforcement, nil, set, set, provider)
 	return w
 }
 

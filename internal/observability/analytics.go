@@ -49,7 +49,7 @@ func (a *AnalyticsQueries) TokenUsageQuery(hoursBack int) string {
 SELECT
   sum(input_tokens) AS total_input_tokens,
   sum(output_tokens) AS total_output_tokens,
-  sum(total_tokens) AS total_tokens,
+  sum(total_tokens) AS total_tokens_sum,
   count() AS request_count,
   avg(total_tokens) AS avg_tokens_per_request
 FROM agentplane.traces
@@ -150,4 +150,56 @@ ORDER BY count DESC
 // NewAnalyticsQueries returns a new AnalyticsQueries helper.
 func NewAnalyticsQueries() *AnalyticsQueries {
 	return &AnalyticsQueries{}
+}
+
+// UserUsageQuery aggregates spend and token usage per user.
+//
+// Rows are keyed by (user_id, username) so the result can be attributed to a
+// human identity without a Postgres lookup. The `?`-free body uses only the
+// Sprintf'd hours window; callers execute it directly.
+func (a *AnalyticsQueries) UserUsageQuery(hoursBack int) string {
+	return fmt.Sprintf(`
+SELECT
+  user_id,
+  username,
+  count() AS request_count,
+  sum(input_tokens) AS input_tokens,
+  sum(output_tokens) AS output_tokens,
+  sum(total_tokens) AS total_tokens,
+  sum(estimated_cost) AS total_cost,
+  avg(latency_ms) AS avg_latency_ms,
+  toString(max(timestamp)) AS last_seen
+FROM agentplane.traces
+WHERE timestamp >= now() - INTERVAL %d HOUR
+  AND user_id != ''
+GROUP BY user_id, username
+ORDER BY total_cost DESC
+`, hoursBack)
+}
+
+// PromptSearchQuery returns prompts joined with their trace metadata so the
+// user can search prompt text and attribute results to a user.
+//
+// user and q are bound as parameters by the caller:
+//   - args[0], args[1] filter by username (empty = no filter)
+//   - args[2], args[3] search prompt_text case-insensitively (empty = no filter)
+func (a *AnalyticsQueries) PromptSearchQuery(hoursBack, limit int) string {
+	return fmt.Sprintf(`
+SELECT
+  p.trace_id,
+  p.prompt_text,
+  toString(p.created_at) AS created_at,
+  coalesce(t.username, '') AS username,
+  coalesce(t.model, '') AS model,
+  toUInt64(coalesce(t.total_tokens, 0)) AS total_tokens,
+  coalesce(t.estimated_cost, 0.0) AS estimated_cost
+FROM agentplane.prompt_events p
+LEFT JOIN agentplane.traces t ON t.trace_id = p.trace_id
+WHERE p.created_at >= now() - INTERVAL %d HOUR
+  AND p.prompt_text != ''
+  AND (? = '' OR t.username = ?)
+  AND (? = '' OR positionCaseInsensitive(p.prompt_text, ?) > 0)
+ORDER BY p.created_at DESC
+LIMIT %d
+`, hoursBack, limit)
 }

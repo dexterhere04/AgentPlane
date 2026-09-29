@@ -27,7 +27,7 @@ func TestHandlerChatCleanRequest(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	emptySet := guardrail.GuardrailSet{}
-	handlers.Chat(w, req, enforcement, emptySet, emptySet, provider)
+	handlers.Chat(w, req, enforcement, nil, emptySet, emptySet, provider)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
@@ -44,7 +44,7 @@ func TestHandlerChatNonPostRejected(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/chat", nil)
 	w := httptest.NewRecorder()
 	emptySet := guardrail.GuardrailSet{}
-	handlers.Chat(w, req, enforcement, emptySet, emptySet, provider)
+	handlers.Chat(w, req, enforcement, nil, emptySet, emptySet, provider)
 
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405, got %d", w.Code)
@@ -61,7 +61,7 @@ func TestHandlerChatInvalidJSONRejected(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`not json`)))
 	w := httptest.NewRecorder()
 	emptySet := guardrail.GuardrailSet{}
-	handlers.Chat(w, req, enforcement, emptySet, emptySet, provider)
+	handlers.Chat(w, req, enforcement, nil, emptySet, emptySet, provider)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)
@@ -88,7 +88,7 @@ func TestHandlerChatInputGuardrailBlock(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{"messages":[{"role":"user","content":"hi"}]}`)))
 	w := httptest.NewRecorder()
-	handlers.Chat(w, req, enforcement, inputSet, guardrail.GuardrailSet{}, provider)
+	handlers.Chat(w, req, enforcement, nil, inputSet, guardrail.GuardrailSet{}, provider)
 
 	if w.Code != http.StatusForbidden {
 		t.Errorf("expected 403, got %d", w.Code)
@@ -123,7 +123,7 @@ func TestHandlerChatInputRedact(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{"messages":[{"role":"user","content":"alice@example.com"}]}`)))
 	w := httptest.NewRecorder()
-	handlers.Chat(w, req, enforcement, inputSet, guardrail.GuardrailSet{}, provider)
+	handlers.Chat(w, req, enforcement, nil, inputSet, guardrail.GuardrailSet{}, provider)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -155,7 +155,7 @@ func TestHandlerChatOutputGuardrailBlock(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{"messages":[{"role":"user","content":"hello"}]}`)))
 	w := httptest.NewRecorder()
-	handlers.Chat(w, req, enforcement, guardrail.GuardrailSet{}, outputSet, provider)
+	handlers.Chat(w, req, enforcement, nil, guardrail.GuardrailSet{}, outputSet, provider)
 
 	if w.Code != http.StatusForbidden {
 		t.Errorf("expected 403, got %d", w.Code)
@@ -181,7 +181,7 @@ func TestHandlerChatOutputRedact(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{"messages":[{"role":"user","content":"hello"}]}`)))
 	w := httptest.NewRecorder()
-	handlers.Chat(w, req, enforcement, guardrail.GuardrailSet{}, outputSet, provider)
+	handlers.Chat(w, req, enforcement, nil, guardrail.GuardrailSet{}, outputSet, provider)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
@@ -200,7 +200,7 @@ func TestHandlerChatProviderError(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{"messages":[{"role":"user","content":"hello"}]}`)))
 	w := httptest.NewRecorder()
-	handlers.Chat(w, req, enforcement, guardrail.GuardrailSet{}, guardrail.GuardrailSet{}, provider)
+	handlers.Chat(w, req, enforcement, nil, guardrail.GuardrailSet{}, guardrail.GuardrailSet{}, provider)
 
 	if w.Code != http.StatusBadGateway {
 		t.Errorf("expected 502, got %d", w.Code)
@@ -215,7 +215,7 @@ func TestHandlerChatNilProvider(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{"messages":[{"role":"user","content":"hello"}]}`)))
 	w := httptest.NewRecorder()
-	handlers.Chat(w, req, enforcement, guardrail.GuardrailSet{}, guardrail.GuardrailSet{}, nil)
+	handlers.Chat(w, req, enforcement, nil, guardrail.GuardrailSet{}, guardrail.GuardrailSet{}, nil)
 
 	if w.Code == http.StatusOK {
 		t.Log("nil provider attempted fallback to env — may fail without OPENAI_API_KEY")
@@ -231,7 +231,7 @@ func TestHandlerChatContentTypeHeader(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{"messages":[{"role":"user","content":"hello"}]}`)))
 	w := httptest.NewRecorder()
-	handlers.Chat(w, req, enforcement, guardrail.GuardrailSet{}, guardrail.GuardrailSet{}, provider)
+	handlers.Chat(w, req, enforcement, nil, guardrail.GuardrailSet{}, guardrail.GuardrailSet{}, provider)
 
 	ct := w.Header().Get("Content-Type")
 	if !strings.Contains(ct, "application/json") {
@@ -252,7 +252,7 @@ func TestHandlerChatWarnContinues(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{"messages":[{"role":"user","content":"test"}]}`)))
 	w := httptest.NewRecorder()
-	handlers.Chat(w, req, enforcement, inoutSet, inoutSet, provider)
+	handlers.Chat(w, req, enforcement, nil, inoutSet, inoutSet, provider)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200 for warn, got %d: %s", w.Code, w.Body.String())
@@ -268,7 +268,7 @@ func TestHandlerChatReadBodyError(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/chat", &errorReader{})
 	w := httptest.NewRecorder()
-	handlers.Chat(w, req, enforcement, guardrail.GuardrailSet{}, guardrail.GuardrailSet{}, provider)
+	handlers.Chat(w, req, enforcement, nil, guardrail.GuardrailSet{}, guardrail.GuardrailSet{}, provider)
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", w.Code)
@@ -284,7 +284,7 @@ func TestHandlerChatEmptyBodyPasses(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{}`)))
 	w := httptest.NewRecorder()
-	handlers.Chat(w, req, enforcement, guardrail.GuardrailSet{}, guardrail.GuardrailSet{}, provider)
+	handlers.Chat(w, req, enforcement, nil, guardrail.GuardrailSet{}, guardrail.GuardrailSet{}, provider)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200 for empty JSON object, got %d", w.Code)
@@ -305,7 +305,7 @@ func TestHandlerChatErrorResponseFormat(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{"messages":[]}`)))
 	w := httptest.NewRecorder()
-	handlers.Chat(w, req, enforcement, inputSet, guardrail.GuardrailSet{}, provider)
+	handlers.Chat(w, req, enforcement, nil, inputSet, guardrail.GuardrailSet{}, provider)
 
 	var resp map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &resp)
@@ -332,7 +332,7 @@ func TestHandlerChatMultipleGuardrailsOrder(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{"test":"original"}`)))
 	w := httptest.NewRecorder()
-	handlers.Chat(w, req, enforcement, inputSet, guardrail.GuardrailSet{}, provider)
+	handlers.Chat(w, req, enforcement, nil, inputSet, guardrail.GuardrailSet{}, provider)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -352,7 +352,7 @@ func TestHandlerChatStreamingGuardrailsApply(t *testing.T) {
 	body := []byte(`{"model":"gpt-4o","stream":true,"messages":[{"role":"user","content":"hello"}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader(body))
 	w := httptest.NewRecorder()
-	handlers.Chat(w, req, enforcement, guardrail.GuardrailSet{}, guardrail.GuardrailSet{}, provider)
+	handlers.Chat(w, req, enforcement, nil, guardrail.GuardrailSet{}, guardrail.GuardrailSet{}, provider)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())

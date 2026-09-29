@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 
@@ -57,6 +58,15 @@ func ProvisionUser(provisioner *provisioning.Provisioner) http.Handler {
 			req.KeyName,
 		)
 		if err != nil {
+			if errors.Is(err, users.ErrDuplicateUsername) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusConflict)
+				_ = json.NewEncoder(w).Encode(map[string]string{
+					"error": "username already exists",
+				})
+				return
+			}
+
 			log.Printf("failed to provision user %q: %v", req.Username, err)
 			http.Error(w, "failed to provision user", http.StatusInternalServerError)
 			return
