@@ -116,7 +116,11 @@ func (g *ModelWhitelistGuardrail) Evaluate(_ context.Context, _ guardrail.Direct
 	}
 	model := extractModel(body)
 	if model == "" {
-		return &guardrail.Result{Guardrail: g.name, Decision: guardrail.DecisionPass}, nil
+		return &guardrail.Result{
+			Guardrail: g.name,
+			Decision:  guardrail.DecisionBlock,
+			Message:   "model is required to evaluate the model whitelist",
+		}, nil
 	}
 	for _, allowed := range g.whitelist {
 		if strings.EqualFold(model, allowed) {
@@ -178,7 +182,11 @@ func (g *ModelRulesGuardrail) Evaluate(_ context.Context, _ guardrail.Direction,
 	}
 	model := extractModel(body)
 	if model == "" {
-		return &guardrail.Result{Guardrail: g.name, Decision: guardrail.DecisionPass}, nil
+		return &guardrail.Result{
+			Guardrail: g.name,
+			Decision:  guardrail.DecisionBlock,
+			Message:   "model is required to evaluate model rules",
+		}, nil
 	}
 	modelRules, ok := g.rules[model]
 	if !ok {
