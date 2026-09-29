@@ -78,9 +78,9 @@ Brings up Vault (dev mode), `vault-init`, PostgreSQL, and the gateway. See `docs
 | POST | `/chat` | Bearer API key |
 | POST | `/provision/user` | Bearer admin token |
 | POST | `/admin/api-keys/revoke` | Bearer admin token |
-| GET | `/events` | — |
-| GET | `/dashboard` | — |
-| GET | `/metrics` | — |
+| GET | `/events` | Bearer admin token (`?token=` allowed) |
+| GET | `/dashboard` | Bearer admin token (`?token=` allowed) |
+| GET | `/metrics` | Bearer admin token |
 
 ## Verify
 

@@ -369,12 +369,12 @@ Remove a role from a user.
 
 ## `GET /events`
 
-Server-sent event stream of request lifecycle events. Optionally filter with `?request_id=<id>`.
+Server-sent event stream of request lifecycle events. Requires the admin token via `Authorization: Bearer <admin-token>` or, for browser clients that cannot set headers, `?token=<admin-token>`. Optionally filter with `?request_id=<id>`.
 
 ## `GET /dashboard`
 
-HTML dashboard (embeds the SSE stream and a chat widget).
+HTML dashboard (embeds the SSE stream and a chat widget). Requires the admin token via `Authorization: Bearer <admin-token>` or, for top-level browser navigation, `?token=<admin-token>`.
 
 ## `GET /metrics`
 
-JSON snapshot of guardrail metrics (evaluations, blocks, redactions, warns, passes, errors, average latency).
+JSON snapshot of guardrail metrics (evaluations, blocks, redactions, warns, passes, errors, average latency). Requires the admin token via `Authorization: Bearer <admin-token>`.

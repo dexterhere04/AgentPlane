@@ -503,7 +503,9 @@ var STAGES=[
   {id:'response_sent',label:'DONE',icon:'\uD83C\uDF89',short:'DONE'}
 ];
 
-var bus=new EventSource('/events');
+var ADMIN_TOKEN=(new URLSearchParams(location.search).get('token'))||localStorage.getItem('agentplane.adminToken')||'';
+var USER_KEY=localStorage.getItem('agentplane.userKey')||'';
+var bus=new EventSource('/events?token='+encodeURIComponent(ADMIN_TOKEN));
 var eventCount=0,requestCount=0,activeCount=0,blockCount=0;
 var currentRequestId=null;
 var requests={};
@@ -745,7 +747,7 @@ function sendChatMessage(){
 
   fetch('/chat',{
     method:'POST',
-    headers:{'Content-Type':'application/json'},
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+USER_KEY},
     body:JSON.stringify({model:'gpt-4o',messages:[{role:'user',content:prompt}],stream:false})
   }).then(function(r){
     if(!r.ok)return r.text().then(function(t){throw new Error(t)});

@@ -249,7 +249,7 @@ Manual validation confirmed:
 - Missing credentials return HTTP 401.
 - Invalid credentials return HTTP 401.
 - A valid credential reaches the application authentication path.
-- `/events` exposes the request lifecycle events.
+- `/events` exposes the request lifecycle events once the admin token is presented (`Authorization: Bearer <admin-token>` or `?token=<admin-token>`); `/metrics` and `/dashboard` are likewise admin-token protected.
 - A missing Vault/OpenAI secret produces the expected upstream/configuration failure rather than bypassing authentication.
 - Provisioning generates an API key that can subsequently be used for authentication.
 - Revocation causes the database `revoked_at` field to be populated.
