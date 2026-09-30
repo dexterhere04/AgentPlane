@@ -54,11 +54,11 @@ High-level request metadata (small, frequently queried, 365-day retention):
 - `provider` — LLM provider (e.g., "openai")
 - `model` — model name (e.g., "gpt-4o")
 - `latency_ms` — request latency in milliseconds
-- `status` — "success", "http_NNN", or error code
+- `status` — "success", "http_NNN", an error code, or `guardrail_blocked`
 - `cache_hit` — whether response was cached (0 if not implemented)
 - `input_tokens`, `output_tokens`, `total_tokens` — token counts from provider
 - `estimated_cost` — dollars (0.0 if pricing unavailable; not for billing)
-- `guardrail_action` — "allowed", "blocked", "redacted" (empty if no guardrails)
+- `guardrail_action` — request-level guardrail action when written; effective outcomes are resolved from `guardrail_events` when this field is empty
 - `route` — e.g., "/chat"
 
 ### prompt_events
@@ -109,13 +109,13 @@ Tool invocations (30-day retention; **currently not instrumented**):
 
 ### guardrail_events
 
-Policy/security outcomes (60-day retention; **currently not instrumented**):
+Policy/security outcomes (60-day retention; persisted asynchronously by guardrail enforcement):
 
 - `trace_id` — reference to traces table
 - `guardrail_name` — which guardrail rule
 - `phase` — "input" or "output"
-- `action` — "allowed", "blocked", "redacted"
-- `reason` — why the action was taken
+- `action` — effective per-rule action (`pass`, `block`, `redact`, `warn`, `log_only`, or `error`)
+- `reason` — intentionally empty to avoid persisting sensitive findings
 - `created_at` — storage timestamp
 
 ## Payload Compression
@@ -193,23 +193,9 @@ Changing retention requires updating the migration and redeploying. Existing dat
 
 ## Analytics
 
-The `internal/observability/analytics.go` package provides SQL query builders for common questions:
+The server exposes read-only `/api/observability/*` endpoints behind the configured admin bearer token. Queries use the typed `AnalyticsStore`, the existing native ClickHouse connection, fixed supported time ranges, bound filter values, row limits, and per-query deadlines. Provider/model/route aggregates and error/latency/token/cost metrics all use the same filtered trace population; guardrail blocks are incorporated from the bounded `guardrail_events` source. See `docs/observability-dashboard.md` for endpoint schemas and query details.
 
-```go
-// In HTTP handler
-q := analytics.TraceCountQuery(24)  // Last 24 hours
-q := analytics.AverageLatencyQuery(24)
-q := analytics.FailedRequestsQuery(24)
-q := analytics.TokenUsageQuery(24)
-q := analytics.EstimatedCostQuery(24)
-q := analytics.TopModelsQuery(24, 10)
-q := analytics.ProviderUsageQuery(24)
-q := analytics.GuardrailEventsQuery(24)  // (only if guardrails exist)
-q := analytics.ToolCallEventsQuery(24)   // (only if tools exist)
-// Execute q.Query with q.Params against ClickHouse
-```
-
-No analytics endpoints are built into the server; add them as needed.
+The old `/analytics/traces_count` route remains as a compatibility alias backed by the same typed store; there is no separate HTTP SQL path.
 
 ## Error Handling and Observability Resilience
 
@@ -230,7 +216,7 @@ observability: error storing trace (trace_id=req-1234): connection refused
 
 Operators should monitor these logs to detect observability failures. Do NOT silently swallow errors; log them.
 
-## Not Yet Implemented
+## Remaining Telemetry Limitations
 
 ### Tool Calls
 
@@ -238,11 +224,11 @@ No tool execution system exists in AgentPlane yet. The schema and adapter are re
 
 ### Guardrails
 
-No guardrail/policy system exists yet. Add to the observability layer when guardrail framework is built.
+Guardrail evaluations now asynchronously persist rule, phase, action, trace correlation, and timestamp. Free-form reason/details are deliberately omitted. Existing trace rows may still have an empty `guardrail_action`; use `guardrail_events` for historical outcomes.
 
 ### User/Org/Project Context
 
-No authentication middleware exists in AgentPlane. The schema supports `user_id`, `organization_id`, `project_id`, but they remain empty. Build authentication and set these fields when multi-tenant support is added.
+The authenticated user ID is propagated to proxy traces and input guardrail-block traces. Organization and project IDs remain empty because AgentPlane has no authoritative tenant/project mapping.
 
 ### Cache Tracking
 
@@ -277,7 +263,6 @@ Verify `trace_id` values match across tables and payloads are compressed (compre
 | --------------------------- | ------ | ------------- | ------------------------------------------ |
 | `CLICKHOUSE_HOST`           | string | (none)        | `127.0.0.1`                                |
 | `CLICKHOUSE_PORT`           | int    | 9000          | `9000`                                     |
-| `CLICKHOUSE_HTTP_PORT`      | int    | 8123          | `8123` (analytics endpoint)                |
 | `CLICKHOUSE_ENABLED`        | bool   | (auto)        | `false` (force-disable observability)      |
 | `OBSERVE_PROMPT_MODE`       | string | `full`        | `full`, `disabled`, `sampled`, `hash_only` |
 | `OBSERVE_RESPONSE_MODE`     | string | `full`        | `full`, `disabled`, `sampled`, `hash_only` |

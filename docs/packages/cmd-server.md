@@ -25,14 +25,17 @@ There is also a second executable, `cmd/keygeneration/main.go`, which generates 
 
 ## Routes
 
-| Path | Handler | Auth |
-|------|---------|------|
-| `/chat` | `handlers.Chat` wrapped in `authenticator.Middleware` | Bearer API key |
-| `/provision/user` | `handlers.ProvisionUser` wrapped in `auth.AdminMiddleware` | Bearer admin token |
-| `/admin/api-keys/revoke` | `handlers.RevokeAPIKey` wrapped in `auth.AdminMiddleware` | Bearer admin token |
-| `/events` | `observability.SSEHandler` | — |
-| `/dashboard` | inline handler serving `dashboard.HTML` | — |
-| `/metrics` | `handlers.MetricsHandler` | — |
+| Path                      | Handler                                                              | Auth               |
+| ------------------------- | -------------------------------------------------------------------- | ------------------ |
+| `/chat`                   | `handlers.Chat` wrapped in `authenticator.Middleware`                | Bearer API key     |
+| `/provision/user`         | `handlers.ProvisionUser` wrapped in `auth.AdminMiddleware`           | Bearer admin token |
+| `/admin/api-keys/revoke`  | `handlers.RevokeAPIKey` wrapped in `auth.AdminMiddleware`            | Bearer admin token |
+| `/events`                 | `observability.SSEHandler` (safe lifecycle summaries; CORS disabled) | Unauthenticated    |
+| `/dashboard`              | inline handler serving `dashboard.HTML` (live view)                  | —                  |
+| `/observability`          | inline handler serving `dashboard.ObservabilityHTML`                 | —                  |
+| `/api/observability/*`    | `handlers.NewObservabilityHandler` wrapped in `auth.AdminMiddleware` | Bearer admin token |
+| `/analytics/traces_count` | Compatibility alias through the analytics handler                    | Bearer admin token |
+| `/metrics`                | `handlers.MetricsHandler`                                            | —                  |
 
 ## Functions
 
@@ -45,6 +48,7 @@ There is also a second executable, `cmd/keygeneration/main.go`, which generates 
 **Returns:** Does not return. Exits fatally on any startup error.
 
 **Must NOT:**
+
 - Call OpenAI directly
 - Read request bodies
 - Implement business logic

@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/dexterhere04/AgentPlane/internal/guardrail"
-	"github.com/dexterhere04/AgentPlane/internal/observability"
 	guardpii "github.com/dexterhere04/AgentPlane/internal/guardrail/providers/pii"
+	"github.com/dexterhere04/AgentPlane/internal/observability"
 )
 
 func TestSecrets_OpenAIKey(t *testing.T) {
@@ -144,6 +144,11 @@ func TestSecrets_MultipleSecrets(t *testing.T) {
 	body := "My OpenAI key: sk-proj-xxx123456789012345678901234\nAlso GitHub: ghp_abcdefghijklmnopqrstuvwxyz1234567890\nAWS: AKIAIOSFODNN7EXAMPLE"
 	w := doChat(wrapInChat(body), newRegexSecretsGuardForChat())
 	assertBlocked(t, w)
+	for _, secret := range []string{"sk-proj-xxx123456789012345678901234", "ghp_abcdefghijklmnopqrstuvwxyz1234567890", "AKIAIOSFODNN7EXAMPLE"} {
+		if strings.Contains(w.Body.String(), secret) {
+			t.Errorf("blocked response exposed detected secret %q", secret)
+		}
+	}
 
 	var resp map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &resp)
@@ -889,4 +894,3 @@ func TestEdge_RequiredGuardrailsCannotBeSkipped(t *testing.T) {
 		}
 	})
 }
-

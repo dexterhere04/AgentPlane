@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -19,7 +20,6 @@ func SSEHandler(bus *EventBus) http.HandlerFunc {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.WriteHeader(http.StatusOK)
 
 		filterID := r.URL.Query().Get("request_id")
@@ -29,7 +29,7 @@ func SSEHandler(bus *EventBus) http.HandlerFunc {
 		history := bus.History()
 		for _, evt := range history {
 			if filterID == "" || filterID == evt.RequestID {
-				writeSSE(w, flusher, evt)
+				writeSSE(w, flusher, safeSSEEvent(evt))
 			}
 		}
 
@@ -42,7 +42,7 @@ func SSEHandler(bus *EventBus) http.HandlerFunc {
 				if !ok {
 					return
 				}
-				writeSSE(w, flusher, evt)
+				writeSSE(w, flusher, safeSSEEvent(evt))
 			case <-heartbeat.C:
 				fmt.Fprintf(w, ": heartbeat\n\n")
 				flusher.Flush()
@@ -52,6 +52,26 @@ func SSEHandler(bus *EventBus) http.HandlerFunc {
 			}
 		}
 	}
+}
+
+func safeSSEEvent(evt Event) Event {
+	// Structured event data may contain raw request or provider response bodies.
+	evt.Data = nil
+	switch evt.Stage {
+	case StageGuardrailInput, StageGuardrailOutput:
+		if separator := strings.Index(evt.Message, " — "); separator >= 0 {
+			evt.Message = evt.Message[:separator]
+		}
+	case StageGuardrailBlocked:
+		if separator := strings.Index(evt.Message, " blocked request:"); separator >= 0 {
+			evt.Message = evt.Message[:separator] + " blocked request"
+		}
+	case StageBuildingRequest, StageSendingRequest:
+		if strings.Contains(evt.Message, "://") {
+			evt.Message = "Upstream request"
+		}
+	}
+	return evt
 }
 
 func writeSSE(w http.ResponseWriter, flusher http.Flusher, evt Event) {

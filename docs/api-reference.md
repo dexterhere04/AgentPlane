@@ -17,10 +17,10 @@ Forward a chat completion request to the OpenAI-compatible upstream provider.
 
 ### Headers
 
-| Header | Value | Required |
-|--------|-------|----------|
-| `Authorization` | `Bearer <api-key>` | Yes |
-| `Content-Type` | `application/json` | Yes |
+| Header          | Value              | Required |
+| --------------- | ------------------ | -------- |
+| `Authorization` | `Bearer <api-key>` | Yes      |
+| `Content-Type`  | `application/json` | Yes      |
 
 ### Request Body
 
@@ -31,9 +31,7 @@ Any valid JSON object. The body is forwarded (possibly after guardrail redaction
 ```json
 {
   "model": "gpt-4o",
-  "messages": [
-    {"role": "user", "content": "Hello, world!"}
-  ]
+  "messages": [{ "role": "user", "content": "Hello, world!" }]
 }
 ```
 
@@ -87,7 +85,7 @@ Returned when a guardrail blocks the request or response.
 {
   "error": {
     "type": "guardrail_blocked",
-    "message": "guardrail blocked: potential prompt injection detected",
+    "message": "Request blocked by guardrail policy",
     "guardrail": "prompt_injection",
     "findings": [
       {
@@ -96,8 +94,7 @@ Returned when a guardrail blocks the request or response.
         "severity": "high",
         "start": 0,
         "end": 28,
-        "entity": "injection_attempt",
-        "value": "ignore previous instructions"
+        "entity": "injection_attempt"
       }
     ]
   }
@@ -114,7 +111,7 @@ Returned when the request body cannot be read.
 
 #### 502 Bad Gateway
 
-Returned when the proxy fails to communicate with the upstream provider. The response body contains the error message.
+Returned when the proxy fails to communicate with the upstream provider. The response contains a generic message; raw upstream bodies and connection details are not returned.
 
 #### 503 Service Unavailable — Guardrail Error
 
@@ -157,11 +154,11 @@ Create a user and mint an API key. Requires the admin token.
 }
 ```
 
-| Field | Type | Required | Notes |
-|-------|------|----------|-------|
-| `username` | string | Yes | Unique |
-| `email` | string | No | Unique if set |
-| `key_name` | string | Yes | Human-readable key label |
+| Field      | Type   | Required | Notes                    |
+| ---------- | ------ | -------- | ------------------------ |
+| `username` | string | Yes      | Unique                   |
+| `email`    | string | No       | Unique if set            |
+| `key_name` | string | Yes      | Human-readable key label |
 
 ### Response — 201 Created
 
@@ -204,12 +201,22 @@ Returns 404 if the key is not found or already revoked.
 
 ## `GET /events`
 
-Server-sent event stream of request lifecycle events. Optionally filter with `?request_id=<id>`.
+Unauthenticated server-sent stream of safe lifecycle summaries. Structured event data and guardrail details are stripped; upstream URLs are suppressed. There is no wildcard CORS header. Optionally filter with `?request_id=<id>`.
 
 ## `GET /dashboard`
 
-HTML dashboard (embeds the SSE stream and a chat widget).
+Live HTML dashboard (embeds the SSE stream and an authenticated chat widget).
+
+## `GET /observability`
+
+Embedded observability view. The operator enters the admin bearer token in-page; it is held in memory and sent only to authenticated analytics API requests.
 
 ## `GET /metrics`
 
 JSON snapshot of guardrail metrics (evaluations, blocks, redactions, warns, passes, errors, average latency).
+
+## Observability Analytics
+
+Read-only analytics endpoints require the admin bearer token. Supported ranges are `15m`, `1h`, `6h`, `24h`, and `7d`; common filters include status, provider, model, route, guardrail action, user, organization, and project. The API includes health, overview, series, breakdowns, failures, guardrails, trace listing, and trace detail. Trace detail exposes capture metadata only, never raw prompt/response blobs.
+
+See [observability-dashboard.md](observability-dashboard.md) for request parameters, response fields, privacy behavior, retention, and failure semantics.

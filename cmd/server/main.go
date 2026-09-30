@@ -2,14 +2,9 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
-	"strconv"
-	"time"
 
 	"github.com/dexterhere04/AgentPlane/internal/api"
 	"github.com/dexterhere04/AgentPlane/internal/auth"
@@ -36,15 +31,6 @@ import (
 	"github.com/dexterhere04/AgentPlane/migrations"
 	"github.com/joho/godotenv"
 )
-
-// Analytics window bounds (in hours) and the HTTP client used to forward
-// analytics queries to ClickHouse's HTTP interface.
-const (
-	minAnalyticsHours = 1
-	maxAnalyticsHours = 720 // 30 days
-)
-
-var analyticsHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 func main() {
 	if err := godotenv.Load(); err != nil {
@@ -81,17 +67,8 @@ func main() {
 
 	// ClickHouse observability store initialization (optional).
 	chCfg := clickhouse.LoadFromEnv()
-	var chURL string
+	var analyticsStore observability.AnalyticsStore
 	if chCfg.Enabled {
-		// HTTP interface used by the analytics endpoint (default 8123).
-		chHTTPPort := 8123
-		if v := os.Getenv("CLICKHOUSE_HTTP_PORT"); v != "" {
-			if n, err := strconv.Atoi(v); err == nil {
-				chHTTPPort = n
-			}
-		}
-		chURL = fmt.Sprintf("http://%s:%d", chCfg.Host, chHTTPPort)
-		// initialize native ClickHouse client
 		if client, err := clickhouse.New(chCfg.Host, chCfg.Port); err != nil {
 			log.Printf("clickhouse native init error: %v", err)
 		} else {
@@ -100,6 +77,7 @@ func main() {
 				log.Printf("clickhouse adapter init error: %v", err)
 			} else {
 				observability.SetStore(adapter)
+				analyticsStore = observability.NewClickHouseAnalyticsStore(client)
 				log.Printf("ClickHouse observability enabled (host=%s port=%d)", chCfg.Host, chCfg.Port)
 			}
 		}
@@ -263,41 +241,17 @@ func main() {
 		),
 	)
 	mux.HandleFunc("/events", observability.SSEHandler(bus))
-	if chURL != "" {
-		analyticsHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			hours := 24
-			if v := r.URL.Query().Get("hours"); v != "" {
-				n, err := strconv.Atoi(v)
-				if err != nil || n < minAnalyticsHours || n > maxAnalyticsHours {
-					http.Error(w, fmt.Sprintf("hours must be an integer between %d and %d", minAnalyticsHours, maxAnalyticsHours), http.StatusBadRequest)
-					return
-				}
-				hours = n
-			}
-
-			q := fmt.Sprintf("SELECT count() AS cnt FROM agentplane.traces WHERE timestamp >= now() - INTERVAL %d HOUR", hours)
-			req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, chURL+"/?query="+url.QueryEscape(q), nil)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadGateway)
-				return
-			}
-
-			resp, err := analyticsHTTPClient.Do(req)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadGateway)
-				return
-			}
-			defer resp.Body.Close()
-
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(resp.StatusCode)
-			io.Copy(w, resp.Body)
-		})
-		mux.Handle("/analytics/traces_count", auth.AdminMiddleware(adminToken, analyticsHandler))
-	}
+	analyticsHandler := handlers.NewObservabilityHandler(analyticsStore)
+	mux.Handle("/api/observability/", auth.AdminMiddleware(adminToken, analyticsHandler))
+	mux.Handle("/analytics/traces_count", auth.AdminMiddleware(adminToken, analyticsHandler))
 	mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(dashboard.HTML))
+	})
+	mux.HandleFunc("/observability", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Write([]byte(dashboard.ObservabilityHTML))
 	})
 
 	mux.HandleFunc("/metrics", handlers.MetricsHandler())
@@ -306,6 +260,7 @@ func main() {
 	log.Printf("  Gateway   → http://localhost:%s/chat (%s)", port, provider.Name())
 	log.Printf("  Events    → http://localhost:%s/events", port)
 	log.Printf("  Dashboard → http://localhost:%s/dashboard", port)
+	log.Printf("  Observe   → http://localhost:%s/observability", port)
 	log.Printf("  Metrics   → http://localhost:%s/metrics", port)
 	log.Printf("  Mock API  → http://localhost:%s (set OPENAI_BASE_URL)", port)
 

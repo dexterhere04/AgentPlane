@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dexterhere04/AgentPlane/internal/auth"
 	"github.com/dexterhere04/AgentPlane/internal/config"
 	"github.com/dexterhere04/AgentPlane/internal/observability"
 )
@@ -78,6 +79,9 @@ func (p *OpenAIProvider) isStreaming(body []byte) bool {
 
 func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, requestID, url string, bus *observability.EventBus) ([]byte, error) {
 	start := time.Now()
+	if requestStart, ok := observability.RequestStart(ctx); ok {
+		start = requestStart
+	}
 	var statusStr string = "success"
 	var inputTokens, outputTokens, totalTokens uint64
 
@@ -85,7 +89,7 @@ func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, r
 
 	// Ensure we always record a trace (success or error paths)
 	defer func() {
-		recordTraceAsync(requestID, model, statusStr, start, inputTokens, outputTokens, totalTokens)
+		recordTraceAsync(ctx, requestID, model, statusStr, start, inputTokens, outputTokens, totalTokens)
 	}()
 
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageBuildingRequest, "started", fmt.Sprintf("POST %s", url)))
@@ -93,6 +97,7 @@ func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, r
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
+		statusStr = "error"
 		bus.Publish(observability.NewMessageEvent(requestID, observability.StageBuildingRequest, "error", err.Error()))
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -109,6 +114,7 @@ func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, r
 
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
+		statusStr = "error"
 		bus.Publish(observability.NewMessageEvent(requestID, observability.StageSendingRequest, "error", err.Error()))
 		return nil, fmt.Errorf("sending request: %w", err)
 	}
@@ -121,6 +127,7 @@ func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, r
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
+		statusStr = "error"
 		bus.Publish(observability.NewMessageEvent(requestID, observability.StageReadingResponse, "error", err.Error()))
 		return nil, fmt.Errorf("reading response: %w", err)
 	}
@@ -172,6 +179,9 @@ func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, r
 
 func (p *OpenAIProvider) forwardStreaming(ctx context.Context, body []byte, requestID, url string, bus *observability.EventBus) ([]byte, error) {
 	start := time.Now()
+	if requestStart, ok := observability.RequestStart(ctx); ok {
+		start = requestStart
+	}
 	var statusStr string = "success"
 	var inputTokens, outputTokens, totalTokens uint64
 
@@ -179,7 +189,7 @@ func (p *OpenAIProvider) forwardStreaming(ctx context.Context, body []byte, requ
 
 	// Ensure we always record a trace (success or error paths)
 	defer func() {
-		recordTraceAsync(requestID, model, statusStr, start, inputTokens, outputTokens, totalTokens)
+		recordTraceAsync(ctx, requestID, model, statusStr, start, inputTokens, outputTokens, totalTokens)
 	}()
 
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageBuildingRequest, "started", fmt.Sprintf("POST %s (stream)", url)))
@@ -357,13 +367,18 @@ func requestModel(body []byte) string {
 }
 
 // recordTraceAsync records a request trace without blocking the caller.
-func recordTraceAsync(requestID, model, status string, start time.Time, in, out, total uint64) {
+func recordTraceAsync(ctx context.Context, requestID, model, status string, start time.Time, in, out, total uint64) {
 	latency := time.Since(start).Milliseconds()
 	estimatedCost := observability.EstimateRequestCost("openai", model, in, out)
+	userID := ""
+	if user, ok := auth.UserFromContext(ctx); ok {
+		userID = user.ID.String()
+	}
 	go observability.RecordTrace(observability.Trace{
 		TraceID:       requestID,
 		RequestID:     requestID,
 		Timestamp:     start,
+		UserID:        userID,
 		Provider:      "openai",
 		Model:         model,
 		LatencyMS:     latency,

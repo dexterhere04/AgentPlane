@@ -87,6 +87,12 @@ func (c *Client) Query(ctx context.Context, query string, args ...interface{}) (
 	return c.conn.Query(ctx, query, args...)
 }
 
+func (c *Client) Ping(ctx context.Context) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.conn.Ping(ctx)
+}
+
 // InsertTrace inserts a trace record
 func (c *Client) InsertTrace(ctx context.Context, trace *TraceEvent) error {
 	query := `

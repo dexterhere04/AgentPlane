@@ -53,24 +53,22 @@ func (ep *EnforcementPoint) Evaluate(
 
 			result, err := g.Evaluate(ctx, dir, currentBody)
 			if err != nil {
-				if ep.metrics != nil {
-					ep.metrics.RecordError()
-				}
 				return ep.failClosed(requestID, g.Name(), dir, err)
 			}
 
-			if ep.metrics != nil {
-				ep.metrics.RecordEvaluation(result.Decision, time.Duration(0))
-			}
-
 			if result.Decision == DecisionPass {
+				if ep.metrics != nil {
+					ep.metrics.RecordEvaluation(result.Decision, time.Duration(0))
+				}
 				ep.publishEvent(requestID, g.Name(), dir, result)
 				continue
 			}
 
-			ep.publishEvent(requestID, g.Name(), dir, result)
-
 			effective := ep.resolve(strategy, result)
+			if ep.metrics != nil {
+				ep.metrics.RecordEvaluation(effective.Decision, time.Duration(0))
+			}
+			ep.publishEvent(requestID, g.Name(), dir, effective)
 
 			if effective.Decision == DecisionBlock {
 				ep.publishBlocked(requestID, effective)
@@ -102,22 +100,23 @@ func (ep *EnforcementPoint) Evaluate(
 				Guardrail: g.Name(),
 				Decision:  DecisionPass,
 				Message:   fmt.Sprintf("error: %v", err),
-			})
+			}, "error")
 			continue
 		}
 
-		if ep.metrics != nil {
-			ep.metrics.RecordEvaluation(result.Decision, latency)
-		}
-
 		if result.Decision == DecisionPass {
+			if ep.metrics != nil {
+				ep.metrics.RecordEvaluation(result.Decision, latency)
+			}
 			ep.publishEvent(requestID, g.Name(), dir, result)
 			continue
 		}
 
-		ep.publishEvent(requestID, g.Name(), dir, result)
-
 		effective := ep.resolve(strategy, result)
+		if ep.metrics != nil {
+			ep.metrics.RecordEvaluation(effective.Decision, latency)
+		}
+		ep.publishEvent(requestID, g.Name(), dir, effective)
 
 		if effective.Decision == DecisionBlock {
 			ep.publishBlocked(requestID, effective)
@@ -140,6 +139,10 @@ func (ep *EnforcementPoint) Evaluate(
 }
 
 func (ep *EnforcementPoint) failClosed(requestID, name string, dir Direction, err error) (*Result, error) {
+	if ep.metrics != nil {
+		ep.metrics.RecordError()
+		ep.metrics.RecordEvaluation(DecisionBlock, 0)
+	}
 	ep.publishEvent(requestID, name, dir, &Result{
 		Guardrail: name,
 		Decision:  DecisionBlock,
@@ -194,11 +197,7 @@ func (ep *EnforcementPoint) resolve(strategy Strategy, result *Result) *Result {
 	}
 }
 
-func (ep *EnforcementPoint) publishEvent(requestID, guardrail string, dir Direction, result *Result) {
-	if ep.bus == nil {
-		return
-	}
-
+func (ep *EnforcementPoint) publishEvent(requestID, guardrail string, dir Direction, result *Result, actionOverride ...string) {
 	var stage observability.Stage
 	switch dir {
 	case DirectionInput:
@@ -207,6 +206,23 @@ func (ep *EnforcementPoint) publishEvent(requestID, guardrail string, dir Direct
 		stage = observability.StageGuardrailOutput
 	default:
 		stage = observability.StageGuardrailInput
+	}
+	phase := dir.String()
+	if phase != DirectionInput.String() && phase != DirectionOutput.String() {
+		phase = DirectionInput.String()
+	}
+	action := result.Decision.String()
+	if len(actionOverride) > 0 {
+		action = actionOverride[0]
+	}
+	go func() {
+		_ = observability.CaptureGuardrail(observability.GuardrailEvent{
+			TraceID: requestID, RequestID: requestID, Timestamp: time.Now().UTC(),
+			Rule: guardrail, Phase: phase, Action: action,
+		})
+	}()
+	if ep.bus == nil {
+		return
 	}
 
 	decision := result.Decision.String()
