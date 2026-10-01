@@ -2,11 +2,9 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"strconv"
 
 	"github.com/dexterhere04/AgentPlane/internal/api"
 	"github.com/dexterhere04/AgentPlane/internal/auth"
@@ -35,9 +33,6 @@ import (
 	"github.com/dexterhere04/AgentPlane/migrations"
 	"github.com/joho/godotenv"
 )
-
-// Analytics queries are forwarded to ClickHouse's HTTP interface (see
-// handlers.AnalyticsHandler). The window bounds and HTTP client live there.
 
 func main() {
 	if err := godotenv.Load(); err != nil {
@@ -74,17 +69,8 @@ func main() {
 
 	// ClickHouse observability store initialization (optional).
 	chCfg := clickhouse.LoadFromEnv()
-	var chURL string
+	var analyticsStore observability.AnalyticsStore
 	if chCfg.Enabled {
-		// HTTP interface used by the analytics endpoint (default 8123).
-		chHTTPPort := 8123
-		if v := os.Getenv("CLICKHOUSE_HTTP_PORT"); v != "" {
-			if n, err := strconv.Atoi(v); err == nil {
-				chHTTPPort = n
-			}
-		}
-		chURL = fmt.Sprintf("http://%s:%d", chCfg.Host, chHTTPPort)
-		// initialize native ClickHouse client
 		if client, err := clickhouse.New(chCfg.Host, chCfg.Port); err != nil {
 			log.Printf("clickhouse native init error: %v", err)
 		} else {
@@ -93,6 +79,7 @@ func main() {
 				log.Printf("clickhouse adapter init error: %v", err)
 			} else {
 				observability.SetStore(adapter)
+				analyticsStore = observability.NewClickHouseAnalyticsStore(client)
 				log.Printf("ClickHouse observability enabled (host=%s port=%d)", chCfg.Host, chCfg.Port)
 			}
 		}
@@ -287,13 +274,6 @@ func main() {
 		),
 	)
 	mux.Handle(
-		"/admin/analytics/users",
-		auth.AdminMiddleware(
-			adminToken,
-			handlers.UserAnalyticsHandler(),
-		),
-	)
-	mux.Handle(
 		"/admin/secrets/provider",
 		auth.AdminMiddleware(
 			adminToken,
@@ -312,18 +292,22 @@ func main() {
 	mux.Handle("GET /admin/users/{id}/roles", auth.AdminMiddleware(adminToken, handlers.ListUserRoles(rbacStore)))
 	mux.Handle("POST /admin/users/{id}/roles", auth.AdminMiddleware(adminToken, handlers.AssignUserRole(rbacStore)))
 	mux.Handle("DELETE /admin/users/{id}/roles/{role}", auth.AdminMiddleware(adminToken, handlers.RevokeUserRole(rbacStore)))
-	// Operator-only observability endpoints. All three require the admin
-	// token; the browser-facing /events and /dashboard also accept it via the
-	// "token" query parameter since EventSource and top-level navigation
+
+	// Operator-only observability endpoints. All require the admin token; the
+	// browser-facing /events, /dashboard, and /observability also accept it via
+	// the "token" query parameter since EventSource and top-level navigation
 	// cannot set request headers.
 	mux.Handle("/events", auth.AdminMiddlewareQuery(adminToken, observability.SSEHandler(bus)))
-	if chURL != "" {
-		mux.Handle("/analytics/traces_count", auth.AdminMiddleware(adminToken, handlers.AnalyticsHandler(chURL, "traces_count")))
-		mux.Handle("/admin/analytics", auth.AdminMiddleware(adminToken, handlers.AnalyticsHandler(chURL, "")))
-	}
+	analyticsHandler := handlers.NewObservabilityHandler(analyticsStore)
+	mux.Handle("/api/observability/", auth.AdminMiddleware(adminToken, analyticsHandler))
 	mux.Handle("/dashboard", auth.AdminMiddlewareQuery(adminToken, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(dashboard.HTML))
+	})))
+	mux.Handle("/observability", auth.AdminMiddlewareQuery(adminToken, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Write([]byte(dashboard.ObservabilityHTML))
 	})))
 
 	mux.Handle("/metrics", auth.AdminMiddleware(adminToken, handlers.MetricsHandler()))
@@ -332,6 +316,7 @@ func main() {
 	log.Printf("  Gateway   → http://localhost:%s/chat (%s)", port, provider.Name())
 	log.Printf("  Events    → http://localhost:%s/events", port)
 	log.Printf("  Dashboard → http://localhost:%s/dashboard", port)
+	log.Printf("  Observe   → http://localhost:%s/observability", port)
 	log.Printf("  Metrics   → http://localhost:%s/metrics", port)
 	log.Printf("  Mock API  → http://localhost:%s (set OPENAI_BASE_URL)", port)
 

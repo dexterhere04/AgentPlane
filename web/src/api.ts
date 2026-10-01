@@ -123,20 +123,34 @@ export interface UserPromptRow {
   estimated_cost: number;
 }
 
-export async function fetchUserAnalytics(
-  opts: { hours?: number; user?: string; q?: string } = {}
-): Promise<{ ok: boolean; status: number; users: UserUsageRow[]; prompts: UserPromptRow[] }> {
-  const params = new URLSearchParams();
-  if (opts.hours) params.set('hours', String(opts.hours));
-  if (opts.user) params.set('user', opts.user);
-  if (opts.q) params.set('q', opts.q);
-  const qs = params.toString();
-  const res = await fetch('/admin/analytics/users' + (qs ? '?' + qs : ''), {
+export async function fetchObservabilityUsers(
+  range = '24h',
+  limit = 50
+): Promise<{ ok: boolean; status: number; users: UserUsageRow[] }> {
+  const params = new URLSearchParams({ range, limit: String(limit) });
+  const res = await fetch('/api/observability/users?' + params.toString(), {
     headers: { Authorization: 'Bearer ' + getAdminToken() }
   });
-  if (!res.ok) return { ok: false, status: res.status, users: [], prompts: [] };
-  const body = (await parseJSON(res)) as { users?: UserUsageRow[]; prompts?: UserPromptRow[] };
-  return { ok: true, status: res.status, users: body?.users ?? [], prompts: body?.prompts ?? [] };
+  if (!res.ok) return { ok: false, status: res.status, users: [] };
+  const body = (await parseJSON(res)) as { users?: UserUsageRow[] };
+  return { ok: true, status: res.status, users: body?.users ?? [] };
+}
+
+export async function fetchObservabilityPrompts(
+  opts: { range?: string; user?: string; q?: string; limit?: number } = {}
+): Promise<{ ok: boolean; status: number; prompts: UserPromptRow[] }> {
+  const params = new URLSearchParams();
+  if (opts.range) params.set('range', opts.range);
+  if (opts.user) params.set('user', opts.user);
+  if (opts.q) params.set('q', opts.q);
+  if (opts.limit) params.set('limit', String(opts.limit));
+  const qs = params.toString();
+  const res = await fetch('/api/observability/prompts' + (qs ? '?' + qs : ''), {
+    headers: { Authorization: 'Bearer ' + getAdminToken() }
+  });
+  if (!res.ok) return { ok: false, status: res.status, prompts: [] };
+  const body = (await parseJSON(res)) as { prompts?: UserPromptRow[] };
+  return { ok: true, status: res.status, prompts: body?.prompts ?? [] };
 }
 
 export async function storeProviderKey(provider: string, apiKey: string): Promise<{ ok: boolean; status: number; body: unknown }> {
@@ -151,17 +165,81 @@ export async function storeProviderKey(provider: string, apiKey: string): Promis
   return { ok: res.ok, status: res.status, body: await parseJSON(res) };
 }
 
-export interface AnalyticsRow {
-  [key: string]: string | number;
+export interface ObservabilityOverview {
+  requests: number;
+  successes: number;
+  errors: number;
+  error_rate: number;
+  latency_ms: { p50_ms: number; p95_ms: number; p99_ms: number };
+  tokens: { input: number; output: number; total: number };
+  estimated_cost: number;
+  latest_telemetry_at?: string;
 }
 
-export async function fetchAnalytics(type: string, hours = 24): Promise<{ ok: boolean; status: number; rows: AnalyticsRow[] }> {
-  const res = await fetch(`/admin/analytics?type=${type}&hours=${hours}`, {
+export interface ObservabilityBreakdown {
+  key: string;
+  requests: number;
+  successes: number;
+  errors: number;
+  error_rate: number;
+  tokens: { input: number; output: number; total: number };
+  estimated_cost: number;
+  latency_ms: { p50_ms: number; p95_ms: number; p99_ms: number };
+}
+
+export interface GuardrailBreakdown {
+  name: string;
+  phase: string;
+  action: string;
+  count: number;
+}
+
+export interface ObservabilityHealth {
+  status: string;
+  clickhouse_reachable: boolean;
+  data_state: string;
+  latest_telemetry_at?: string;
+  checked_at: string;
+}
+
+export async function fetchObservabilityHealth(): Promise<{ ok: boolean; status: number; health: ObservabilityHealth | null }> {
+  const res = await fetch('/api/observability/health', {
     headers: { Authorization: 'Bearer ' + getAdminToken() }
   });
-  if (!res.ok) return { ok: false, status: res.status, rows: [] };
-  const body = (await parseJSON(res)) as { data?: AnalyticsRow[] };
-  return { ok: true, status: res.status, rows: body?.data ?? [] };
+  if (!res.ok) return { ok: false, status: res.status, health: null };
+  return { ok: true, status: res.status, health: (await parseJSON(res)) as ObservabilityHealth };
+}
+
+export async function fetchObservabilityOverview(
+  range = '24h'
+): Promise<{ ok: boolean; status: number; overview: ObservabilityOverview | null }> {
+  const res = await fetch('/api/observability/overview?range=' + encodeURIComponent(range), {
+    headers: { Authorization: 'Bearer ' + getAdminToken() }
+  });
+  if (!res.ok) return { ok: false, status: res.status, overview: null };
+  return { ok: true, status: res.status, overview: (await parseJSON(res)) as ObservabilityOverview };
+}
+
+export async function fetchObservabilityBreakdowns(
+  range = '24h'
+): Promise<{ ok: boolean; status: number; breakdowns: Record<string, ObservabilityBreakdown[]> }> {
+  const res = await fetch('/api/observability/breakdowns?range=' + encodeURIComponent(range), {
+    headers: { Authorization: 'Bearer ' + getAdminToken() }
+  });
+  if (!res.ok) return { ok: false, status: res.status, breakdowns: {} };
+  const body = (await parseJSON(res)) as Record<string, ObservabilityBreakdown[]>;
+  return { ok: true, status: res.status, breakdowns: body ?? {} };
+}
+
+export async function fetchObservabilityGuardrails(
+  range = '24h'
+): Promise<{ ok: boolean; status: number; guardrails: GuardrailBreakdown[] }> {
+  const res = await fetch('/api/observability/guardrails?range=' + encodeURIComponent(range), {
+    headers: { Authorization: 'Bearer ' + getAdminToken() }
+  });
+  if (!res.ok) return { ok: false, status: res.status, guardrails: [] };
+  const body = (await parseJSON(res)) as { breakdown?: GuardrailBreakdown[] };
+  return { ok: true, status: res.status, guardrails: body?.breakdown ?? [] };
 }
 
 export async function fetchMetrics(): Promise<{ ok: boolean; body: Record<string, unknown> }> {

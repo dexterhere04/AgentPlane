@@ -237,7 +237,7 @@ func (c *clickhouseAdapter) StoreGuardrail(g GuardrailEvent) error {
 		GuardrailName: g.Rule,
 		Phase:         phase,
 		Action:        g.Action,
-		Reason:        g.Details,
+		Reason:        "",
 		CreatedAt:     g.Timestamp,
 	}
 	if err := c.client.InsertGuardrail(context.Background(), ge); err != nil {

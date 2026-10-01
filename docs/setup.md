@@ -12,20 +12,20 @@ Copy `.env.example` to `.env` and fill in real values. The file is git-ignored.
 
 Required environment variables:
 
-| Variable | Purpose |
-|----------|---------|
-| `DATABASE_URL` | PostgreSQL connection string. Tables are created automatically on startup via embedded migrations. |
-| `API_KEY_PEPPER` | Server-side secret mixed into API-key hashes (`SHA-256(secret + pepper)`). |
-| `AGENTPLANE_ADMIN_TOKEN` | Bearer token that authorizes admin endpoints (`/provision/user`, `/admin/api-keys/revoke`). |
-| `OPENAI_API_KEY` | Upstream provider key (loaded via the configured secret store). |
+| Variable                 | Purpose                                                                                            |
+| ------------------------ | -------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`           | PostgreSQL connection string. Tables are created automatically on startup via embedded migrations. |
+| `API_KEY_PEPPER`         | Server-side secret mixed into API-key hashes (`SHA-256(secret + pepper)`).                         |
+| `AGENTPLANE_ADMIN_TOKEN` | Bearer token that authorizes admin endpoints (`/provision/user`, `/admin/api-keys/revoke`).        |
+| `OPENAI_API_KEY`         | Upstream provider key (loaded via the configured secret store).                                    |
 
 Optional:
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Upstream API base URL. |
-| `SECRET_STORE` | `vault` | Secret backend (`env`, `file`, `vault`, `aws`, `azure`, `chain`). |
-| `PORT` | `3001` | HTTP listen port. |
+| Variable          | Default                     | Purpose                                                           |
+| ----------------- | --------------------------- | ----------------------------------------------------------------- |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Upstream API base URL.                                            |
+| `SECRET_STORE`    | `vault`                     | Secret backend (`env`, `file`, `vault`, `aws`, `azure`, `chain`). |
+| `PORT`            | `3001`                      | HTTP listen port.                                                 |
 
 See `docs/secrets-backends.md` for the full secret-store configuration matrix.
 
@@ -80,6 +80,8 @@ Brings up Vault (dev mode), `vault-init`, PostgreSQL, and the gateway. See `docs
 | POST | `/admin/api-keys/revoke` | Bearer admin token |
 | GET | `/events` | Bearer admin token (`?token=` allowed) |
 | GET | `/dashboard` | Bearer admin token (`?token=` allowed) |
+| GET | `/observability` | Bearer admin token (`?token=` allowed) |
+| GET | `/api/observability/*` | Bearer admin token |
 | GET | `/metrics` | Bearer admin token |
 
 ## Verify
