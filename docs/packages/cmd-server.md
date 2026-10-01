@@ -25,17 +25,20 @@ There is also a second executable, `cmd/keygeneration/main.go`, which generates 
 
 ## Routes
 
-| Path                      | Handler                                                              | Auth               |
-| ------------------------- | -------------------------------------------------------------------- | ------------------ |
-| `/chat`                   | `handlers.Chat` wrapped in `authenticator.Middleware`                | Bearer API key     |
-| `/provision/user`         | `handlers.ProvisionUser` wrapped in `auth.AdminMiddleware`           | Bearer admin token |
-| `/admin/api-keys/revoke`  | `handlers.RevokeAPIKey` wrapped in `auth.AdminMiddleware`            | Bearer admin token |
-| `/events`                 | `observability.SSEHandler` (safe lifecycle summaries; CORS disabled) | Unauthenticated    |
-| `/dashboard`              | inline handler serving `dashboard.HTML` (live view)                  | —                  |
-| `/observability`          | inline handler serving `dashboard.ObservabilityHTML`                 | —                  |
-| `/api/observability/*`    | `handlers.NewObservabilityHandler` wrapped in `auth.AdminMiddleware` | Bearer admin token |
-| `/analytics/traces_count` | Compatibility alias through the analytics handler                    | Bearer admin token |
-| `/metrics`                | `handlers.MetricsHandler`                                            | —                  |
+| Path | Handler | Auth |
+|------|---------|------|
+| `/chat` | `handlers.Chat` wrapped in `authenticator.Middleware` | Bearer API key |
+| `/provision/user` | `handlers.ProvisionUser` wrapped in `auth.AdminMiddleware` | Bearer admin token |
+| `/admin/api-keys` | `handlers.ListAPIKeys` wrapped in `auth.AdminMiddleware` | Bearer admin token |
+| `/admin/api-keys/revoke` | `handlers.RevokeAPIKey` wrapped in `auth.AdminMiddleware` | Bearer admin token |
+| `/admin/secrets/provider` | `handlers.StoreProviderSecret` wrapped in `auth.AdminMiddleware` | Bearer admin token |
+| `/admin/roles*` | RBAC role administration wrapped in `auth.AdminMiddleware` | Bearer admin token |
+| `/admin/users*` | RBAC user/role administration wrapped in `auth.AdminMiddleware` | Bearer admin token |
+| `/events` | `observability.SSEHandler` wrapped in `auth.AdminMiddlewareQuery` | Bearer admin token (`?token=` allowed) |
+| `/dashboard` | inline handler serving `dashboard.HTML` wrapped in `auth.AdminMiddlewareQuery` | Bearer admin token (`?token=` allowed) |
+| `/observability` | inline handler serving `dashboard.ObservabilityHTML` wrapped in `auth.AdminMiddlewareQuery` | Bearer admin token (`?token=` allowed) |
+| `/api/observability/*` | `handlers.NewObservabilityHandler` wrapped in `auth.AdminMiddleware` | Bearer admin token |
+| `/metrics` | `handlers.MetricsHandler` wrapped in `auth.AdminMiddleware` | Bearer admin token |
 
 ## Functions
 

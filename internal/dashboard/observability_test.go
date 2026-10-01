@@ -28,8 +28,8 @@ func TestLiveDashboardNavigationAdded(t *testing.T) {
 	if !strings.Contains(HTML, `href="/observability"`) || !strings.Contains(HTML, `href="/dashboard"`) {
 		t.Fatal("live dashboard navigation does not link both views")
 	}
-	if !strings.Contains(HTML, "new EventSource('/events')") || !strings.Contains(HTML, "function sendChatMessage()") ||
-		!strings.Contains(HTML, `id="chat-api-key"`) || !strings.Contains(HTML, "headers.Authorization='Bearer '+apiKey") {
+	if !strings.Contains(HTML, "EventSource('/events?token='") || !strings.Contains(HTML, "function sendChatMessage()") ||
+		!strings.Contains(HTML, "Authorization':'Bearer '+USER_KEY") {
 		t.Fatal("live dashboard SSE or authenticated chat behavior is missing")
 	}
 	if !strings.Contains(HTML, "escHtml(evt.message||'')") {

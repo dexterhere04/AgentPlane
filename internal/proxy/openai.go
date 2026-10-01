@@ -51,7 +51,16 @@ func (p *OpenAIProvider) Name() string {
 
 func (p *OpenAIProvider) Forward(ctx context.Context, body []byte, requestID string) ([]byte, error) {
 	bus := observability.DefaultBus
+	body = ApplyDefaultModel(body)
 	url := p.baseURL + "/chat/completions"
+
+	// Attribute this request to the authenticated user so traces, prompts,
+	// and usage events can be aggregated per user in ClickHouse.
+	userID, username := "", ""
+	if user, ok := auth.UserFromContext(ctx); ok {
+		userID = user.ID.String()
+		username = user.Username
+	}
 
 	if p.apiKey == "" {
 		bus.Publish(observability.NewMessageEvent(requestID, observability.StageLoadingAPIKey, "error", "OPENAI_API_KEY is not set"))
@@ -61,10 +70,10 @@ func (p *OpenAIProvider) Forward(ctx context.Context, body []byte, requestID str
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageLoadingAPIKey, "completed", "API key loaded"))
 
 	if p.isStreaming(body) {
-		return p.forwardStreaming(ctx, body, requestID, url, bus)
+		return p.forwardStreaming(ctx, body, requestID, url, bus, userID, username)
 	}
 
-	return p.forwardNonStreaming(ctx, body, requestID, url, bus)
+	return p.forwardNonStreaming(ctx, body, requestID, url, bus, userID, username)
 }
 
 func (p *OpenAIProvider) isStreaming(body []byte) bool {
@@ -77,7 +86,7 @@ func (p *OpenAIProvider) isStreaming(body []byte) bool {
 	return req.Stream
 }
 
-func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, requestID, url string, bus *observability.EventBus) ([]byte, error) {
+func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, requestID, url string, bus *observability.EventBus, userID, username string) ([]byte, error) {
 	start := time.Now()
 	if requestStart, ok := observability.RequestStart(ctx); ok {
 		start = requestStart
@@ -89,7 +98,7 @@ func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, r
 
 	// Ensure we always record a trace (success or error paths)
 	defer func() {
-		recordTraceAsync(ctx, requestID, model, statusStr, start, inputTokens, outputTokens, totalTokens)
+		recordTraceAsync(requestID, model, statusStr, start, inputTokens, outputTokens, totalTokens, userID, username)
 	}()
 
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageBuildingRequest, "started", fmt.Sprintf("POST %s", url)))
@@ -145,7 +154,21 @@ func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, r
 	if json.Valid(respBody) {
 		json.Unmarshal(respBody, &respData)
 	}
-	bus.Publish(observability.NewDataEvent(requestID, observability.StageResponseSent, "completed", respData))
+	respMeta := map[string]any{}
+	if m, ok := respData["model"].(string); ok {
+		respMeta["model"] = m
+	}
+	if choices, ok := respData["choices"].([]any); ok {
+		respMeta["choices"] = len(choices)
+		if len(choices) > 0 {
+			if c0, ok := choices[0].(map[string]any); ok {
+				if fr, ok := c0["finish_reason"].(string); ok {
+					respMeta["finish_reason"] = fr
+				}
+			}
+		}
+	}
+	bus.Publish(observability.NewDataEvent(requestID, observability.StageResponseSent, "completed", respMeta))
 
 	// Enforce capture mode for response payload
 	captureResponseAsync(requestID, respBody)
@@ -177,7 +200,7 @@ func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, r
 	return respBody, nil
 }
 
-func (p *OpenAIProvider) forwardStreaming(ctx context.Context, body []byte, requestID, url string, bus *observability.EventBus) ([]byte, error) {
+func (p *OpenAIProvider) forwardStreaming(ctx context.Context, body []byte, requestID, url string, bus *observability.EventBus, userID, username string) ([]byte, error) {
 	start := time.Now()
 	if requestStart, ok := observability.RequestStart(ctx); ok {
 		start = requestStart
@@ -189,7 +212,7 @@ func (p *OpenAIProvider) forwardStreaming(ctx context.Context, body []byte, requ
 
 	// Ensure we always record a trace (success or error paths)
 	defer func() {
-		recordTraceAsync(ctx, requestID, model, statusStr, start, inputTokens, outputTokens, totalTokens)
+		recordTraceAsync(requestID, model, statusStr, start, inputTokens, outputTokens, totalTokens, userID, username)
 	}()
 
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageBuildingRequest, "started", fmt.Sprintf("POST %s (stream)", url)))
@@ -366,19 +389,49 @@ func requestModel(body []byte) string {
 	return ""
 }
 
+// ApplyDefaultModel returns body with the configured DEFAULT_MODEL injected as
+// its "model" field when the body is valid JSON and has no non-empty "model".
+// It is a no-op when no default is configured or the body already names a model.
+func ApplyDefaultModel(body []byte) []byte {
+	def := strings.TrimSpace(os.Getenv("DEFAULT_MODEL"))
+	if def == "" || !json.Valid(body) {
+		return body
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return body
+	}
+	if m, _ := doc["model"].(string); strings.TrimSpace(m) != "" {
+		return body
+	}
+	doc["model"] = def
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return body
+	}
+	return out
+}
+
+// ResolveModel returns the effective model for a request: the request's "model"
+// field if present, otherwise the configured DEFAULT_MODEL. It returns "" when
+// neither is available.
+func ResolveModel(body []byte) string {
+	if m := requestModel(body); m != "" {
+		return m
+	}
+	return strings.TrimSpace(os.Getenv("DEFAULT_MODEL"))
+}
+
 // recordTraceAsync records a request trace without blocking the caller.
-func recordTraceAsync(ctx context.Context, requestID, model, status string, start time.Time, in, out, total uint64) {
+func recordTraceAsync(requestID, model, status string, start time.Time, in, out, total uint64, userID, username string) {
 	latency := time.Since(start).Milliseconds()
 	estimatedCost := observability.EstimateRequestCost("openai", model, in, out)
-	userID := ""
-	if user, ok := auth.UserFromContext(ctx); ok {
-		userID = user.ID.String()
-	}
 	go observability.RecordTrace(observability.Trace{
 		TraceID:       requestID,
 		RequestID:     requestID,
 		Timestamp:     start,
 		UserID:        userID,
+		Username:      username,
 		Provider:      "openai",
 		Model:         model,
 		LatencyMS:     latency,

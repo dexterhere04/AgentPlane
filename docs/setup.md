@@ -73,16 +73,16 @@ Brings up Vault (dev mode), `vault-init`, PostgreSQL, and the gateway. See `docs
 
 ## Endpoints
 
-| Method | Path                     | Auth                  |
-| ------ | ------------------------ | --------------------- |
-| POST   | `/chat`                  | Bearer API key        |
-| POST   | `/provision/user`        | Bearer admin token    |
-| POST   | `/admin/api-keys/revoke` | Bearer admin token    |
-| GET    | `/events`                | Safe lifecycle stream |
-| GET    | `/dashboard`             | —                     |
-| GET    | `/observability`         | —                     |
-| GET    | `/api/observability/*`   | Bearer admin token    |
-| GET    | `/metrics`               | —                     |
+| Method | Path | Auth |
+|--------|------|------|
+| POST | `/chat` | Bearer API key |
+| POST | `/provision/user` | Bearer admin token |
+| POST | `/admin/api-keys/revoke` | Bearer admin token |
+| GET | `/events` | Bearer admin token (`?token=` allowed) |
+| GET | `/dashboard` | Bearer admin token (`?token=` allowed) |
+| GET | `/observability` | Bearer admin token (`?token=` allowed) |
+| GET | `/api/observability/*` | Bearer admin token |
+| GET | `/metrics` | Bearer admin token |
 
 ## Verify
 

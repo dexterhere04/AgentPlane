@@ -199,6 +199,30 @@ type ObservabilityHealth struct {
 	CheckedAt           time.Time  `json:"checked_at"`
 }
 
+// UserUsageSummary aggregates spend and token usage for a single attributed user.
+type UserUsageSummary struct {
+	UserID       string    `json:"user_id"`
+	Username     string    `json:"username"`
+	RequestCount uint64    `json:"request_count"`
+	InputTokens  uint64    `json:"input_tokens"`
+	OutputTokens uint64    `json:"output_tokens"`
+	TotalTokens  uint64    `json:"total_tokens"`
+	TotalCost    float64   `json:"total_cost"`
+	AvgLatencyMS float64   `json:"avg_latency_ms"`
+	LastSeen     time.Time `json:"last_seen"`
+}
+
+// PromptSearchResult is a prompt joined with its trace metadata for search.
+type PromptSearchResult struct {
+	TraceID       string    `json:"trace_id"`
+	PromptText    string    `json:"prompt"`
+	CreatedAt     time.Time `json:"created_at"`
+	Username      string    `json:"username"`
+	Model         string    `json:"model"`
+	TotalTokens   uint64    `json:"total_tokens"`
+	EstimatedCost float64   `json:"estimated_cost"`
+}
+
 // AnalyticsStore is read-only by design and is backed by the configured telemetry store.
 type AnalyticsStore interface {
 	Health(context.Context, AnalyticsFilter) (ObservabilityHealth, error)
@@ -209,4 +233,6 @@ type AnalyticsStore interface {
 	Guardrails(context.Context, AnalyticsFilter, int) (GuardrailAnalytics, error)
 	Traces(context.Context, TracePageRequest) (TracePage, error)
 	Trace(context.Context, AnalyticsFilter, string) (TraceDetail, error)
+	UserUsage(context.Context, AnalyticsFilter, int) ([]UserUsageSummary, error)
+	PromptSearch(context.Context, AnalyticsFilter, string, string, int) ([]PromptSearchResult, error)
 }

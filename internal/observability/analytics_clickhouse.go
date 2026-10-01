@@ -507,4 +507,61 @@ func (s *clickhouseAnalyticsStore) captureMetadata(ctx context.Context, table, h
 	return metadata, rows.Err()
 }
 
+// UserUsage aggregates per-user spend and token usage over the given window.
+func (s *clickhouseAnalyticsStore) UserUsage(ctx context.Context, filter AnalyticsFilter, limit int) ([]UserUsageSummary, error) {
+	source, args := filteredTraceSource(filter)
+	query := `SELECT user_id, username, count(), sum(input_tokens), sum(output_tokens), sum(total_tokens),
+sum(estimated_cost), avg(latency_ms), max(timestamp)
+FROM ` + source + ` AND user_id != ''
+GROUP BY user_id, username
+ORDER BY sum(estimated_cost) DESC LIMIT ?`
+	args = append(args, boundedLimit(limit))
+	rows, err := analyticsQuery(ctx, s.client, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]UserUsageSummary, 0)
+	for rows.Next() {
+		var item UserUsageSummary
+		if err := rows.Scan(&item.UserID, &item.Username, &item.RequestCount,
+			&item.InputTokens, &item.OutputTokens, &item.TotalTokens,
+			&item.TotalCost, &item.AvgLatencyMS, &item.LastSeen); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+// PromptSearch returns prompts joined with their trace metadata, optionally
+// filtered by username (user) and free-text (q), over the given window.
+func (s *clickhouseAnalyticsStore) PromptSearch(ctx context.Context, filter AnalyticsFilter, user, q string, limit int) ([]PromptSearchResult, error) {
+	query := `SELECT p.trace_id, p.prompt_text, p.created_at,
+coalesce(t.username, ''), coalesce(t.model, ''), toUInt64(coalesce(t.total_tokens, 0)), coalesce(t.estimated_cost, 0.0)
+FROM agentplane.prompt_events p
+LEFT JOIN agentplane.traces t ON t.trace_id = p.trace_id
+WHERE p.created_at >= ? AND p.created_at < ?
+  AND p.prompt_text != ''
+  AND (? = '' OR t.username = ?)
+  AND (? = '' OR positionCaseInsensitive(p.prompt_text, ?) > 0)
+ORDER BY p.created_at DESC LIMIT ?`
+	args := []any{filter.From, filter.To, user, user, q, q, boundedLimit(limit)}
+	rows, err := analyticsQuery(ctx, s.client, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]PromptSearchResult, 0)
+	for rows.Next() {
+		var item PromptSearchResult
+		if err := rows.Scan(&item.TraceID, &item.PromptText, &item.CreatedAt,
+			&item.Username, &item.Model, &item.TotalTokens, &item.EstimatedCost); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
 var _ AnalyticsStore = (*clickhouseAnalyticsStore)(nil)

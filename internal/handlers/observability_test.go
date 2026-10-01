@@ -82,6 +82,14 @@ func (s *fakeAnalyticsStore) Trace(_ context.Context, filter observability.Analy
 	s.filter = filter
 	return observability.TraceDetail{}, s.err
 }
+func (s *fakeAnalyticsStore) UserUsage(_ context.Context, filter observability.AnalyticsFilter, _ int) ([]observability.UserUsageSummary, error) {
+	s.filter = filter
+	return []observability.UserUsageSummary{}, s.err
+}
+func (s *fakeAnalyticsStore) PromptSearch(_ context.Context, filter observability.AnalyticsFilter, _ string, _ string, _ int) ([]observability.PromptSearchResult, error) {
+	s.filter = filter
+	return []observability.PromptSearchResult{}, s.err
+}
 
 func TestParseAnalyticsFilterAllSupportedRanges(t *testing.T) {
 	for _, value := range []string{"15m", "1h", "6h", "24h", "7d"} {
@@ -209,7 +217,7 @@ func TestAnalyticsFailureDoesNotBreakChat(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.Handle("/api/observability/", auth.AdminMiddleware("admin", NewObservabilityHandler(&fakeAnalyticsStore{err: errors.New("ClickHouse offline")})))
 	mux.HandleFunc("/chat", func(w http.ResponseWriter, r *http.Request) {
-		Chat(w, r, nil, guardrail.GuardrailSet{}, guardrail.GuardrailSet{}, analyticsIsolationProvider{})
+		Chat(w, r, nil, nil, guardrail.GuardrailSet{}, guardrail.GuardrailSet{}, analyticsIsolationProvider{})
 	})
 	analyticsRequest := httptest.NewRequest(http.MethodGet, "/api/observability/overview", nil)
 	analyticsRequest.Header.Set("Authorization", "Bearer admin")
@@ -229,7 +237,7 @@ func TestAnalyticsFailureDoesNotBreakChat(t *testing.T) {
 func TestChatDoesNotExposeUpstreamErrorDetails(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/chat", strings.NewReader(`{"model":"test","messages":[]}`))
 	response := httptest.NewRecorder()
-	Chat(response, request, nil, guardrail.GuardrailSet{}, guardrail.GuardrailSet{}, errorDetailsProvider{})
+	Chat(response, request, nil, nil, guardrail.GuardrailSet{}, guardrail.GuardrailSet{}, errorDetailsProvider{})
 	if response.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d, want 502", response.Code)
 	}
@@ -244,7 +252,7 @@ func TestChatUsesUniqueTraceIDAndPropagatesStartTime(t *testing.T) {
 	provider := &correlationProvider{}
 	request := httptest.NewRequest(http.MethodPost, "/chat", strings.NewReader(`{"model":"test","messages":[]}`))
 	response := httptest.NewRecorder()
-	Chat(response, request, nil, guardrail.GuardrailSet{}, guardrail.GuardrailSet{}, provider)
+	Chat(response, request, nil, nil, guardrail.GuardrailSet{}, guardrail.GuardrailSet{}, provider)
 	if response.Code != http.StatusOK {
 		t.Fatalf("chat status = %d, body = %s", response.Code, response.Body.String())
 	}

@@ -25,6 +25,8 @@ import (
 	guardzscaler "github.com/dexterhere04/AgentPlane/internal/guardrail/providers/zscaler"
 	"github.com/dexterhere04/AgentPlane/internal/handlers"
 	"github.com/dexterhere04/AgentPlane/internal/observability"
+	"github.com/dexterhere04/AgentPlane/internal/policy"
+	"github.com/dexterhere04/AgentPlane/internal/policy/rbac"
 	"github.com/dexterhere04/AgentPlane/internal/provisioning"
 	"github.com/dexterhere04/AgentPlane/internal/proxy"
 	"github.com/dexterhere04/AgentPlane/internal/users"
@@ -104,6 +106,11 @@ func main() {
 		pepper,
 	)
 
+	// Policy layer: RBAC is the first (and currently only) policy. Access is
+	// deny-by-default — a user with no assigned role is permitted nothing.
+	rbacStore := rbac.NewStore(pool)
+	policyEP := policy.NewEnforcementPoint(rbac.New(rbacStore))
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "3001"
@@ -150,12 +157,17 @@ func main() {
 
 	enforcement := guardrail.NewEnforcementPoint(registry, cfg, bus)
 
+	// The core, always-available, locally-evaluated guardrails are marked
+	// Required: true so they run even when their strategy is disabled and fail
+	// closed on any resolution or evaluation error — a guardrail error blocks
+	// the request (503) rather than being skipped. Optional/external guardrails
+	// remain Required: false and are skipped on error (fail open).
 	mandatoryInput := guardrail.GuardrailSet{
 		Guards: []guardrail.GuardrailSpec{
-			{Name: "prompt_injection"},
-			{Name: "secrets"},
-			{Name: "pii"},
-			{Name: "content_moderation"},
+			{Name: "prompt_injection", Required: true},
+			{Name: "secrets", Required: true},
+			{Name: "pii", Required: true},
+			{Name: "content_moderation", Required: true},
 			{Name: "aim"},
 			{Name: "lakera"},
 			{Name: "lumigator"},
@@ -189,9 +201,9 @@ func main() {
 	}
 	mandatoryOutput := guardrail.GuardrailSet{
 		Guards: []guardrail.GuardrailSpec{
-			{Name: "secrets"},
-			{Name: "pii"},
-			{Name: "content_moderation"},
+			{Name: "secrets", Required: true},
+			{Name: "pii", Required: true},
+			{Name: "content_moderation", Required: true},
 			{Name: "aim"},
 			{Name: "lakera"},
 			{Name: "nvidia_content"},
@@ -213,12 +225,26 @@ func main() {
 		},
 	}
 
+	// Fail fast on misconfiguration: every Required guardrail must resolve in
+	// the registry, otherwise the gateway would start unable to enforce a
+	// mandatory security control.
+	if err := enforcement.ValidateSet(mandatoryInput); err != nil {
+		log.Fatalf("mandatory input guardrails: %v", err)
+	}
+	if err := enforcement.ValidateSet(mandatoryOutput); err != nil {
+		log.Fatalf("mandatory output guardrails: %v", err)
+	}
+
 	mux := http.NewServeMux()
 	mux.Handle(
 		"/chat",
-		authenticator.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handlers.Chat(w, r, enforcement, mandatoryInput, mandatoryOutput, provider)
-		})),
+		authenticator.Middleware(
+			policyEP.Require("chat:invoke")(
+				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					handlers.Chat(w, r, enforcement, policyEP, mandatoryInput, mandatoryOutput, provider)
+				}),
+			),
+		),
 	)
 
 	// SECURITY: /provision/user creates users and mints API keys, so it is
@@ -240,21 +266,51 @@ func main() {
 			handlers.RevokeAPIKey(apiKeyStore),
 		),
 	)
-	mux.HandleFunc("/events", observability.SSEHandler(bus))
+	mux.Handle(
+		"/admin/api-keys",
+		auth.AdminMiddleware(
+			adminToken,
+			handlers.ListAPIKeys(apiKeyStore),
+		),
+	)
+	mux.Handle(
+		"/admin/secrets/provider",
+		auth.AdminMiddleware(
+			adminToken,
+			handlers.StoreProviderSecret(),
+		),
+	)
+
+	// RBAC role administration. Roles are assigned to users; access is
+	// deny-by-default, so a user must be granted a role (e.g. "member")
+	// before they can use the gateway.
+	mux.Handle("GET /admin/roles", auth.AdminMiddleware(adminToken, handlers.ListRoles(rbacStore)))
+	mux.Handle("POST /admin/roles", auth.AdminMiddleware(adminToken, handlers.CreateRole(rbacStore)))
+	mux.Handle("POST /admin/roles/{name}/permissions", auth.AdminMiddleware(adminToken, handlers.AddRolePermission(rbacStore)))
+	mux.Handle("DELETE /admin/roles/{name}/permissions/{permission}", auth.AdminMiddleware(adminToken, handlers.RemoveRolePermission(rbacStore)))
+	mux.Handle("GET /admin/users", auth.AdminMiddleware(adminToken, handlers.ListUsers(userStore, rbacStore)))
+	mux.Handle("GET /admin/users/{id}/roles", auth.AdminMiddleware(adminToken, handlers.ListUserRoles(rbacStore)))
+	mux.Handle("POST /admin/users/{id}/roles", auth.AdminMiddleware(adminToken, handlers.AssignUserRole(rbacStore)))
+	mux.Handle("DELETE /admin/users/{id}/roles/{role}", auth.AdminMiddleware(adminToken, handlers.RevokeUserRole(rbacStore)))
+
+	// Operator-only observability endpoints. All require the admin token; the
+	// browser-facing /events, /dashboard, and /observability also accept it via
+	// the "token" query parameter since EventSource and top-level navigation
+	// cannot set request headers.
+	mux.Handle("/events", auth.AdminMiddlewareQuery(adminToken, observability.SSEHandler(bus)))
 	analyticsHandler := handlers.NewObservabilityHandler(analyticsStore)
 	mux.Handle("/api/observability/", auth.AdminMiddleware(adminToken, analyticsHandler))
-	mux.Handle("/analytics/traces_count", auth.AdminMiddleware(adminToken, analyticsHandler))
-	mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/dashboard", auth.AdminMiddlewareQuery(adminToken, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(dashboard.HTML))
-	})
-	mux.HandleFunc("/observability", func(w http.ResponseWriter, r *http.Request) {
+	})))
+	mux.Handle("/observability", auth.AdminMiddlewareQuery(adminToken, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		w.Write([]byte(dashboard.ObservabilityHTML))
-	})
+	})))
 
-	mux.HandleFunc("/metrics", handlers.MetricsHandler())
+	mux.Handle("/metrics", auth.AdminMiddleware(adminToken, handlers.MetricsHandler()))
 
 	log.Printf("AgentPlane Dev Mode")
 	log.Printf("  Gateway   → http://localhost:%s/chat (%s)", port, provider.Name())

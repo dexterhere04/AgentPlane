@@ -96,8 +96,14 @@ func NewObservabilityHandler(store observability.AnalyticsStore) http.Handler {
 			return
 		}
 		serveAnalytics(w, r, store, func(ctx context.Context, filter observability.AnalyticsFilter) (any, error) {
-			return store.Trace(ctx, filter, decoded)
-		})
+		return store.Trace(ctx, filter, decoded)
+	})
+	})
+	mux.HandleFunc("/api/observability/users", func(w http.ResponseWriter, r *http.Request) {
+		serveUserUsage(w, r, store)
+	})
+	mux.HandleFunc("/api/observability/prompts", func(w http.ResponseWriter, r *http.Request) {
+		servePromptSearch(w, r, store)
 	})
 	// Compatibility alias: retain the old route, but use the typed analytics store.
 	mux.HandleFunc("/analytics/traces_count", func(w http.ResponseWriter, r *http.Request) {
@@ -288,6 +294,97 @@ func serveLegacyTraceCount(w http.ResponseWriter, r *http.Request, store observa
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(map[string]uint64{"count": result.Requests})
+}
+
+func serveUserUsage(w http.ResponseWriter, r *http.Request, store observability.AnalyticsStore) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		writeAnalyticsError(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET is required")
+		return
+	}
+	if store == nil {
+		writeAnalyticsError(w, http.StatusServiceUnavailable, "analytics_unavailable", "observability storage is unavailable")
+		return
+	}
+	filter, err := parseObservabilityFilter(r, time.Now(), "limit")
+	if err != nil {
+		writeAnalyticsError(w, http.StatusBadRequest, "invalid_filter", err.Error())
+		return
+	}
+	limit, err := parseLimit(r.URL.Query().Get("limit"), 50)
+	if err != nil {
+		writeAnalyticsError(w, http.StatusBadRequest, "invalid_filter", err.Error())
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	users, err := store.UserUsage(ctx, filter, limit)
+	if err != nil {
+		writeAnalyticsError(w, http.StatusServiceUnavailable, "analytics_unavailable", "analytics data is temporarily unavailable")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(map[string]any{"users": users})
+}
+
+func servePromptSearch(w http.ResponseWriter, r *http.Request, store observability.AnalyticsStore) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		writeAnalyticsError(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET is required")
+		return
+	}
+	if store == nil {
+		writeAnalyticsError(w, http.StatusServiceUnavailable, "analytics_unavailable", "observability storage is unavailable")
+		return
+	}
+	filter, err := parseObservabilityFilter(r, time.Now(), "user", "q", "limit")
+	if err != nil {
+		writeAnalyticsError(w, http.StatusBadRequest, "invalid_filter", err.Error())
+		return
+	}
+	user := strings.TrimSpace(r.URL.Query().Get("user"))
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if strings.ContainsAny(user+q, "\r\n\x00") || len(user) > 128 || len(q) > 512 {
+		writeAnalyticsError(w, http.StatusBadRequest, "invalid_filter", "user or q is invalid or too long")
+		return
+	}
+	limit, err := parseLimit(r.URL.Query().Get("limit"), 200)
+	if err != nil {
+		writeAnalyticsError(w, http.StatusBadRequest, "invalid_filter", err.Error())
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	prompts, err := store.PromptSearch(ctx, filter, user, q, limit)
+	if err != nil {
+		writeAnalyticsError(w, http.StatusServiceUnavailable, "analytics_unavailable", "analytics data is temporarily unavailable")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(map[string]any{"prompts": prompts})
+}
+
+func parseObservabilityFilter(r *http.Request, now time.Time, extra ...string) (observability.AnalyticsFilter, error) {
+	allowed := map[string]bool{"range": true}
+	for _, key := range extra {
+		allowed[key] = true
+	}
+	for key, values := range r.URL.Query() {
+		if !allowed[key] || len(values) != 1 {
+			return observability.AnalyticsFilter{}, fmt.Errorf("unsupported or repeated query parameter")
+		}
+	}
+	rangeValue := r.URL.Query().Get("range")
+	if rangeValue == "" {
+		rangeValue = string(observability.Range24Hours)
+	}
+	from, to, err := observability.ParseAnalyticsRange(rangeValue, now)
+	if err != nil {
+		return observability.AnalyticsFilter{}, err
+	}
+	return observability.AnalyticsFilter{Range: observability.AnalyticsRange(rangeValue), From: from, To: to}, nil
 }
 
 func writeAnalyticsError(w http.ResponseWriter, status int, code, message string) {

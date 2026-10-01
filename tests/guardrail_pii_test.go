@@ -136,12 +136,23 @@ func TestPIIMultipleEmailFormats(t *testing.T) {
 
 func TestPIIMultiplePhoneFormats(t *testing.T) {
 	g := guardpii.New(guardrail.Strategy{})
-	phones := []string{"555-123-4567", "(800) 555-0199", "1-555-867-5309"}
+	phones := []string{
+		"555-123-4567",
+		"(800) 555-0199",
+		"1-555-867-5309",
+		"5551234567",
+		"+1 5551234567",
+		"555 123 4567",
+		"555.123.4567",
+	}
 	for _, phone := range phones {
 		result, err := g.Evaluate(ctx(), guardrail.DirectionInput, []byte(phone))
 		assertNoError(t, err)
 		if result.Decision != guardrail.DecisionRedact {
 			t.Errorf("expected redact for %s, got %s", phone, result.Decision)
+		}
+		if !strings.Contains(string(result.Redacted), "[PHONE REDACTED]") {
+			t.Errorf("phone %s not redacted", phone)
 		}
 	}
 }
