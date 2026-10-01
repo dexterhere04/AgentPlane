@@ -99,7 +99,7 @@ Fail-open/fail-closed is expressed per-spec via `GuardrailSpec.Required`, not vi
 - `Required: true`  → fail-closed: a resolution or evaluation error returns `DecisionBlock` (and the handler returns 503).
 - `Required: false` → fail-open: a disabled guardrail is skipped and an evaluation error is logged then skipped.
 
-> The current wiring in `cmd/server/main.go` registers every guardrail as optional (`Required` is unset). Individual guardrails therefore only run when enabled via `GUARDRAIL_*` env vars (mode `enforce`/`warn`/`log_only`), and errors fail-open. The fail-closed path is implemented and used whenever a spec sets `Required: true`.
+> The current wiring in `cmd/server/main.go` marks the core local guardrails (`prompt_injection`, `secrets`, `pii`, `content_moderation` on input; `secrets`, `pii`, `content_moderation` on output) as `Required: true`, so they always run and fail closed. Every other guardrail is optional (`Required` unset): it runs only when enabled via `GUARDRAIL_*` env vars (mode `enforce`/`warn`/`log_only`) and its errors fail open.
 
 ### Direction
 
@@ -378,7 +378,7 @@ AgentPlane ships with **33 guardrails** organized into three tiers:
 | **External** | 7 | `internal/guardrail/providers/{aim,lakera,...}` | block / warn | 5-500ms (API call) |
 | **Functions** | 22 | `internal/guardrail/providers/functions/` | varies | <1ms (in-process) |
 
-> Fail-open vs fail-closed is **not** a property of the tier — it is set per-spec via `GuardrailSpec.Required` in the `GuardrailSet` (see [Fail-open vs fail-closed](#fail-open-vs-fail-closed-required-flag)). In the current `main.go`, all guardrails are optional (`Required` unset), so they run only when enabled via `GUARDRAIL_*` env vars.
+> Fail-open vs fail-closed is **not** a property of the tier — it is set per-spec via `GuardrailSpec.Required` in the `GuardrailSet` (see [Fail-open vs fail-closed](#fail-open-vs-fail-closed-required-flag)). In the current `main.go`, the core local guardrails (`prompt_injection`, `secrets`, `pii`, `content_moderation` on input; `secrets`, `pii`, `content_moderation` on output) are `Required: true` and always run; the remaining guardrails are optional and run only when enabled via `GUARDRAIL_*` env vars.
 
 ---
 
@@ -424,7 +424,7 @@ Supports pluggable `Detector` implementations via `RegisterDetector()` / `NewWit
 
 Detects harmful or policy-violating content across multiple categories.
 
-**Required:** no (fail-open) | **Default:** off (enable `GUARDRAIL_CONTENT_MODERATION=warn`) | **Direction:** input + output | **Decision:** `WARN` | **Latency:** <1ms
+**Required:** yes (fail-closed) | **Default:** off (enable `GUARDRAIL_CONTENT_MODERATION=warn`) | **Direction:** input + output | **Decision:** `WARN` | **Latency:** <1ms
 
 **When to use:** Enable when you need keyword-based content filtering but don't want to block traffic. Use `warn` mode to log violations while still allowing content through. Switch to `enforce` for strict blocking. For production-grade moderation, pair with `openai_moderation` or `nvidia_content` external guards.
 
@@ -1073,6 +1073,8 @@ func main() {
 ```
 
 The handler calls `enforcement.Evaluate()` for input guardrails after JSON validation and for output guardrails after the proxy returns. Passing `nil` for enforcement or empty `GuardrailSet` disables that direction's checks.
+
+The core, always-available, locally-evaluated guardrails are configured with `Required: true`: `prompt_injection`, `secrets`, `pii`, and `content_moderation` on input, and `secrets`, `pii`, and `content_moderation` on output. Required guardrails always run — even when their strategy is disabled — and fail closed, meaning a resolution or evaluation error blocks the request (the handler returns 503) instead of being skipped. Optional/external guardrails (e.g. `aim`, `lakera`, `lumigator`, `prisma_airs`, `nvidia_content`, `openai_moderation`, `zscaler`, and the configurable `functions.*` guards) remain `Required: false`; they run only when enabled and are skipped on error. Startup calls `ValidateSet` on both mandatory sets so a missing Required guardrail fails fast.
 
 ### Handler response behavior
 

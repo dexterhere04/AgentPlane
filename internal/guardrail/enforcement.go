@@ -30,6 +30,20 @@ func (ep *EnforcementPoint) SetMetrics(m *Metrics) {
 	ep.metrics = m
 }
 
+// Evaluate runs the guardrails in set in order for the given direction.
+//
+// The behavior of each guardrail is governed by GuardrailSpec.Required:
+//
+//   - Required guards always run — even when their strategy is disabled — and
+//     fail closed: a resolution error (guardrail not registered) or an
+//     evaluation error returns DecisionBlock along with the error, so the
+//     caller blocks the request instead of proceeding.
+//   - Non-Required guards run only when their strategy is enabled, and are
+//     skipped on error (fail open): the error is recorded and published, then
+//     evaluation continues with the next guardrail.
+//
+// The pipeline short-circuits on DecisionBlock. A DecisionRedact replaces the
+// body for subsequent guards and is returned as the result's Redacted body.
 func (ep *EnforcementPoint) Evaluate(
 	ctx context.Context,
 	requestID string,
@@ -160,6 +174,11 @@ func (ep *EnforcementPoint) failClosed(requestID, name string, dir Direction, er
 	}, err
 }
 
+// ValidateSet verifies that every Required guardrail in set resolves in the
+// registry. Non-Required specs are ignored: they are optional, run only when
+// enabled, and are skipped on error, so a missing optional guardrail is not a
+// misconfiguration. It is intended to be called at startup so a Required guard
+// that cannot be resolved fails fast rather than at request time.
 func (ep *EnforcementPoint) ValidateSet(set GuardrailSet) error {
 	for _, spec := range set.Guards {
 		if !spec.Required {
@@ -198,15 +217,11 @@ func (ep *EnforcementPoint) resolve(strategy Strategy, result *Result) *Result {
 }
 
 func (ep *EnforcementPoint) publishEvent(requestID, guardrail string, dir Direction, result *Result, actionOverride ...string) {
-	var stage observability.Stage
-	switch dir {
-	case DirectionInput:
-		stage = observability.StageGuardrailInput
-	case DirectionOutput:
+	stage := observability.StageGuardrailInput
+	if dir == DirectionOutput {
 		stage = observability.StageGuardrailOutput
-	default:
-		stage = observability.StageGuardrailInput
 	}
+
 	phase := dir.String()
 	if phase != DirectionInput.String() && phase != DirectionOutput.String() {
 		phase = DirectionInput.String()
@@ -215,30 +230,84 @@ func (ep *EnforcementPoint) publishEvent(requestID, guardrail string, dir Direct
 	if len(actionOverride) > 0 {
 		action = actionOverride[0]
 	}
-	go func() {
-		_ = observability.CaptureGuardrail(observability.GuardrailEvent{
-			TraceID: requestID, RequestID: requestID, Timestamp: time.Now().UTC(),
-			Rule: guardrail, Phase: phase, Action: action,
-		})
-	}()
+	ep.captureGuardrail(requestID, guardrail, phase, action)
+
 	if ep.bus == nil {
 		return
 	}
 
 	decision := result.Decision.String()
-	msg := result.Message
-	if result.Details != nil {
-		if detailsJSON, err := json.Marshal(result.Details); err == nil {
-			msg = msg + " " + string(detailsJSON)
-		}
-	}
+
+	// The event bus is streamed unauthenticated: publish only a capped,
+	// details-free message and a sanitized projection of findings (no matched
+	// secret/PII values).
+	msg := capPublishedMessage(result.Message)
 
 	e := observability.NewMessageEvent(requestID, stage, "info",
 		fmt.Sprintf("%s: %s", guardrail, decision))
-	if result.Decision != DecisionPass && result.Message != "" {
+	if result.Decision != DecisionPass && msg != "" {
 		e.Message = fmt.Sprintf("%s: %s — %s", guardrail, decision, msg)
 	}
+
+	data := map[string]any{
+		"guardrail": guardrail,
+		"decision":  decision,
+		"direction": dir.String(),
+	}
+	if msg != "" {
+		data["message"] = msg
+	}
+	if len(result.Findings) > 0 {
+		data["findings"] = sanitizeFindings(result.Findings)
+	}
+	if raw, err := json.Marshal(data); err == nil {
+		e.Data = raw
+	}
+
 	ep.bus.Publish(e)
+}
+
+const maxPublishedMessage = 500
+
+func capPublishedMessage(s string) string {
+	if len(s) > maxPublishedMessage {
+		return s[:maxPublishedMessage]
+	}
+	return s
+}
+
+// sanitizeFindings projects findings for bus publication, omitting the
+// matched Value which may contain a raw secret or PII snippet.
+func sanitizeFindings(findings []Finding) []map[string]any {
+	out := make([]map[string]any, 0, len(findings))
+	for _, f := range findings {
+		out = append(out, map[string]any{
+			"guardrail": f.Guardrail,
+			"type":      f.Type,
+			"severity":  string(f.Severity),
+			"entity":    f.Entity,
+			"start":     f.Start,
+			"end":       f.End,
+		})
+	}
+	return out
+}
+
+// captureGuardrail persists the outcome to the configured observability store
+// (ClickHouse) without blocking the request path. No-op when unset.
+func (ep *EnforcementPoint) captureGuardrail(requestID, guardrail, phase, action string) {
+	if observability.DefaultStore == nil {
+		return
+	}
+	evt := observability.GuardrailEvent{
+		TraceID:   requestID,
+		RequestID: requestID,
+		Timestamp: time.Now(),
+		Rule:      guardrail,
+		Phase:     phase,
+		Action:    action,
+	}
+	go observability.CaptureGuardrail(evt)
 }
 
 func (ep *EnforcementPoint) publishBlocked(requestID string, result *Result) {

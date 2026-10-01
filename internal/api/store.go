@@ -188,6 +188,59 @@ func (s *Store) RevokeAPIKey(ctx context.Context, keyID string) error {
 	return nil
 }
 
+// KeyWithUser is a provisioned api_keys row joined with its owning user's
+// username. It contains only public, non-secret metadata — never the
+// secret_hash or any plaintext key material (the struct has no field for
+// either), so it is safe to serialize for the admin UI.
+type KeyWithUser struct {
+	APIKeyRecord
+	Username string
+}
+
+// ListAPIKeys returns every provisioned API key joined with its owning
+// user's username, newest first. Only public metadata is selected; the
+// secret_hash column is deliberately not read back out.
+func (s *Store) ListAPIKeys(ctx context.Context) ([]KeyWithUser, error) {
+	const query = `
+		SELECT k.id, k.key_id, k.user_id, k.name, k.status, k.created_at,
+		       k.last_used_at, k.expires_at, k.revoked_at, u.username
+		FROM api_keys k
+		JOIN users u ON u.id = k.user_id
+		ORDER BY k.created_at DESC
+	`
+
+	rows, err := s.pool.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("apikeymanagement: failed to list api keys: %w", err)
+	}
+	defer rows.Close()
+
+	var out []KeyWithUser
+	for rows.Next() {
+		var r KeyWithUser
+		if err := rows.Scan(
+			&r.ID,
+			&r.KeyID,
+			&r.UserID,
+			&r.Name,
+			&r.Status,
+			&r.CreatedAt,
+			&r.LastUsedAt,
+			&r.ExpiresAt,
+			&r.RevokedAt,
+			&r.Username,
+		); err != nil {
+			return nil, fmt.Errorf("apikeymanagement: failed to scan api key: %w", err)
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("apikeymanagement: failed to iterate api keys: %w", err)
+	}
+
+	return out, nil
+}
+
 func HashAPIKeySecret(secret, pepper string) string {
 	return hashSecret(secret, pepper)
 }

@@ -9,6 +9,12 @@ All endpoints are served from `http://localhost:3001` by default.
 
 Keys are minted via `POST /provision/user`.
 
+## Authorization
+
+`/chat` is gated by the policy layer. The authenticated user must hold the `chat:invoke` permission, and a matching `model:<name>` permission for the request's effective model — the request's `model` field, or the configured `DEFAULT_MODEL` when the request omits it. A request with no resolvable model is rejected. Access is **deny-by-default** — a user with no assigned role is permitted nothing. See [Policy Layer & RBAC](policy-rbac.md) for roles and permissions.
+
+Grant access by assigning a role (for example the built-in `member`) via `POST /admin/users/{id}/roles`.
+
 ---
 
 ## `POST /chat`
@@ -67,10 +73,19 @@ The provider response is returned (possibly redacted). Content-Type is `applicat
 
 #### 400 Bad Request
 
-Returned when the request body is not valid JSON.
+Returned when the request body is not valid JSON, or when no effective model can be resolved (the request omits `model` and no `DEFAULT_MODEL` is configured).
 
 ```
 Invalid JSON in request body
+```
+
+```json
+{
+  "error": {
+    "type": "model_required",
+    "message": "a resolvable model is required to authorize this request"
+  }
+}
 ```
 
 #### 401 Unauthorized
@@ -101,6 +116,20 @@ Returned when a guardrail blocks the request or response.
 }
 ```
 
+#### 403 Forbidden — Policy Denied
+
+Returned when the authenticated user is not permitted to perform the request (missing `chat:invoke`, or the requested model is not granted).
+
+```json
+{
+  "error": {
+    "type": "policy_denied",
+    "message": "not permitted to perform this action",
+    "permission": "model:gpt-4o-mini"
+  }
+}
+```
+
 #### 405 Method Not Allowed
 
 Returned when the HTTP method is not `POST`.
@@ -122,6 +151,20 @@ Returned when a `Required` guardrail encounters an internal error (fail-closed).
   "error": {
     "type": "guardrail_unavailable",
     "message": "Request could not be evaluated by mandatory security controls"
+  }
+}
+```
+
+#### 503 Service Unavailable — Policy Error
+
+Returned when the authorization layer cannot evaluate a request (for example, a database error). Policies fail closed.
+
+```json
+{
+  "error": {
+    "type": "policy_unavailable",
+    "message": "authorization could not be evaluated",
+    "permission": "chat:invoke"
   }
 }
 ```
@@ -199,21 +242,143 @@ Returns 404 if the key is not found or already revoked.
 
 ---
 
+## Role Management
+
+All endpoints below require the admin token and manage the RBAC policy layer (see [Policy Layer & RBAC](policy-rbac.md)).
+
+### `GET /admin/roles`
+
+List every role with its permissions.
+
+```json
+{
+  "roles": [
+    {"name": "admin", "description": "Full access to every gateway resource", "permissions": ["*"]},
+    {"name": "member", "description": "Standard access: invoke chat and use any model", "permissions": ["chat:invoke", "model:*"]}
+  ]
+}
+```
+
+### `POST /admin/roles`
+
+Create a role, optionally with initial permissions.
+
+```json
+{
+  "name": "gpt4o-only",
+  "description": "gpt-4o access",
+  "permissions": ["chat:invoke", "model:gpt-4o"]
+}
+```
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `name` | string | Yes | Unique |
+| `description` | string | No | Human-readable |
+| `permissions` | string[] | No | Initial permission set |
+
+Response — `201 Created`:
+
+```json
+{"name": "gpt4o-only", "description": "gpt-4o access", "permissions": ["chat:invoke", "model:gpt-4o"]}
+```
+
+Returns `409` if the role already exists.
+
+### `POST /admin/roles/{name}/permissions`
+
+Add a permission to a role.
+
+```json
+{"permission": "model:gpt-4o-mini"}
+```
+
+Response — `200 OK`:
+
+```json
+{"role": "gpt4o-only", "permission": "model:gpt-4o-mini"}
+```
+
+Returns `404` if the role does not exist.
+
+### `DELETE /admin/roles/{name}/permissions/{permission}`
+
+Remove a permission from a role. The `permission` path segment is the permission string verbatim (for example `model:*`); quote it in a shell to avoid glob expansion.
+
+Response — `200 OK`:
+
+```json
+{"role": "gpt4o-only", "permission": "model:gpt-4o-mini"}
+```
+
+### `GET /admin/users`
+
+List every user with the roles assigned to them. Access is deny-by-default, so a user with an empty `roles` array currently has no access.
+
+```json
+{
+  "users": [
+    {
+      "id": "8b0f...",
+      "username": "alice",
+      "email": "alice@example.com",
+      "status": "active",
+      "created_at": "2026-01-02T15:04:05Z",
+      "roles": ["member"]
+    }
+  ]
+}
+```
+
+### `GET /admin/users/{id}/roles`
+
+List the roles assigned to a user.
+
+```json
+{"user_id": "8b0f...", "roles": ["member"]}
+```
+
+### `POST /admin/users/{id}/roles`
+
+Assign a role to a user. This is how access is granted — users have no roles by default.
+
+```json
+{"role": "member"}
+```
+
+Response — `200 OK`:
+
+```json
+{"user_id": "8b0f...", "role": "member"}
+```
+
+Returns `404` if the role does not exist.
+
+### `DELETE /admin/users/{id}/roles/{role}`
+
+Remove a role from a user.
+
+```json
+{"user_id": "8b0f...", "role": "member"}
+```
+
+---
+
 ## `GET /events`
 
-Unauthenticated server-sent stream of safe lifecycle summaries. Structured event data and guardrail details are stripped; upstream URLs are suppressed. There is no wildcard CORS header. Optionally filter with `?request_id=<id>`.
+Server-sent event stream of request lifecycle events. Requires the admin token via `Authorization: Bearer <admin-token>` or, for browser clients that cannot set headers, `?token=<admin-token>`. Optionally filter with `?request_id=<id>`.
 
 ## `GET /dashboard`
 
-Live HTML dashboard (embeds the SSE stream and an authenticated chat widget).
+HTML dashboard (embeds the SSE stream and a chat widget). Requires the admin token via `Authorization: Bearer <admin-token>` or, for top-level browser navigation, `?token=<admin-token>`.
 
 ## `GET /observability`
 
-Embedded observability view. The operator enters the admin bearer token in-page; it is held in memory and sent only to authenticated analytics API requests.
+Embedded observability view. The operator enters the admin bearer token in-page; it is held in memory and sent only to authenticated analytics API requests. Requires the admin token via `Authorization: Bearer <admin-token>` or, for top-level browser navigation, `?token=<admin-token>`.
 
 ## `GET /metrics`
 
-JSON snapshot of guardrail metrics (evaluations, blocks, redactions, warns, passes, errors, average latency).
+JSON snapshot of guardrail metrics (evaluations, blocks, redactions, warns, passes, errors, average latency). Requires the admin token via `Authorization: Bearer <admin-token>`.
 
 ## Observability Analytics
 

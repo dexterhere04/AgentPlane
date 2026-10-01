@@ -11,6 +11,9 @@ Incoming Request
   Authentication      ✅  API-key bearer auth (internal/auth)
         |
         v
+  Authorization       ✅  RBAC roles/permissions (internal/policy)
+        |
+        v
   Rate Limiting       [per-user, per-token quotas]
         |
         v
@@ -73,6 +76,10 @@ POST /chat (stream: true)
 ## Other Candidates
 
 - Transactional user + key provisioning (currently sequential by design)
+- Enforce `admin:*` on admin endpoints (replacing the static admin token)
+- Per-API-key scopes on top of user-level roles
+- Additional policies behind the `internal/policy` engine (rate limiting, quotas, ABAC)
+- Permission caching to avoid a database round-trip per request
 - Per-key rate limiting and quotas
 - Key rotation UI / admin dashboard CRUD
 - Configurable provider timeout

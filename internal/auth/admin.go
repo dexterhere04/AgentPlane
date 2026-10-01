@@ -36,3 +36,23 @@ func AdminMiddleware(adminToken string, next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+// AdminMiddlewareQuery behaves like AdminMiddleware but additionally accepts
+// the admin token via the "token" query parameter. It exists for browser
+// clients (EventSource, top-level navigation) that cannot set headers.
+func AdminMiddlewareQuery(adminToken string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := ""
+		if authHeader := r.Header.Get("Authorization"); strings.HasPrefix(authHeader, "Bearer ") {
+			token = strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+		}
+		if token == "" {
+			token = strings.TrimSpace(r.URL.Query().Get("token"))
+		}
+		if token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(adminToken)) != 1 {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}

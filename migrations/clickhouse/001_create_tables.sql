@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS agentplane.traces (
     request_id String,
     timestamp DateTime DEFAULT now(),
     user_id String,
+    username String DEFAULT '',
     organization_id String,
     project_id String,
     provider String,
@@ -27,7 +28,10 @@ TTL timestamp + INTERVAL 365 DAY;
 -- 2. Prompts table: Full prompt text (compressed, shorter retention)
 CREATE TABLE IF NOT EXISTS agentplane.prompt_events (
     trace_id String,
+    user_id String DEFAULT '',
+    username String DEFAULT '',
     prompt_blob String CODEC(ZSTD),
+    prompt_text String DEFAULT '',
     prompt_hash String,
     prompt_bytes UInt32,
     compressed_size UInt32,
@@ -98,3 +102,10 @@ ALTER TABLE agentplane.prompt_events ADD INDEX IF NOT EXISTS idx_trace (trace_id
 ALTER TABLE agentplane.response_events ADD INDEX IF NOT EXISTS idx_trace (trace_id) TYPE bloom_filter GRANULARITY 1;
 ALTER TABLE agentplane.tool_call_events ADD INDEX IF NOT EXISTS idx_trace (trace_id) TYPE bloom_filter GRANULARITY 1;
 ALTER TABLE agentplane.guardrail_events ADD INDEX IF NOT EXISTS idx_trace (trace_id) TYPE bloom_filter GRANULARITY 1;
+
+-- Columns added later for user-based analytics. ADD COLUMN IF NOT EXISTS is
+-- idempotent so these apply to existing tables created before this change.
+ALTER TABLE agentplane.traces ADD COLUMN IF NOT EXISTS username String DEFAULT '';
+ALTER TABLE agentplane.prompt_events ADD COLUMN IF NOT EXISTS user_id String DEFAULT '';
+ALTER TABLE agentplane.prompt_events ADD COLUMN IF NOT EXISTS username String DEFAULT '';
+ALTER TABLE agentplane.prompt_events ADD COLUMN IF NOT EXISTS prompt_text String DEFAULT '';

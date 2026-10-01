@@ -158,6 +158,45 @@ func (s *Store) GetUserByID(ctx context.Context, id uuid.UUID) (*User, error) {
 	return &u, nil
 }
 
+// ListUsers returns every user, newest first. It is used by the admin
+// user-management surface and returns only user-table columns — callers that
+// need role assignments should query those separately (see
+// internal/policy/rbac).
+func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
+	const query = `
+		SELECT id, username, email, status, created_at, updated_at
+		FROM users
+		ORDER BY created_at DESC
+	`
+
+	rows, err := s.pool.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("users: failed to list users: %w", err)
+	}
+	defer rows.Close()
+
+	var users []User
+	for rows.Next() {
+		var u User
+		if err := rows.Scan(
+			&u.ID,
+			&u.Username,
+			&u.Email,
+			&u.Status,
+			&u.CreatedAt,
+			&u.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("users: failed to scan user: %w", err)
+		}
+		users = append(users, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("users: failed to iterate users: %w", err)
+	}
+
+	return users, nil
+}
+
 // validateCreateUserParams checks required fields and applies defaults. It
 // is pure (no I/O) so it can be unit tested without a database.
 func validateCreateUserParams(params CreateUserParams) (CreateUserParams, error) {

@@ -331,3 +331,119 @@ func TestVaultAppRoleLogin_Unreachable(t *testing.T) {
 		t.Fatal("expected error for unreachable server, got nil")
 	}
 }
+
+// reauthServer rejects any request whose X-Vault-Token is not "fresh" with a
+// 403 (mirroring an expired AppRole token) and mints "fresh" on AppRole login.
+func reauthServer(t *testing.T, logins *int) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/auth/approle/login" {
+			*logins++
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"auth": map[string]interface{}{"client_token": "fresh"},
+			})
+			return
+		}
+		if r.Header.Get("X-Vault-Token") != "fresh" {
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte(`{"errors":["permission denied","invalid token"]}`))
+			return
+		}
+		if r.Method == http.MethodGet {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"data": map[string]interface{}{
+					"data": map[string]interface{}{"value": "read-value"},
+				},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{"data": map[string]interface{}{}})
+	}))
+}
+
+func TestVaultStore_SetSecret_ReauthenticatesOnExpiredToken(t *testing.T) {
+	logins := 0
+	server := reauthServer(t, &logins)
+	defer server.Close()
+
+	store := &secrets.VaultStore{
+		Addr: server.URL, Token: "expired", MountPath: "m", KVVersion: 2,
+		RoleID: "rid", SecretID: "sid",
+	}
+
+	if err := store.SetSecret("OPENAI_API_KEY", "sk-new"); err != nil {
+		t.Fatalf("expected write to succeed after re-auth, got: %v", err)
+	}
+	if logins != 1 {
+		t.Errorf("expected exactly 1 AppRole login, got %d", logins)
+	}
+	if store.Token != "fresh" {
+		t.Errorf("expected cached token to be refreshed to 'fresh', got %q", store.Token)
+	}
+}
+
+func TestVaultStore_GetSecret_ReauthenticatesOnExpiredToken(t *testing.T) {
+	logins := 0
+	server := reauthServer(t, &logins)
+	defer server.Close()
+
+	store := &secrets.VaultStore{
+		Addr: server.URL, Token: "expired", MountPath: "m", KVVersion: 2,
+		RoleID: "rid", SecretID: "sid",
+	}
+
+	val, err := store.GetSecret("OPENAI_API_KEY")
+	if err != nil {
+		t.Fatalf("expected read to succeed after re-auth, got: %v", err)
+	}
+	if val != "read-value" {
+		t.Errorf("expected 'read-value', got %q", val)
+	}
+	if logins != 1 {
+		t.Errorf("expected exactly 1 AppRole login, got %d", logins)
+	}
+}
+
+func TestVaultStore_LogsInWhenTokenMissing(t *testing.T) {
+	logins := 0
+	server := reauthServer(t, &logins)
+	defer server.Close()
+
+	// No token at all, but AppRole credentials are present: the store should
+	// authenticate on first use.
+	store := &secrets.VaultStore{
+		Addr: server.URL, MountPath: "m", KVVersion: 2,
+		RoleID: "rid", SecretID: "sid",
+	}
+
+	if _, err := store.GetSecret("OPENAI_API_KEY"); err != nil {
+		t.Fatalf("expected read to succeed after lazy login, got: %v", err)
+	}
+	if logins != 1 {
+		t.Errorf("expected exactly 1 AppRole login, got %d", logins)
+	}
+}
+
+func TestVaultStore_NoAppRole_SurfacesPermissionError(t *testing.T) {
+	logins := 0
+	server := reauthServer(t, &logins)
+	defer server.Close()
+
+	// A static token that Vault rejects, with no AppRole fallback: the error
+	// must surface rather than being masked by a failed re-auth.
+	store := &secrets.VaultStore{
+		Addr: server.URL, Token: "expired", MountPath: "m", KVVersion: 2,
+	}
+
+	_, err := store.GetSecret("OPENAI_API_KEY")
+	if err == nil {
+		t.Fatal("expected error for rejected static token, got nil")
+	}
+	if !strings.Contains(err.Error(), "403") {
+		t.Errorf("expected '403' in error, got: %v", err)
+	}
+	if logins != 0 {
+		t.Errorf("expected no AppRole login without credentials, got %d", logins)
+	}
+}
