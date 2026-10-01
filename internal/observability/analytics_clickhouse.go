@@ -359,21 +359,29 @@ FROM ` + source + ` ORDER BY timestamp DESC, trace_id DESC LIMIT ?`
 }
 
 func (s *clickhouseAnalyticsStore) Guardrails(ctx context.Context, filter AnalyticsFilter, limit int) (GuardrailAnalytics, error) {
-	source, args := filteredTraceSource(filter)
+	source, sourceArgs := filteredTraceSource(filter)
 	result := GuardrailAnalytics{Breakdown: make([]GuardrailBreakdown, 0), Recent: make([]GuardrailMetadata, 0)}
 	eventAction := ""
 	if filter.GuardrailAction != "" {
 		eventAction = " AND g.action = ?"
 	}
+	// Each query needs its own argument slice. The source subquery bindings are
+	// shared, but the time-window and guardrail-action bindings must not leak
+	// from the breakdown query into the recent-events query.
+	buildArgs := func() []any {
+		args := make([]any, 0, len(sourceArgs)+3)
+		args = append(args, sourceArgs...)
+		args = append(args, filter.From, filter.To)
+		if filter.GuardrailAction != "" {
+			args = append(args, filter.GuardrailAction)
+		}
+		return args
+	}
 	query := `SELECT g.guardrail_name, g.phase, g.action, count()
 FROM agentplane.guardrail_events AS g INNER JOIN (SELECT * FROM ` + source + `) AS t ON g.trace_id = t.trace_id
 WHERE g.created_at >= ? AND g.created_at < ?` + eventAction + `
 GROUP BY g.guardrail_name, g.phase, g.action ORDER BY count() DESC LIMIT 100`
-	args = append(args, filter.From, filter.To)
-	if filter.GuardrailAction != "" {
-		args = append(args, filter.GuardrailAction)
-	}
-	rows, err := analyticsQuery(ctx, s.client, query, args...)
+	rows, err := analyticsQuery(ctx, s.client, query, buildArgs()...)
 	if err != nil {
 		return GuardrailAnalytics{}, err
 	}
@@ -395,12 +403,8 @@ GROUP BY g.guardrail_name, g.phase, g.action ORDER BY count() DESC LIMIT 100`
 FROM agentplane.guardrail_events AS g INNER JOIN (SELECT * FROM ` + source + `) AS t ON g.trace_id = t.trace_id
 WHERE g.created_at >= ? AND g.created_at < ?` + eventAction + `
 ORDER BY g.created_at DESC LIMIT ?`
-	args = append(args, filter.From, filter.To)
-	if filter.GuardrailAction != "" {
-		args = append(args, filter.GuardrailAction)
-	}
-	args = append(args, recentLimit)
-	rows, err = analyticsQuery(ctx, s.client, query, args...)
+	recentArgs := append(buildArgs(), recentLimit)
+	rows, err = analyticsQuery(ctx, s.client, query, recentArgs...)
 	if err != nil {
 		return GuardrailAnalytics{}, err
 	}

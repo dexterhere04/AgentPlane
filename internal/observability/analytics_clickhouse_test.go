@@ -392,27 +392,53 @@ func decodeCursor(value string) (*TraceCursor, error) {
 
 func TestClickHouseAnalyticsGuardrailResults(t *testing.T) {
 	timestamp := time.Date(2026, 9, 29, 10, 0, 0, 0, time.UTC)
-	client := &analyticsTestClient{queryFn: func(_ context.Context, query string, _ ...any) (driver.Rows, error) {
-		if strings.Contains(query, "count()") {
-			return &analyticsTestRows{rows: [][]any{{"secrets", "output", "block", uint64(2)}}}, nil
-		}
-		return &analyticsTestRows{rows: [][]any{{"secrets", "output", "block", timestamp}}}, nil
-	}}
-	filter := AnalyticsFilter{From: timestamp.Add(-time.Hour), To: timestamp.Add(time.Hour), GuardrailAction: "block"}
-	result, err := (&clickhouseAnalyticsStore{client: client}).Guardrails(context.Background(), filter, 3)
-	if err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name   string
+		filter AnalyticsFilter
+	}{
+		{"with action filter", AnalyticsFilter{From: timestamp.Add(-time.Hour), To: timestamp.Add(time.Hour), GuardrailAction: "block"}},
+		{"without action filter", AnalyticsFilter{From: timestamp.Add(-time.Hour), To: timestamp.Add(time.Hour)}},
 	}
-	if len(result.Breakdown) != 1 || result.Breakdown[0].Count != 2 || len(result.Recent) != 1 || result.Recent[0].Phase != "output" {
-		t.Fatalf("guardrail result = %+v", result)
-	}
-	for i, query := range client.queries {
-		if !strings.Contains(query, "g.action = ?") || !strings.Contains(query, "g.created_at >= ?") {
-			t.Errorf("guardrail filter/time bound missing from query %d: %s", i, query)
-		}
-		if got := client.args[i][len(client.args[i])-1]; got != "block" && got != 3 {
-			t.Errorf("unexpected final bound parameter %v", got)
-		}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := &analyticsTestClient{queryFn: func(_ context.Context, query string, _ ...any) (driver.Rows, error) {
+				if strings.Contains(query, "count()") {
+					return &analyticsTestRows{rows: [][]any{{"secrets", "output", "block", uint64(2)}}}, nil
+				}
+				return &analyticsTestRows{rows: [][]any{{"secrets", "output", "block", timestamp}}}, nil
+			}}
+			result, err := (&clickhouseAnalyticsStore{client: client}).Guardrails(context.Background(), test.filter, 3)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Breakdown) != 1 || result.Breakdown[0].Count != 2 || len(result.Recent) != 1 || result.Recent[0].Phase != "output" {
+				t.Fatalf("guardrail result = %+v", result)
+			}
+			if len(client.queries) != 2 {
+				t.Fatalf("expected 2 queries, got %d", len(client.queries))
+			}
+			for i, query := range client.queries {
+				if !strings.Contains(query, "g.created_at >= ?") {
+					t.Errorf("guardrail time bound missing from query %d: %s", i, query)
+				}
+				if got, want := len(client.args[i]), strings.Count(query, "?"); got != want {
+					t.Errorf("query %d binds %d args but has %d placeholders: %s", i, got, want, query)
+				}
+			}
+			// The recent-events query's LIMIT must bind the limit, not leak a
+			// timestamp from the breakdown query's arguments.
+			if got := client.args[1][len(client.args[1])-1]; got != 3 {
+				t.Errorf("recent query final arg = %v, want limit 3", got)
+			}
+			if test.filter.GuardrailAction != "" {
+				if !strings.Contains(client.queries[0], "g.action = ?") {
+					t.Errorf("breakdown query missing action filter: %s", client.queries[0])
+				}
+				if got := client.args[0][len(client.args[0])-1]; got != "block" {
+					t.Errorf("breakdown query final arg = %v, want guardrail action", got)
+				}
+			}
+		})
 	}
 }
 
