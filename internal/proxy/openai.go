@@ -88,6 +88,9 @@ func (p *OpenAIProvider) isStreaming(body []byte) bool {
 
 func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, requestID, url string, bus *observability.EventBus, userID, username string) ([]byte, error) {
 	start := time.Now()
+	if requestStart, ok := observability.RequestStart(ctx); ok {
+		start = requestStart
+	}
 	var statusStr string = "success"
 	var inputTokens, outputTokens, totalTokens uint64
 
@@ -103,6 +106,7 @@ func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, r
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
+		statusStr = "error"
 		bus.Publish(observability.NewMessageEvent(requestID, observability.StageBuildingRequest, "error", err.Error()))
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -119,6 +123,7 @@ func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, r
 
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
+		statusStr = "error"
 		bus.Publish(observability.NewMessageEvent(requestID, observability.StageSendingRequest, "error", err.Error()))
 		return nil, fmt.Errorf("sending request: %w", err)
 	}
@@ -131,6 +136,7 @@ func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, r
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
+		statusStr = "error"
 		bus.Publish(observability.NewMessageEvent(requestID, observability.StageReadingResponse, "error", err.Error()))
 		return nil, fmt.Errorf("reading response: %w", err)
 	}
@@ -196,6 +202,9 @@ func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, r
 
 func (p *OpenAIProvider) forwardStreaming(ctx context.Context, body []byte, requestID, url string, bus *observability.EventBus, userID, username string) ([]byte, error) {
 	start := time.Now()
+	if requestStart, ok := observability.RequestStart(ctx); ok {
+		start = requestStart
+	}
 	var statusStr string = "success"
 	var inputTokens, outputTokens, totalTokens uint64
 

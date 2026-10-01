@@ -1,16 +1,14 @@
 import { useEffect, useState } from 'react';
-import { AnalyticsRow, fetchAnalytics } from '../api';
+import {
+  fetchObservabilityBreakdowns,
+  fetchObservabilityGuardrails,
+  fetchObservabilityOverview,
+  GuardrailBreakdown,
+  ObservabilityBreakdown,
+  ObservabilityOverview
+} from '../api';
 import { Card, Stat, EmptyState, fmtNum } from './ui';
 import { Icon } from '../icons';
-
-type Datasets = Record<string, AnalyticsRow[]>;
-
-const QUERIES = ['traces_count', 'latency', 'token_usage', 'cost', 'top_models', 'provider_usage', 'guardrail_events', 'error_rate'];
-
-function num(v: string | number | undefined): number {
-  const n = typeof v === 'string' ? parseFloat(v) : (v ?? 0);
-  return Number.isFinite(n) ? n : 0;
-}
 
 function Bars({ items }: { items: { label: string; value: number }[] }) {
   const max = Math.max(...items.map((i) => i.value), 1);
@@ -30,19 +28,25 @@ function Bars({ items }: { items: { label: string; value: number }[] }) {
 }
 
 export default function ObservabilityView() {
-  const [data, setData] = useState<Datasets>({});
+  const [overview, setOverview] = useState<ObservabilityOverview | null>(null);
+  const [breakdowns, setBreakdowns] = useState<Record<string, ObservabilityBreakdown[]>>({});
+  const [guardrails, setGuardrails] = useState<GuardrailBreakdown[]>([]);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(0);
 
   const load = async () => {
-    const results = await Promise.all(QUERIES.map(async (q) => ({ key: q, res: await fetchAnalytics(q, 24) })));
-    const next: Datasets = {};
+    const [o, b, g] = await Promise.all([
+      fetchObservabilityOverview('24h'),
+      fetchObservabilityBreakdowns('24h'),
+      fetchObservabilityGuardrails('24h')
+    ]);
     let failures = 0;
-    for (const { key, res } of results) {
-      if (res.ok) next[key] = res.rows;
-      else failures++;
-    }
-    setData(next);
+    if (o.ok && o.overview) setOverview(o.overview);
+    else failures++;
+    if (b.ok) setBreakdowns(b.breakdowns);
+    else failures++;
+    if (g.ok) setGuardrails(g.guardrails);
+    else failures++;
     setFailed(failures);
     setLoading(false);
   };
@@ -53,10 +57,13 @@ export default function ObservabilityView() {
     return () => clearInterval(t);
   }, []);
 
-  const row = (key: string) => data[key]?.[0] ?? {};
-  const topModels = (data.top_models ?? []).map((r) => ({ label: String(r.model ?? ''), value: num(r.request_count) }));
-  const providers = (data.provider_usage ?? []).map((r) => ({ label: String(r.provider ?? ''), value: num(r.request_count) }));
-  const unavailable = !loading && failed === QUERIES.length;
+  const topModels = (breakdowns.model ?? []).map((r) => ({ label: r.key, value: r.requests }));
+  const providers = (breakdowns.provider ?? []).map((r) => ({ label: r.key, value: r.requests }));
+  const unavailable = !loading && failed === 3;
+
+  const tokens = overview?.tokens ?? { input: 0, output: 0, total: 0 };
+  const latency = overview?.latency_ms ?? { p50_ms: 0, p95_ms: 0, p99_ms: 0 };
+  const avgTokensPerReq = overview && overview.requests > 0 ? tokens.total / overview.requests : 0;
 
   return (
     <div className="stack">
@@ -67,10 +74,10 @@ export default function ObservabilityView() {
       )}
 
       <div className="stat-grid">
-        <Stat label="Traces (24h)" value={fmtNum(num(row('traces_count').trace_count))} tone="accent" />
-        <Stat label="Avg latency" value={fmtNum(num(row('latency').avg_latency_ms)) + ' ms'} />
-        <Stat label="Total tokens" value={fmtNum(num(row('token_usage').total_tokens_sum))} />
-        <Stat label="Est. cost" value={'$' + fmtNum(num(row('cost').total_cost), 4)} tone="green" small />
+        <Stat label="Traces (24h)" value={fmtNum(overview?.requests ?? 0)} tone="accent" />
+        <Stat label="Avg latency" value={fmtNum(latency.p50_ms) + ' ms'} />
+        <Stat label="Total tokens" value={fmtNum(tokens.total)} />
+        <Stat label="Est. cost" value={'$' + fmtNum(overview?.estimated_cost ?? 0, 4)} tone="green" small />
       </div>
 
       <div className="grid-2">
@@ -99,25 +106,24 @@ export default function ObservabilityView() {
           <div>
             <div className="subhead">Token &amp; cost detail</div>
             <div className="kv">
-              <div className="kv-row"><span className="kv-key">input tokens</span><span className="kv-val">{fmtNum(num(row('token_usage').total_input_tokens))}</span></div>
-              <div className="kv-row"><span className="kv-key">output tokens</span><span className="kv-val">{fmtNum(num(row('token_usage').total_output_tokens))}</span></div>
-              <div className="kv-row"><span className="kv-key">avg tokens / req</span><span className="kv-val">{fmtNum(num(row('token_usage').avg_tokens_per_request))}</span></div>
-              <div className="kv-row"><span className="kv-key">latency min / max</span><span className="kv-val">{fmtNum(num(row('latency').min_latency_ms))} / {fmtNum(num(row('latency').max_latency_ms))} ms</span></div>
-              <div className="kv-row"><span className="kv-key">max cost / req</span><span className="kv-val">${fmtNum(num(row('cost').max_cost_per_request), 4)}</span></div>
+              <div className="kv-row"><span className="kv-key">input tokens</span><span className="kv-val">{fmtNum(tokens.input)}</span></div>
+              <div className="kv-row"><span className="kv-key">output tokens</span><span className="kv-val">{fmtNum(tokens.output)}</span></div>
+              <div className="kv-row"><span className="kv-key">avg tokens / req</span><span className="kv-val">{fmtNum(avgTokensPerReq)}</span></div>
+              <div className="kv-row"><span className="kv-key">latency p50 / p95 / p99</span><span className="kv-val">{fmtNum(latency.p50_ms)} / {fmtNum(latency.p95_ms)} / {fmtNum(latency.p99_ms)} ms</span></div>
+              <div className="kv-row"><span className="kv-key">error rate</span><span className="kv-val">{fmtNum((overview?.error_rate ?? 0) * 100, 2)}%</span></div>
             </div>
           </div>
           <div>
-            <div className="subhead">Error rate by status</div>
-            {(data.error_rate ?? []).length ? (
-              <Bars items={(data.error_rate ?? []).map((r) => ({ label: String(r.status ?? ''), value: num(r.count) }))} />
-            ) : (
-              <EmptyState icon={<Icon name="check" size={20} />} text="no errors" />
-            )}
+            <div className="subhead">Request outcomes</div>
+            <div className="kv">
+              <div className="kv-row"><span className="kv-key">successes</span><span className="kv-val">{fmtNum(overview?.successes ?? 0)}</span></div>
+              <div className="kv-row"><span className="kv-key">errors</span><span className="kv-val">{fmtNum(overview?.errors ?? 0)}</span></div>
+            </div>
           </div>
         </div>
 
         <div className="subhead">Guardrail actions (ClickHouse)</div>
-        {(data.guardrail_events ?? []).length ? (
+        {guardrails.length ? (
           <table className="table">
             <thead>
               <tr>
@@ -128,12 +134,12 @@ export default function ObservabilityView() {
               </tr>
             </thead>
             <tbody>
-              {(data.guardrail_events ?? []).map((r, i) => (
+              {guardrails.map((r, i) => (
                 <tr key={i}>
-                  <td className="mono">{String(r.guardrail_name)}</td>
-                  <td>{String(r.phase)}</td>
-                  <td><span className="badge" style={{ background: 'var(--surface-3)', color: 'var(--ink-2)' }}>{String(r.action)}</span></td>
-                  <td>{fmtNum(num(r.event_count))}</td>
+                  <td className="mono">{r.name}</td>
+                  <td>{r.phase}</td>
+                  <td><span className="badge" style={{ background: 'var(--surface-3)', color: 'var(--ink-2)' }}>{r.action}</span></td>
+                  <td>{fmtNum(r.count)}</td>
                 </tr>
               ))}
             </tbody>

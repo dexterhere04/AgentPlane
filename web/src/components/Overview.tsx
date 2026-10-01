@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { StreamState } from '../types';
-import { fetchAnalytics, fetchMetrics } from '../api';
+import { fetchMetrics, fetchObservabilityHealth } from '../api';
 import { Icon, IconName } from '../icons';
 import { Badge, Card, Metric, fmtNum } from './ui';
 import SetupChecklist from './SetupChecklist';
@@ -81,8 +81,8 @@ export default function Overview({
   useEffect(() => {
     let mounted = true;
     const probe = async () => {
-      const res = await fetchAnalytics('traces_count', 1);
-      if (mounted) setChOnline(res.ok);
+      const res = await fetchObservabilityHealth();
+      if (mounted) setChOnline(res.ok && (res.health?.clickhouse_reachable ?? false));
     };
     probe();
     const t = setInterval(probe, 8000);

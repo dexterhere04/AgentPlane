@@ -49,6 +49,9 @@ header{
 .logo{font-size:16px;font-weight:700;color:var(--text-bright);letter-spacing:-0.01em}
 .logo i{color:var(--accent);font-style:normal}
 .header-right{display:flex;gap:20px;align-items:center;font-size:12px;color:var(--text-dim)}
+.dashboard-nav{display:flex;gap:6px;margin-left:auto;margin-right:18px;font-size:11px}
+.dashboard-nav a{padding:6px 9px;border:1px solid var(--border);border-radius:5px;color:var(--text-dim);text-decoration:none}
+.dashboard-nav a:hover{color:var(--text-bright);border-color:var(--accent)}
 .header-right .stat{display:flex;align-items:center;gap:6px}
 .header-right .stat-val{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums}
 .status-dot{width:7px;height:7px;border-radius:50%;display:inline-block}
@@ -146,6 +149,7 @@ main{padding:20px 28px 40px;max-width:1440px;margin:0 auto}
   transition:border-color 0.2s,box-shadow 0.2s;outline:none;
 }
 .chat-input-wrap input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-dim)}
+.chat-input-wrap .chat-api-key{flex:0 1 190px;width:190px}
 .chat-input-wrap button{
   padding:9px 18px;background:var(--accent);border:none;border-radius:6px;
   color:#fff;font-weight:600;font-family:inherit;font-size:12px;cursor:pointer;
@@ -299,6 +303,12 @@ main{padding:20px 28px 40px;max-width:1440px;margin:0 auto}
   .stats-bar{grid-template-columns:repeat(2,1fr)}
   .chat-section{grid-template-columns:1fr}
   .guardrails-grid{grid-template-columns:1fr}
+  .dashboard-nav{margin-left:0;margin-right:auto}
+}
+@media(max-width:560px){
+  .chat-input-wrap{flex-wrap:wrap}
+  .chat-input-wrap .chat-api-key{flex:1 1 100%;width:100%}
+  .chat-input-wrap #chat-input{min-width:0}
 }
 
 /* Dashboard shell / information architecture */
@@ -339,6 +349,7 @@ main{padding:20px 28px 40px;max-width:1440px;margin:0 auto}
 <body>
 <header>
   <div class="logo"><i>A</i>gentPlane</div>
+  <nav class="dashboard-nav" aria-label="Dashboard views"><a href="/dashboard" aria-current="page">Live dashboard</a><a href="/observability">Observability</a></nav>
   <div class="header-right">
     <span id="connection-status"><span class="status-dot off"></span> Offline</span>
     <span class="stat">Req<span class="stat-val" id="request-count">0</span></span>
@@ -859,7 +870,7 @@ function addEventLog(evt,stageName){
 
   var row=document.createElement('div');
   row.className='event-row';
-  row.innerHTML='<span class="event-time">'+time+'</span><span class="event-stage '+cls+'">'+stageName+'</span><span class="event-status"><span class="badge '+badgeClass+'">'+evt.status+'</span></span><span class="event-msg" title="'+escAttr(evt.message||'')+'">'+(evt.message||'')+'</span>';
+  row.innerHTML='<span class="event-time">'+time+'</span><span class="event-stage '+cls+'">'+escHtml(stageName)+'</span><span class="event-status"><span class="badge '+badgeClass+'">'+escHtml(evt.status)+'</span></span><span class="event-msg" title="'+escAttr(evt.message||'')+'">'+escHtml(evt.message||'')+'</span>';
   log.insertBefore(row,log.firstChild);
   if(log.children.length>300)log.removeChild(log.lastChild);
 }
