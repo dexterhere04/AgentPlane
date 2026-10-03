@@ -171,7 +171,7 @@ func chatWithRouting(
 	body = proxy.ApplyDefaultModel(body)
 
 	ctx := r.Context()
-	var matchedRule *proxy.RoutingRule
+
 	if ruleSet != nil {
 		user, ok := auth.UserFromContext(ctx)
 		if !ok {
@@ -184,6 +184,7 @@ func chatWithRouting(
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
+
 		var roles []string
 		if rbacStore != nil {
 			roles, err = rbacStore.ListUserRoles(ctx, user.ID)
@@ -193,37 +194,19 @@ func chatWithRouting(
 				return
 			}
 		}
+
 		model := proxy.ResolveModel(body)
 		if model == "" {
 			writeModelRequired(w)
 			return
 		}
-		routeReq := proxy.RouteRequest{
+
+		ctx = proxy.WithRouteRequest(ctx, proxy.RouteRequest{
 			Model:    model,
 			UserID:   user.ID.String(),
 			Username: user.Username,
 			Roles:    roles,
-		}
-		rule, matched, routeErr := ruleSet.Match(routeReq)
-		if routeErr != nil {
-			log.Printf("routing error: %v", routeErr)
-			http.Error(w, "routing unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		if matched {
-			matchedRule = &rule
-			bus.Publish(observability.NewDataEvent(
-				requestID,
-				observability.StageRequestReceived,
-				"routing_matched",
-				map[string]string{
-					"rule_id":        rule.ID,
-					"rule_name":      rule.Name,
-					"action":         rule.Action,
-					"provider_group": rule.ProviderGroup,
-				},
-			))
-		}
+		})
 	}
 
 	// Authorization: chat:invoke is enforced by middleware (it needs no body).
@@ -286,62 +269,16 @@ func chatWithRouting(
 	var respBody []byte
 
 	selectedProvider := provider
-
-	if matchedRule != nil && matchedRule.ProviderGroup != "" {
-		if providerRegistry == nil || selector == nil {
-			http.Error(w, "routing unavailable", http.StatusServiceUnavailable)
-			return
-		}
-
-		model := proxy.ResolveModel(body)
-
-		candidates := providerRegistry.Candidates(
-			model,
-			matchedRule.ProviderGroup,
-		)
-
-		if len(candidates) == 0 {
-			bus.Publish(observability.NewMessageEvent(
-				requestID,
-				observability.StageRequestReceived,
-				"error",
-				fmt.Sprintf(
-					"no available providers for group %q and model %q",
-					matchedRule.ProviderGroup,
-					model,
-				),
-			))
-
-			http.Error(w, "no provider available", http.StatusServiceUnavailable)
-			return
-		}
-
-		selectedUpstream, err := selector.Select(candidates)
-		if err != nil {
-			log.Printf("provider selection error: %v", err)
-			http.Error(w, "no provider available", http.StatusServiceUnavailable)
-			return
-		}
-
-		selectedProvider = selectedUpstream.Provider
-
-		bus.Publish(observability.NewDataEvent(
-			requestID,
-			observability.StageRequestReceived,
-			"provider_selected",
-			map[string]string{
-				"provider":       selectedUpstream.Name,
-				"provider_group": matchedRule.ProviderGroup,
-				"model":          model,
-			},
-		))
-	}
-
 	if selectedProvider == nil {
 		selectedProvider = proxy.NewOpenAIProviderFromEnv()
 	}
 
 	respBody, err = selectedProvider.Forward(ctx, body, requestID)
+	if err != nil {
+		log.Printf("error forwarding to provider: %v", err)
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
 	if err != nil {
 		log.Printf("error forwarding to provider: %v", err)
 		http.Error(w, err.Error(), http.StatusBadGateway)

@@ -155,7 +155,12 @@ func main() {
 	}
 
 	selector := proxy.NewWeightedSelector(time.Now().UnixNano())
-
+	router := proxy.NewRouter(
+		provider,
+		ruleSet,
+		providerRegistry,
+		selector,
+	)
 	cfg := guardrail.LoadConfig()
 
 	registry := guardrail.NewRegistry()
@@ -280,17 +285,8 @@ func main() {
 			policyEP.Require("chat:invoke")(
 				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					handlers.ChatWithRouting(
-						w,
-						r,
-						enforcement,
-						policyEP,
-						mandatoryInput,
-						mandatoryOutput,
-						provider,
-						rbacStore,
-						ruleSet,
-						providerRegistry,
-						selector,
+						w, r, enforcement, policyEP, mandatoryInput, mandatoryOutput,
+						router, rbacStore, ruleSet, providerRegistry, selector,
 					)
 				}),
 			),
