@@ -3,6 +3,9 @@ package proxy
 import (
 	"context"
 	"errors"
+	"fmt"
+
+	"github.com/dexterhere04/AgentPlane/internal/observability"
 )
 
 var (
@@ -12,18 +15,22 @@ var (
 
 type routeRequestContextKey struct{}
 
+type UpstreamSelector interface {
+	Select([]*Upstream) (*Upstream, error)
+}
+
 type Router struct {
 	defaultProvider Provider
 	rules           *RuleSet
 	registry        *Registry
-	selector        *WeightedSelector
+	selector        UpstreamSelector
 }
 
 func NewRouter(
 	defaultProvider Provider,
 	rules *RuleSet,
 	registry *Registry,
-	selector *WeightedSelector,
+	selector UpstreamSelector,
 ) *Router {
 	return &Router{
 		defaultProvider: defaultProvider,
@@ -33,7 +40,6 @@ func NewRouter(
 	}
 }
 
-// WithRouteRequest attaches the resolved routing context to a request context.
 func WithRouteRequest(ctx context.Context, req RouteRequest) context.Context {
 	return context.WithValue(ctx, routeRequestContextKey{}, req)
 }
@@ -47,18 +53,6 @@ func (r *Router) Name() string {
 	return "router"
 }
 
-// Forward implements Provider.
-//
-// Task 4 responsibilities:
-//  1. resolve the routing request from context
-//  2. find the first matching rule
-//  3. resolve the provider group
-//  4. filter eligible upstreams
-//  5. perform weighted selection
-//  6. forward through the selected upstream
-//
-// Cross-upstream failover is intentionally not implemented here yet.
-// Upstream.Forward already owns retry, timeout and circuit-breaker behavior.
 func (r *Router) Forward(
 	ctx context.Context,
 	body []byte,
@@ -68,7 +62,6 @@ func (r *Router) Forward(
 		return nil, ErrRoutingUnavailable
 	}
 
-	// No routing configuration means use the configured default provider.
 	if r.rules == nil {
 		return r.forwardDefault(ctx, body, requestID)
 	}
@@ -96,25 +89,126 @@ func (r *Router) Forward(
 		model = ResolveModel(body)
 	}
 
-	candidates := r.registry.Candidates(
-		model,
-		rule.ProviderGroup,
-	)
-
+	candidates := r.registry.Candidates(model, rule.ProviderGroup)
 	if len(candidates) == 0 {
 		return nil, ErrNoProvider
 	}
 
-	selected, err := r.selector.Select(candidates)
-	if err != nil {
-		return nil, err
+	return r.forwardWithFailover(ctx, body, requestID, candidates)
+}
+
+func (r *Router) forwardWithFailover(
+	ctx context.Context,
+	body []byte,
+	requestID string,
+	candidates []*Upstream,
+) ([]byte, error) {
+	remaining := append([]*Upstream(nil), candidates...)
+
+	var lastErr error
+
+	for len(remaining) > 0 {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		selected, err := r.selector.Select(remaining)
+		if err != nil {
+			if lastErr != nil {
+				return nil, lastErr
+			}
+			return nil, err
+		}
+
+		if selected == nil {
+			if lastErr != nil {
+				return nil, lastErr
+			}
+			return nil, ErrNoProvider
+		}
+
+		resp, err := selected.Forward(ctx, body, requestID)
+		if err == nil {
+			return resp, nil
+		}
+
+		lastErr = err
+
+		// The caller cancelled or its deadline expired. Do not fail over
+		// because the request itself is no longer viable.
+		if ctx.Err() != nil {
+			return nil, err
+		}
+
+		// A client-side/non-retryable provider error should be returned
+		// directly. Cross-provider failover is reserved for infrastructure
+		// and transient provider failures.
+		if !failoverEligible(err) {
+			return nil, err
+		}
+
+		remaining = removeUpstream(remaining, selected)
+		if len(remaining) == 0 {
+			return nil, lastErr
+		}
+
+		observability.DefaultBus.Publish(
+			observability.NewDataEvent(
+				requestID,
+				observability.StageFailover,
+				"started",
+				map[string]any{
+					"from_upstream": selected.Name,
+					"reason":        err.Error(),
+					"remaining":     upstreamNames(remaining),
+				},
+			),
+		)
 	}
 
-	if selected == nil {
-		return nil, ErrNoProvider
+	if lastErr != nil {
+		return nil, lastErr
 	}
 
-	return selected.Forward(ctx, body, requestID)
+	return nil, ErrNoProvider
+}
+
+func failoverEligible(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+
+	retryable, _ := classify(err)
+	return retryable
+}
+
+func removeUpstream(
+	candidates []*Upstream,
+	selected *Upstream,
+) []*Upstream {
+	remaining := make([]*Upstream, 0, len(candidates)-1)
+
+	for _, candidate := range candidates {
+		if candidate != selected {
+			remaining = append(remaining, candidate)
+		}
+	}
+
+	return remaining
+}
+
+func upstreamNames(candidates []*Upstream) []string {
+	names := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate != nil {
+			names = append(names, candidate.Name)
+		}
+	}
+	return names
 }
 
 func (r *Router) forwardDefault(
@@ -123,7 +217,7 @@ func (r *Router) forwardDefault(
 	requestID string,
 ) ([]byte, error) {
 	if r.defaultProvider == nil {
-		return nil, ErrNoProvider
+		return nil, fmt.Errorf("%w: default provider", ErrNoProvider)
 	}
 
 	return r.defaultProvider.Forward(ctx, body, requestID)

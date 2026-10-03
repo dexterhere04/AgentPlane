@@ -140,7 +140,7 @@ func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, r
 	if resp.StatusCode != http.StatusOK {
 		statusStr = fmt.Sprintf("http_%d", resp.StatusCode)
 		bus.Publish(observability.NewMessageEvent(requestID, observability.StageValidatingStatus, "error", fmt.Sprintf("HTTP %d", resp.StatusCode)))
-		return nil, fmt.Errorf("OpenAI returned status %d: %s", resp.StatusCode, string(respBody))
+		return nil, &StatusError{Code: resp.StatusCode, Body: string(respBody)}
 	}
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageValidatingStatus, "completed", "HTTP 200"))
 
@@ -227,7 +227,7 @@ func (p *OpenAIProvider) forwardStreaming(ctx context.Context, body []byte, requ
 	if resp.StatusCode != http.StatusOK {
 		statusStr = fmt.Sprintf("http_%d", resp.StatusCode)
 		respBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("OpenAI returned status %d: %s", resp.StatusCode, string(respBody))
+		return nil, &StatusError{Code: resp.StatusCode, Body: string(respBody)}
 	}
 
 	var allChunks [][]byte

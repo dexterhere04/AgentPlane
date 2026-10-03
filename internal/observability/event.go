@@ -28,6 +28,8 @@ const (
 	StageError            Stage = "error"
 	StageTokenStream      Stage = "token_stream"
 	StageInfo             Stage = "info"
+	StageRetry            Stage = "provider_retry"
+	StageFailover         Stage = "provider_failover"
 )
 
 type Event struct {
