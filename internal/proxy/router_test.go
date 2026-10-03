@@ -18,6 +18,68 @@ func (p *routerTestProvider) Name() string {
 	return p.name
 }
 
+func TestRouterAppliesResilienceOverridesWhenProviderGroupIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	provider := &stubProvider{
+		errs: []error{
+			&StatusError{Code: 500},
+			&StatusError{Code: 500},
+			nil,
+		},
+	}
+
+	upstream := NewUpstream(
+		"openai-primary",
+		provider,
+		WithModels("gpt-*"),
+		WithMaxRetries(0),
+	)
+
+	rule := RoutingRule{
+		ID:            "route-1",
+		Name:          "empty-group-resilience",
+		Priority:      1,
+		Action:        "route",
+		ProviderGroup: "",
+		ModelMatcher:  json.RawMessage(`{"equals":"gpt-4o"}`),
+		TimeoutRetryOverrides: json.RawMessage(`{
+			"timeout_ms": 1000,
+			"max_retries": 2,
+			"backoff_base_ms": 1,
+			"backoff_max_ms": 2,
+			"jitter_percent": 0
+		}`),
+		Enabled: true,
+	}
+
+	router := newTestRouter(
+		t,
+		nil,
+		[]RoutingRule{rule},
+		upstream,
+	)
+
+	ctx := routeContext()
+
+	resp, err := router.Forward(
+		ctx,
+		[]byte(`{"model":"gpt-4o"}`),
+		"req-empty-group",
+	)
+	if err != nil {
+		t.Fatalf("expected request to succeed after retries, got %v", err)
+	}
+
+	if string(resp) != "ok" {
+		t.Fatalf("unexpected response: %s", resp)
+	}
+
+	if provider.calls != 3 {
+		t.Fatalf("provider calls = %d, want 3", provider.calls)
+	}
+}
+
 func (p *routerTestProvider) Forward(
 	_ context.Context,
 	_ []byte,
