@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/dexterhere04/AgentPlane/internal/api"
 	"github.com/dexterhere04/AgentPlane/internal/auth"
@@ -124,12 +125,36 @@ func main() {
 	rbacStore := rbac.NewStore(pool)
 	policyEP := policy.NewEnforcementPoint(rbac.New(rbacStore))
 
+	routingStore := proxy.NewRoutingRuleStore(pool)
+
+	ruleSet, err := routingStore.LoadRuleSet(ctx)
+	if err != nil {
+		log.Fatalf("load routing rules: %v", err)
+	}
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "3001"
 	}
 
 	provider := proxy.NewOpenAIProviderFromEnv()
+
+	providerRegistry := proxy.NewRegistry()
+
+	providerStore := proxy.NewProviderStore(pool)
+
+	upstreams, err := providerStore.ListEnabled(ctx)
+	if err != nil {
+		log.Fatalf("load providers: %v", err)
+	}
+
+	for _, upstream := range upstreams {
+		if err := providerRegistry.Register(upstream); err != nil {
+			log.Fatalf("register provider %q: %v", upstream.Name, err)
+		}
+	}
+
+	selector := proxy.NewWeightedSelector(time.Now().UnixNano())
 
 	cfg := guardrail.LoadConfig()
 
@@ -254,7 +279,19 @@ func main() {
 		authenticator.Middleware(
 			policyEP.Require("chat:invoke")(
 				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					handlers.Chat(w, r, enforcement, policyEP, mandatoryInput, mandatoryOutput, provider)
+					handlers.ChatWithRouting(
+						w,
+						r,
+						enforcement,
+						policyEP,
+						mandatoryInput,
+						mandatoryOutput,
+						provider,
+						rbacStore,
+						ruleSet,
+						providerRegistry,
+						selector,
+					)
 				}),
 			),
 		),

@@ -20,6 +20,10 @@ func OpenAIKey() (string, error) {
 	return Store.GetSecret("OPENAI_API_KEY")
 }
 
+func Secret(key string) (string, error) {
+	return Store.GetSecret(key)
+}
+
 func OpenAIBaseURL() string {
 	if url := os.Getenv("OPENAI_BASE_URL"); url != "" {
 		return url

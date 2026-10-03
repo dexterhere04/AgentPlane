@@ -137,15 +137,21 @@ func (r *Registry) Statuses() []UpstreamStatus {
 // result is in registration order and is a fresh slice the caller may reorder.
 // Selection (weighting, fallback order) is the router's job, not the
 // registry's. An empty result means nothing can serve the model.
-func (r *Registry) Candidates(model string) []*Upstream {
+func (r *Registry) Candidates(model, providerGroup string) []*Upstream {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	out := make([]*Upstream, 0, len(r.order))
 	for _, n := range r.order {
 		u := r.byName[n]
-		if u.Available() && u.SupportsModel(model) {
-			out = append(out, u)
+		if !u.Available() || !u.SupportsModel(model) {
+			continue
 		}
+
+		if providerGroup != "" && u.ProviderGroup != providerGroup {
+			continue
+		}
+
+		out = append(out, u)
 	}
 	return out
 }
