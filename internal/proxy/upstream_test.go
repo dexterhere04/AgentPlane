@@ -107,6 +107,57 @@ func TestForwardDoesNotRetryClientErrorOrTripBreaker(t *testing.T) {
 	}
 }
 
+func TestBackoffWithJitterIsBounded(t *testing.T) {
+	base := 100 * time.Millisecond
+	max := 2 * time.Second
+
+	for attempt := 1; attempt <= 10; attempt++ {
+		for i := 0; i < 100; i++ {
+			got := backoffWithJitter(attempt, base, max, 0.20)
+
+			if got <= 0 {
+				t.Fatalf("attempt %d: expected positive delay, got %v", attempt, got)
+			}
+
+			if got > max {
+				t.Fatalf("attempt %d: delay %v exceeds max %v", attempt, got, max)
+			}
+		}
+	}
+}
+
+func TestBackoffWithoutJitter(t *testing.T) {
+	tests := []struct {
+		attempt int
+		want    time.Duration
+	}{
+		{1, 100 * time.Millisecond},
+		{2, 200 * time.Millisecond},
+		{3, 400 * time.Millisecond},
+		{4, 800 * time.Millisecond},
+		{5, 1600 * time.Millisecond},
+		{6, 2 * time.Second},
+	}
+
+	for _, tt := range tests {
+		got := backoffWithJitter(
+			tt.attempt,
+			100*time.Millisecond,
+			2*time.Second,
+			0,
+		)
+
+		if got != tt.want {
+			t.Errorf(
+				"attempt %d: got %v, want %v",
+				tt.attempt,
+				got,
+				tt.want,
+			)
+		}
+	}
+}
+
 func TestForwardOpensBreakerAndDisable(t *testing.T) {
 	p := &stubProvider{errs: []error{&StatusError{Code: 503}, &StatusError{Code: 503}}}
 	u := NewUpstream("x", p, WithMaxRetries(0), WithBreaker(BreakerConfig{FailureThreshold: 2, Cooldown: time.Hour}))

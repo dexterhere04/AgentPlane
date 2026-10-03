@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/dexterhere04/AgentPlane/internal/observability"
+	"math/rand"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/dexterhere04/AgentPlane/internal/observability"
 )
 
 var (
@@ -21,6 +23,40 @@ var (
 // StatusError lets a Provider report an HTTP status from its backend so the
 // Upstream can tell retryable / unhealthy failures from client mistakes.
 // Providers should return (or wrap) it instead of a bare fmt.Errorf.
+type ResilienceConfig struct {
+	Timeout       time.Duration
+	MaxRetries    int
+	BackoffBase   time.Duration
+	BackoffMax    time.Duration
+	JitterFactor  float64
+	MaxRetriesSet bool
+	JitterSet     bool
+}
+
+func (c ResilienceConfig) normalize(u *Upstream) ResilienceConfig {
+	if c.Timeout <= 0 {
+		c.Timeout = u.Timeout
+	}
+
+	if !c.MaxRetriesSet {
+		c.MaxRetries = u.MaxRetries
+	}
+
+	if c.BackoffBase <= 0 {
+		c.BackoffBase = u.backoffBase
+	}
+
+	if c.BackoffMax <= 0 {
+		c.BackoffMax = u.backoffMax
+	}
+
+	if !c.JitterSet {
+		c.JitterFactor = u.backoffJitter
+	}
+
+	return c
+}
+
 type StatusError struct {
 	Code int
 	Body string
@@ -229,8 +265,10 @@ type Upstream struct {
 	MaxRetries    int
 	Breaker       *CircuitBreaker
 
-	enabled     atomic.Bool
-	backoffBase time.Duration
+	enabled       atomic.Bool
+	backoffBase   time.Duration
+	backoffMax    time.Duration
+	backoffJitter float64
 }
 
 type UpstreamOption func(*Upstream)
@@ -278,13 +316,15 @@ func NewUpstream(name string, p Provider, opts ...UpstreamOption) *Upstream {
 		name = p.Name()
 	}
 	u := &Upstream{
-		Name:        name,
-		Provider:    p,
-		Weight:      1,
-		Timeout:     60 * time.Second,
-		MaxRetries:  1,
-		Breaker:     NewCircuitBreaker(BreakerConfig{}),
-		backoffBase: 100 * time.Millisecond,
+		Name:          name,
+		Provider:      p,
+		Weight:        1,
+		Timeout:       60 * time.Second,
+		MaxRetries:    1,
+		Breaker:       NewCircuitBreaker(BreakerConfig{}),
+		backoffBase:   100 * time.Millisecond,
+		backoffMax:    2 * time.Second,
+		backoffJitter: 0.20,
 	}
 	u.enabled.Store(true)
 	for _, opt := range opts {
@@ -329,18 +369,40 @@ func (u *Upstream) Available() bool {
 // Forward sends the request through the upstream's timeout, retry and
 // circuit-breaker policy. It satisfies the Provider signature, so an Upstream
 // can be used anywhere a Provider is expected.
+// Forward sends the request through the upstream's default timeout,
+// retry and circuit-breaker policy.
 func (u *Upstream) Forward(ctx context.Context, body []byte, requestID string) ([]byte, error) {
+	return u.ForwardWithConfig(ctx, body, requestID, ResilienceConfig{})
+}
+
+// ForwardWithConfig sends the request using per-request resilience settings.
+// The supplied config is not written back to the shared Upstream.
+func (u *Upstream) ForwardWithConfig(
+	ctx context.Context,
+	body []byte,
+	requestID string,
+	config ResilienceConfig,
+) ([]byte, error) {
 	if !u.Enabled() {
 		return nil, ErrUpstreamDisabled
 	}
 
+	config = config.normalize(u)
+
 	var lastErr error
-	for attempt := 0; attempt <= u.MaxRetries; attempt++ {
+
+	for attempt := 0; attempt <= config.MaxRetries; attempt++ {
 		if attempt > 0 {
-			if err := sleepCtx(ctx, u.backoff(attempt)); err != nil {
+			if err := sleepCtx(ctx, backoffWithJitter(
+				attempt,
+				config.BackoffBase,
+				config.BackoffMax,
+				config.JitterFactor,
+			)); err != nil {
 				return nil, err
 			}
 		}
+
 		if !u.Breaker.Allow() {
 			if lastErr != nil {
 				return nil, lastErr
@@ -348,29 +410,38 @@ func (u *Upstream) Forward(ctx context.Context, body []byte, requestID string) (
 			return nil, ErrCircuitOpen
 		}
 
-		resp, err := u.attempt(ctx, body, requestID)
+		resp, err := u.attemptWithTimeout(
+			ctx,
+			body,
+			requestID,
+			config.Timeout,
+		)
 		if err == nil {
 			u.Breaker.RecordSuccess()
 			return resp, nil
 		}
+
 		lastErr = err
 
-		// Caller cancelled or its deadline passed: not the upstream's fault.
+		// Caller cancellation/deadline is not an upstream failure.
 		if ctx.Err() != nil {
 			u.Breaker.Release()
 			return nil, err
 		}
 
 		retryable, failure := classify(err)
+
 		if failure {
 			u.Breaker.RecordFailure()
 		} else {
 			u.Breaker.Release()
 		}
+
 		if !retryable {
 			return nil, err
 		}
-		if attempt < u.MaxRetries {
+
+		if attempt < config.MaxRetries {
 			observability.DefaultBus.Publish(
 				observability.NewDataEvent(
 					requestID,
@@ -385,25 +456,91 @@ func (u *Upstream) Forward(ctx context.Context, body []byte, requestID string) (
 			)
 		}
 	}
+
 	return nil, lastErr
 }
 
-func (u *Upstream) attempt(ctx context.Context, body []byte, requestID string) ([]byte, error) {
-	if u.Timeout > 0 {
+func (u *Upstream) attemptWithTimeout(
+	ctx context.Context,
+	body []byte,
+	requestID string,
+	timeout time.Duration,
+) ([]byte, error) {
+	if timeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, u.Timeout)
+		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
+
 	return u.Provider.Forward(ctx, body, requestID)
 }
 
-// backoff returns 2^(attempt-1) * base, capped at 2s.
-func (u *Upstream) backoff(attempt int) time.Duration {
-	d := u.backoffBase << (attempt - 1)
-	if d > 2*time.Second || d <= 0 {
-		d = 2 * time.Second
+func backoffWithJitter(
+	attempt int,
+	base time.Duration,
+	max time.Duration,
+	jitterFactor float64,
+) time.Duration {
+	if attempt <= 0 {
+		return 0
 	}
-	return d
+
+	if base <= 0 {
+		base = 100 * time.Millisecond
+	}
+
+	if max <= 0 {
+		max = 2 * time.Second
+	}
+
+	// 2^(attempt-1) * base.
+	delay := base
+
+	for i := 1; i < attempt; i++ {
+		if delay >= max/2 {
+			delay = max
+			break
+		}
+		delay *= 2
+	}
+
+	if delay > max {
+		delay = max
+	}
+
+	if jitterFactor <= 0 {
+		return delay
+	}
+
+	// Add bounded positive jitter:
+	// delay .. delay * (1 + jitterFactor)
+	jitter := time.Duration(
+		rand.Float64() * float64(delay) * jitterFactor,
+	)
+
+	if delay+jitter > max {
+		return max
+	}
+
+	return delay + jitter
+}
+
+func WithBackoffBase(d time.Duration) UpstreamOption {
+	return func(u *Upstream) {
+		u.backoffBase = d
+	}
+}
+
+func WithBackoffMax(d time.Duration) UpstreamOption {
+	return func(u *Upstream) {
+		u.backoffMax = d
+	}
+}
+
+func WithBackoffJitter(factor float64) UpstreamOption {
+	return func(u *Upstream) {
+		u.backoffJitter = factor
+	}
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {

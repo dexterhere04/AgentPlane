@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
 
 // RouteRequest contains the request attributes used by routing rules.
@@ -16,6 +17,14 @@ type RouteRequest struct {
 	UserID   string
 	Username string
 	Roles    []string
+}
+
+type TimeoutRetryOverrides struct {
+	TimeoutMS     *int `json:"timeout_ms,omitempty"`
+	MaxRetries    *int `json:"max_retries,omitempty"`
+	BackoffBaseMS *int `json:"backoff_base_ms,omitempty"`
+	BackoffMaxMS  *int `json:"backoff_max_ms,omitempty"`
+	JitterPercent *int `json:"jitter_percent,omitempty"`
 }
 
 // RoutingRule is the in-memory representation of a routing_rules row.
@@ -37,6 +46,79 @@ type StringMatcher struct {
 	Equals string   `json:"equals,omitempty"`
 	In     []string `json:"in,omitempty"`
 	Prefix string   `json:"prefix,omitempty"`
+}
+
+func (r RoutingRule) ResilienceConfig() (ResilienceConfig, error) {
+	if len(r.TimeoutRetryOverrides) == 0 ||
+		string(r.TimeoutRetryOverrides) == "null" ||
+		string(r.TimeoutRetryOverrides) == "{}" {
+		return ResilienceConfig{}, nil
+	}
+
+	var overrides TimeoutRetryOverrides
+	if err := json.Unmarshal(r.TimeoutRetryOverrides, &overrides); err != nil {
+		return ResilienceConfig{}, fmt.Errorf(
+			"parse timeout/retry overrides for rule %q: %w",
+			r.Name,
+			err,
+		)
+	}
+
+	config := ResilienceConfig{}
+
+	if overrides.TimeoutMS != nil {
+		if *overrides.TimeoutMS <= 0 {
+			return ResilienceConfig{}, fmt.Errorf(
+				"rule %q: timeout_ms must be greater than zero",
+				r.Name,
+			)
+		}
+		config.Timeout = time.Duration(*overrides.TimeoutMS) * time.Millisecond
+	}
+
+	if overrides.MaxRetries != nil {
+		if *overrides.MaxRetries < 0 {
+			return ResilienceConfig{}, fmt.Errorf(
+				"rule %q: max_retries must be non-negative",
+				r.Name,
+			)
+		}
+		config.MaxRetries = *overrides.MaxRetries
+		config.MaxRetriesSet = true
+	}
+
+	if overrides.BackoffBaseMS != nil {
+		if *overrides.BackoffBaseMS <= 0 {
+			return ResilienceConfig{}, fmt.Errorf(
+				"rule %q: backoff_base_ms must be greater than zero",
+				r.Name,
+			)
+		}
+		config.BackoffBase = time.Duration(*overrides.BackoffBaseMS) * time.Millisecond
+	}
+
+	if overrides.BackoffMaxMS != nil {
+		if *overrides.BackoffMaxMS <= 0 {
+			return ResilienceConfig{}, fmt.Errorf(
+				"rule %q: backoff_max_ms must be greater than zero",
+				r.Name,
+			)
+		}
+		config.BackoffMax = time.Duration(*overrides.BackoffMaxMS) * time.Millisecond
+	}
+
+	if overrides.JitterPercent != nil {
+		if *overrides.JitterPercent < 0 || *overrides.JitterPercent > 100 {
+			return ResilienceConfig{}, fmt.Errorf(
+				"rule %q: jitter_percent must be between 0 and 100",
+				r.Name,
+			)
+		}
+		config.JitterFactor = float64(*overrides.JitterPercent) / 100
+		config.JitterSet = true
+	}
+
+	return config, nil
 }
 
 func (m StringMatcher) match(value string) bool {
