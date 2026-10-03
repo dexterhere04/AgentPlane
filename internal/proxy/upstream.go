@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/dexterhere04/AgentPlane/internal/observability"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -368,6 +369,20 @@ func (u *Upstream) Forward(ctx context.Context, body []byte, requestID string) (
 		}
 		if !retryable {
 			return nil, err
+		}
+		if attempt < u.MaxRetries {
+			observability.DefaultBus.Publish(
+				observability.NewDataEvent(
+					requestID,
+					observability.StageRetry,
+					"started",
+					map[string]any{
+						"upstream": u.Name,
+						"attempt":  attempt + 1,
+						"reason":   err.Error(),
+					},
+				),
+			)
 		}
 	}
 	return nil, lastErr
