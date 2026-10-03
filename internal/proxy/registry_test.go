@@ -62,6 +62,41 @@ func TestRegisterProviderUsesProviderName(t *testing.T) {
 	}
 }
 
+func TestCandidatesFiltersProviderGroup(t *testing.T) {
+	r := NewRegistry()
+
+	groupA := NewUpstream(
+		"a",
+		&stubProvider{},
+		WithProviderGroup("group-a"),
+		WithModels("gpt-*"),
+	)
+
+	groupB := NewUpstream(
+		"b",
+		&stubProvider{},
+		WithProviderGroup("group-b"),
+		WithModels("gpt-*"),
+	)
+
+	if err := r.Register(groupA); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Register(groupB); err != nil {
+		t.Fatal(err)
+	}
+
+	got := r.Candidates("gpt-4o", "group-a")
+
+	if len(got) != 1 {
+		t.Fatalf("expected 1 candidate, got %d", len(got))
+	}
+
+	if got[0].Name != "a" {
+		t.Fatalf("expected group-a upstream, got %q", got[0].Name)
+	}
+}
+
 func TestSetEnabledUnknown(t *testing.T) {
 	r := NewRegistry()
 	if err := r.SetEnabled("ghost", false); !errors.Is(err, ErrUpstreamNotFound) {
@@ -99,17 +134,17 @@ func TestCandidatesFiltering(t *testing.T) {
 		return true
 	}
 
-	if got := names(r.Candidates("gpt-4o")); !eq(got, []string{"openai", "any"}) {
+	if got := names(r.Candidates("gpt-4o", "")); !eq(got, []string{"openai", "any"}) {
 		t.Fatalf("gpt-4o candidates=%v", got)
 	}
-	if got := names(r.Candidates("claude-3")); !eq(got, []string{"anthropic", "any"}) {
+	if got := names(r.Candidates("claude-3", "")); !eq(got, []string{"anthropic", "any"}) {
 		t.Fatalf("claude-3 candidates=%v", got)
 	}
 
 	if err := r.SetEnabled("openai", false); err != nil {
 		t.Fatal(err)
 	}
-	if got := names(r.Candidates("gpt-4o")); !eq(got, []string{"any"}) {
+	if got := names(r.Candidates("gpt-4o", "")); !eq(got, []string{"any"}) {
 		t.Fatalf("after disable: %v", got)
 	}
 
@@ -117,7 +152,7 @@ func TestCandidatesFiltering(t *testing.T) {
 	trip := NewCircuitBreaker(BreakerConfig{FailureThreshold: 1, Cooldown: time.Hour})
 	trip.RecordFailure()
 	fallback.Breaker = trip
-	if got := r.Candidates("gpt-4o"); len(got) != 0 {
+	if got := r.Candidates("gpt-4o", ""); len(got) != 0 {
 		t.Fatalf("expected no candidates, got %v", names(got))
 	}
 }
@@ -138,7 +173,7 @@ func TestRegistryConcurrentUse(t *testing.T) {
 		}(i)
 		go func() {
 			defer wg.Done()
-			_ = r.Candidates("gpt-4o")
+			_ = r.Candidates("gpt-4o", "")
 			_ = r.Statuses()
 		}()
 		go func(i int) {

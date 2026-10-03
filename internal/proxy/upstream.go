@@ -219,13 +219,14 @@ func (b *CircuitBreaker) trip() {
 // Exported config fields are read-only after construction. Runtime changes go
 // through SetEnabled (atomic) or the breaker (self-locking).
 type Upstream struct {
-	Name       string
-	Provider   Provider
-	Weight     int           // relative share for weighted routing; 0 = never picked by weight
-	Models     []string      // empty = all models; entries are exact or "prefix*"
-	Timeout    time.Duration // per-attempt timeout; 0 = none beyond the caller's ctx
-	MaxRetries int           // extra attempts after the first
-	Breaker    *CircuitBreaker
+	Name          string
+	Provider      Provider
+	ProviderGroup string
+	Weight        int
+	Models        []string
+	Timeout       time.Duration
+	MaxRetries    int
+	Breaker       *CircuitBreaker
 
 	enabled     atomic.Bool
 	backoffBase time.Duration
@@ -239,6 +240,12 @@ func WithWeight(w int) UpstreamOption {
 			w = 0
 		}
 		u.Weight = w
+	}
+}
+
+func WithProviderGroup(group string) UpstreamOption {
+	return func(u *Upstream) {
+		u.ProviderGroup = group
 	}
 }
 
