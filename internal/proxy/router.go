@@ -94,7 +94,18 @@ func (r *Router) Forward(
 		return nil, ErrNoProvider
 	}
 
-	return r.forwardWithFailover(ctx, body, requestID, candidates)
+	resilienceConfig, err := rule.ResilienceConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	return r.forwardWithFailover(
+		ctx,
+		body,
+		requestID,
+		candidates,
+		resilienceConfig,
+	)
 }
 
 func (r *Router) forwardWithFailover(
@@ -102,6 +113,7 @@ func (r *Router) forwardWithFailover(
 	body []byte,
 	requestID string,
 	candidates []*Upstream,
+	resilienceConfig ResilienceConfig,
 ) ([]byte, error) {
 	remaining := append([]*Upstream(nil), candidates...)
 
@@ -127,7 +139,12 @@ func (r *Router) forwardWithFailover(
 			return nil, ErrNoProvider
 		}
 
-		resp, err := selected.Forward(ctx, body, requestID)
+		resp, err := selected.ForwardWithConfig(
+			ctx,
+			body,
+			requestID,
+			resilienceConfig,
+		)
 		if err == nil {
 			return resp, nil
 		}

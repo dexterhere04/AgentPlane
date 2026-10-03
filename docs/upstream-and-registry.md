@@ -340,6 +340,4 @@ Router
 ```
 
 The application can load configuration from PostgreSQL and use it to create/register the appropriate `Upstream` objects. The Registry then provides those objects to the Router and other components such as the admin API and health checks.
-
 ---
-

@@ -2,8 +2,10 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 )
 
 type routerTestProvider struct {
@@ -110,6 +112,44 @@ func routeContext() context.Context {
 			UserID: "user-1",
 		},
 	)
+}
+
+func TestRoutingRuleResilienceConfig(t *testing.T) {
+	rule := RoutingRule{
+		Name: "test-rule",
+		TimeoutRetryOverrides: json.RawMessage(`{
+			"timeout_ms": 30000,
+			"max_retries": 3,
+			"backoff_base_ms": 100,
+			"backoff_max_ms": 2000,
+			"jitter_percent": 20
+		}`),
+	}
+
+	config, err := rule.ResilienceConfig()
+	if err != nil {
+		t.Fatalf("ResilienceConfig() error = %v", err)
+	}
+
+	if config.Timeout != 30*time.Second {
+		t.Fatalf("timeout = %v, want 30s", config.Timeout)
+	}
+
+	if config.MaxRetries != 3 {
+		t.Fatalf("max retries = %d, want 3", config.MaxRetries)
+	}
+
+	if config.BackoffBase != 100*time.Millisecond {
+		t.Fatalf("backoff base = %v, want 100ms", config.BackoffBase)
+	}
+
+	if config.BackoffMax != 2*time.Second {
+		t.Fatalf("backoff max = %v, want 2s", config.BackoffMax)
+	}
+
+	if config.JitterFactor != 0.20 {
+		t.Fatalf("jitter = %v, want 0.20", config.JitterFactor)
+	}
 }
 
 func TestRouterUsesDefaultProviderWhenNoRuleMatches(t *testing.T) {
