@@ -76,7 +76,7 @@ func (r *Router) Forward(
 		return nil, err
 	}
 
-	if !matched || rule.ProviderGroup == "" {
+	if !matched {
 		return r.forwardDefault(ctx, body, requestID)
 	}
 

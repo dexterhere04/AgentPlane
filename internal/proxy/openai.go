@@ -28,11 +28,9 @@ func NewOpenAIProvider(apiKey, baseURL string) *OpenAIProvider {
 		baseURL = "https://api.openai.com/v1"
 	}
 	return &OpenAIProvider{
-		apiKey:  apiKey,
-		baseURL: baseURL,
-		httpClient: &http.Client{
-			Timeout: 60 * time.Second,
-		},
+		apiKey:     apiKey,
+		baseURL:    baseURL,
+		httpClient: &http.Client{},
 	}
 }
 

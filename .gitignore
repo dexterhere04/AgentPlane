@@ -2,7 +2,7 @@
 build/
 bin/
 logs/
-
+provider-issue-21.md
 # Compiled binaries (anchored to the repo root so they don't also match
 # the cmd/server/ source directory).
 /server
