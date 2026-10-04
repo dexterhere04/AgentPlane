@@ -30,6 +30,8 @@ const (
 	StageInfo             Stage = "info"
 	StageRetry            Stage = "provider_retry"
 	StageFailover         Stage = "provider_failover"
+	StageRoutingDecision  Stage = "routing_decision"
+	StageRoutingFailover  Stage = "routing_failover"
 )
 
 type Event struct {

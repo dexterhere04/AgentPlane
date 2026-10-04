@@ -93,7 +93,7 @@ func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, r
 
 	// Ensure we always record a trace (success or error paths)
 	defer func() {
-		recordTraceAsync(requestID, model, statusStr, start, inputTokens, outputTokens, totalTokens, userID, username)
+		recordTraceAsync(ctx, requestID, model, statusStr, start, inputTokens, outputTokens, totalTokens, userID, username)
 	}()
 
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageBuildingRequest, "started", fmt.Sprintf("POST %s", url)))
@@ -186,7 +186,7 @@ func (p *OpenAIProvider) forwardNonStreaming(ctx context.Context, body []byte, r
 			cachedInputTokens = uint64(v)
 		}
 		// Record usage event with provider/model from request
-		captureUsageAsync(requestID, model, inputTokens, outputTokens, totalTokens, reasoningTokens, cachedInputTokens)
+		captureUsageAsync(ctx, requestID, model, inputTokens, outputTokens, totalTokens, reasoningTokens, cachedInputTokens)
 	}
 
 	return respBody, nil
@@ -201,7 +201,7 @@ func (p *OpenAIProvider) forwardStreaming(ctx context.Context, body []byte, requ
 
 	// Ensure we always record a trace (success or error paths)
 	defer func() {
-		recordTraceAsync(requestID, model, statusStr, start, inputTokens, outputTokens, totalTokens, userID, username)
+		recordTraceAsync(ctx, requestID, model, statusStr, start, inputTokens, outputTokens, totalTokens, userID, username)
 	}()
 
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageBuildingRequest, "started", fmt.Sprintf("POST %s (stream)", url)))
@@ -262,7 +262,7 @@ func (p *OpenAIProvider) forwardStreaming(ctx context.Context, body []byte, requ
 
 	// Record usage event when the stream included a usage chunk.
 	if totalTokens > 0 {
-		captureUsageAsync(requestID, model, inputTokens, outputTokens, totalTokens, 0, 0)
+		captureUsageAsync(ctx, requestID, model, inputTokens, outputTokens, totalTokens, 0, 0)
 	}
 
 	return structuredResponse, nil
@@ -412,25 +412,33 @@ func ResolveModel(body []byte) string {
 }
 
 // recordTraceAsync records a request trace without blocking the caller.
-func recordTraceAsync(requestID, model, status string, start time.Time, in, out, total uint64, userID, username string) {
+func recordTraceAsync(
+	ctx context.Context,
+	requestID, model, status string,
+	start time.Time,
+	in, out, total uint64,
+	userID, username string,
+) {
 	latency := time.Since(start).Milliseconds()
 	estimatedCost := observability.EstimateRequestCost("openai", model, in, out)
+	routing := routingTelemetryFromContext(ctx)
+
 	go observability.RecordTrace(observability.Trace{
-		TraceID:       requestID,
 		RequestID:     requestID,
-		Timestamp:     start,
 		UserID:        userID,
 		Username:      username,
 		Provider:      "openai",
 		Model:         model,
 		LatencyMS:     latency,
 		Status:        status,
-		CacheHit:      false,
 		InputTokens:   in,
 		OutputTokens:  out,
 		TotalTokens:   total,
 		EstimatedCost: estimatedCost,
-		Route:         "/chat",
+		Route:         routing.Route,
+		Upstream:      routing.Upstream,
+		Attempt:       routing.Attempt,
+		Failover:      routing.Failover,
 	})
 }
 
@@ -464,8 +472,9 @@ func captureResponseAsync(requestID string, respBody []byte) {
 }
 
 // captureUsageAsync records a usage event without blocking the caller.
-func captureUsageAsync(requestID, model string, in, out, total, reasoning, cached uint64) {
+func captureUsageAsync(ctx context.Context, requestID, model string, in, out, total, reasoning, cached uint64) {
 	estimatedCost := observability.EstimateRequestCost("openai", model, in, out)
+	routing := routingTelemetryFromContext(ctx)
 	go func() {
 		_ = observability.CaptureUsage(observability.UsageEvent{
 			TraceID:           requestID,
@@ -479,6 +488,10 @@ func captureUsageAsync(requestID, model string, in, out, total, reasoning, cache
 			ReasoningTokens:   reasoning,
 			CachedInputTokens: cached,
 			Cost:              estimatedCost,
+			Route:             routing.Route,
+			Upstream:          routing.Upstream,
+			Attempt:           routing.Attempt,
+			Failover:          routing.Failover,
 		})
 	}()
 }

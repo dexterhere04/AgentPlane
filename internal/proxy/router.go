@@ -14,6 +14,24 @@ var (
 	ErrNoProvider         = errors.New("proxy: no provider available")
 )
 
+type routingTelemetry struct {
+	Route    string
+	Upstream string
+	Attempt  uint32
+	Failover bool
+}
+
+type routingTelemetryContextKey struct{}
+
+func withRoutingTelemetry(ctx context.Context, metadata routingTelemetry) context.Context {
+	return context.WithValue(ctx, routingTelemetryContextKey{}, metadata)
+}
+
+func routingTelemetryFromContext(ctx context.Context) routingTelemetry {
+	metadata, _ := ctx.Value(routingTelemetryContextKey{}).(routingTelemetry)
+	return metadata
+}
+
 type routeRequestContextKey struct{}
 
 type UpstreamSelector interface {
@@ -123,6 +141,7 @@ func (r *Router) Forward(
 		ctx,
 		body,
 		requestID,
+		rule.Name,
 		candidates,
 		resilienceConfig,
 	)
@@ -132,12 +151,15 @@ func (r *Router) forwardWithFailover(
 	ctx context.Context,
 	body []byte,
 	requestID string,
+	route string,
 	candidates []*Upstream,
 	resilienceConfig ResilienceConfig,
 ) ([]byte, error) {
 	remaining := append([]*Upstream(nil), candidates...)
-
 	var lastErr error
+	var attempt uint32 = 1
+	var previous *Upstream
+	failover := false
 
 	for len(remaining) > 0 {
 		if err := ctx.Err(); err != nil {
@@ -146,21 +168,54 @@ func (r *Router) forwardWithFailover(
 
 		selected, err := r.selector.Select(remaining)
 		if err != nil {
-			if lastErr != nil {
-				return nil, lastErr
-			}
 			return nil, err
 		}
-
 		if selected == nil {
-			if lastErr != nil {
-				return nil, lastErr
-			}
 			return nil, ErrNoProvider
 		}
 
+		telemetryCtx := withRoutingTelemetry(ctx, routingTelemetry{
+			Route:    route,
+			Upstream: selected.Name,
+			Attempt:  attempt,
+			Failover: failover,
+		})
+
+		if !failover {
+			observability.DefaultBus.Publish(
+				observability.NewDataEvent(
+					requestID,
+					observability.StageRoutingDecision,
+					"selected",
+					map[string]any{
+						"route":             route,
+						"selected_provider": selected.Name,
+						"upstream":          selected.Name,
+						"attempt":           attempt,
+						"failover":          false,
+					},
+				),
+			)
+		} else {
+			observability.DefaultBus.Publish(
+				observability.NewDataEvent(
+					requestID,
+					observability.StageRoutingFailover,
+					"selected",
+					map[string]any{
+						"route":    route,
+						"from":     previous.Name,
+						"to":       selected.Name,
+						"upstream": selected.Name,
+						"attempt":  attempt,
+						"failover": true,
+					},
+				),
+			)
+		}
+
 		resp, err := selected.ForwardWithConfig(
-			ctx,
+			telemetryCtx,
 			body,
 			requestID,
 			resilienceConfig,
@@ -171,20 +226,17 @@ func (r *Router) forwardWithFailover(
 
 		lastErr = err
 
-		// The caller cancelled or its deadline expired. Do not fail over
-		// because the request itself is no longer viable.
 		if ctx.Err() != nil {
 			return nil, err
 		}
 
-		// A client-side/non-retryable provider error should be returned
-		// directly. Cross-provider failover is reserved for infrastructure
-		// and transient provider failures.
 		if !failoverEligible(err) {
 			return nil, err
 		}
 
+		previous = selected
 		remaining = removeUpstream(remaining, selected)
+
 		if len(remaining) == 0 {
 			return nil, lastErr
 		}
@@ -195,19 +247,21 @@ func (r *Router) forwardWithFailover(
 				observability.StageFailover,
 				"started",
 				map[string]any{
+					"route":         route,
 					"from_upstream": selected.Name,
 					"reason":        err.Error(),
 					"remaining":     upstreamNames(remaining),
+					"attempt":       attempt,
+					"failover":      true,
 				},
 			),
 		)
+
+		attempt++
+		failover = true
 	}
 
-	if lastErr != nil {
-		return nil, lastErr
-	}
-
-	return nil, ErrNoProvider
+	return nil, lastErr
 }
 
 func failoverEligible(err error) bool {

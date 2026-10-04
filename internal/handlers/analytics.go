@@ -24,10 +24,13 @@ var analyticsHTTPClient = &http.Client{Timeout: 30 * time.Second}
 // It is admin-gated upstream because it queries the observability database.
 //
 // Query params:
-//   - type:  one of traces_count, latency, token_usage, cost, top_models,
-//     provider_usage, guardrail_events, error_rate, tool_calls
+//   - type: one of traces_count, latency, latency_percentiles, token_usage,
+//     cost, top_models, provider_usage, provider_traffic, route_traffic,
+//     tokens_by_provider, tokens_by_route, cost_by_provider,
+//     cost_by_route, guardrail_events, error_rate, error_rate_summary,
+//     failover_count, tool_calls
 //   - hours: integer window between 1 and 720 (default 24)
-//
+
 // When defaultType is non-empty it is used instead of the "type" query param,
 // which lets a dedicated route (e.g. /analytics/traces_count) pin a single query.
 func AnalyticsHandler(chURL string, defaultType string) http.Handler {
@@ -97,6 +100,24 @@ func analyticsQuery(q *observability.AnalyticsQueries, typ string, hours int) (s
 		return q.ErrorRateQuery(hours), true
 	case "tool_calls":
 		return q.ToolCallStatsQuery(hours), true
+	case "provider_traffic":
+		return q.ProviderTrafficQuery(hours), true
+	case "route_traffic":
+		return q.RouteTrafficQuery(hours), true
+	case "latency_percentiles":
+		return q.LatencyPercentilesQuery(hours), true
+	case "error_rate_summary":
+		return q.ErrorRateSummaryQuery(hours), true
+	case "failover_count":
+		return q.FailoverCountQuery(hours), true
+	case "tokens_by_provider":
+		return q.TokensByProviderQuery(hours), true
+	case "tokens_by_route":
+		return q.TokensByRouteQuery(hours), true
+	case "cost_by_provider":
+		return q.CostByProviderQuery(hours), true
+	case "cost_by_route":
+		return q.CostByRouteQuery(hours), true
 	default:
 		return "", false
 	}

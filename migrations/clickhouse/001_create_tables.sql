@@ -20,7 +20,10 @@ CREATE TABLE IF NOT EXISTS agentplane.traces (
     total_tokens UInt32,
     estimated_cost Float64,
     guardrail_action String DEFAULT '',
-    route String DEFAULT ''
+route String DEFAULT '',
+upstream String DEFAULT '',
+attempt UInt32 DEFAULT 0,
+failover UInt8 DEFAULT 0
 ) ENGINE = MergeTree()
 ORDER BY (timestamp, organization_id, user_id)
 TTL timestamp + INTERVAL 365 DAY;
@@ -89,7 +92,11 @@ CREATE TABLE IF NOT EXISTS agentplane.usage_events (
     reasoning_tokens UInt32 DEFAULT 0,
     cached_input_tokens UInt32 DEFAULT 0,
     estimated_cost Float64,
-    created_at DateTime DEFAULT now()
+route String DEFAULT '',
+upstream String DEFAULT '',
+attempt UInt32 DEFAULT 0,
+failover UInt8 DEFAULT 0,
+created_at DateTime DEFAULT now()
 ) ENGINE = MergeTree()
 ORDER BY (created_at, provider, model)
 TTL created_at + INTERVAL 365 DAY;
@@ -109,3 +116,24 @@ ALTER TABLE agentplane.traces ADD COLUMN IF NOT EXISTS username String DEFAULT '
 ALTER TABLE agentplane.prompt_events ADD COLUMN IF NOT EXISTS user_id String DEFAULT '';
 ALTER TABLE agentplane.prompt_events ADD COLUMN IF NOT EXISTS username String DEFAULT '';
 ALTER TABLE agentplane.prompt_events ADD COLUMN IF NOT EXISTS prompt_text String DEFAULT '';
+
+ALTER TABLE agentplane.traces
+    ADD COLUMN IF NOT EXISTS upstream String DEFAULT '';
+
+ALTER TABLE agentplane.traces
+    ADD COLUMN IF NOT EXISTS attempt UInt32 DEFAULT 0;
+
+ALTER TABLE agentplane.traces
+    ADD COLUMN IF NOT EXISTS failover UInt8 DEFAULT 0;
+
+ALTER TABLE agentplane.usage_events
+    ADD COLUMN IF NOT EXISTS route String DEFAULT '';
+
+ALTER TABLE agentplane.usage_events
+    ADD COLUMN IF NOT EXISTS upstream String DEFAULT '';
+
+ALTER TABLE agentplane.usage_events
+    ADD COLUMN IF NOT EXISTS attempt UInt32 DEFAULT 0;
+
+ALTER TABLE agentplane.usage_events
+    ADD COLUMN IF NOT EXISTS failover UInt8 DEFAULT 0;
