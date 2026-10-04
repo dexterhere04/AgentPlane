@@ -155,3 +155,33 @@ func (r *Registry) Candidates(model, providerGroup string) []*Upstream {
 	}
 	return out
 }
+
+func (r *Registry) ReplaceAll(upstreams []*Upstream) error {
+	if r == nil {
+		return errors.New("proxy: nil registry")
+	}
+
+	byName := make(map[string]*Upstream, len(upstreams))
+	order := make([]string, 0, len(upstreams))
+
+	for _, upstream := range upstreams {
+		if upstream == nil {
+			continue
+		}
+
+		if _, exists := byName[upstream.Name]; exists {
+			return fmt.Errorf("%w: %s", ErrDuplicateUpstream, upstream.Name)
+		}
+
+		byName[upstream.Name] = upstream
+		order = append(order, upstream.Name)
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.byName = byName
+	r.order = order
+
+	return nil
+}

@@ -9,8 +9,9 @@ import (
 )
 
 type storeProviderSecretRequest struct {
-	Provider string `json:"provider"`
-	APIKey   string `json:"api_key"`
+	Provider  string `json:"provider"`
+	SecretKey string `json:"secret_key,omitempty"`
+	APIKey    string `json:"api_key"`
 }
 
 type storeProviderSecretResponse struct {
@@ -44,9 +45,14 @@ func StoreProviderSecret() http.Handler {
 			return
 		}
 
-		secretKey, ok := providerSecretKeys[req.Provider]
-		if !ok {
-			http.Error(w, "unsupported provider", http.StatusBadRequest)
+		secretKey := req.SecretKey
+
+		if secretKey == "" {
+			secretKey = providerSecretKeys[req.Provider]
+		}
+
+		if secretKey == "" {
+			http.Error(w, "secret_key is required", http.StatusBadRequest)
 			return
 		}
 		if req.APIKey == "" {

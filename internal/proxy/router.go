@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/dexterhere04/AgentPlane/internal/observability"
 )
@@ -21,9 +22,12 @@ type UpstreamSelector interface {
 
 type Router struct {
 	defaultProvider Provider
-	rules           *RuleSet
-	registry        *Registry
-	selector        UpstreamSelector
+
+	rulesMu sync.RWMutex
+	rules   *RuleSet
+
+	registry *Registry
+	selector UpstreamSelector
 }
 
 func NewRouter(
@@ -38,6 +42,20 @@ func NewRouter(
 		registry:        registry,
 		selector:        selector,
 	}
+}
+
+func (r *Router) SetRuleSet(rules *RuleSet) {
+	r.rulesMu.Lock()
+	defer r.rulesMu.Unlock()
+
+	r.rules = rules
+}
+
+func (r *Router) ruleSet() *RuleSet {
+	r.rulesMu.RLock()
+	defer r.rulesMu.RUnlock()
+
+	return r.rules
 }
 
 func WithRouteRequest(ctx context.Context, req RouteRequest) context.Context {
@@ -62,7 +80,9 @@ func (r *Router) Forward(
 		return nil, ErrRoutingUnavailable
 	}
 
-	if r.rules == nil {
+	rules := r.ruleSet()
+
+	if rules == nil {
 		return r.forwardDefault(ctx, body, requestID)
 	}
 
@@ -71,7 +91,7 @@ func (r *Router) Forward(
 		return r.forwardDefault(ctx, body, requestID)
 	}
 
-	rule, matched, err := r.rules.Match(routeReq)
+	rule, matched, err := rules.Match(routeReq)
 	if err != nil {
 		return nil, err
 	}

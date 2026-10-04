@@ -161,6 +161,32 @@ func main() {
 		providerRegistry,
 		selector,
 	)
+
+	reloadRouting := func(ctx context.Context) error {
+		newRuleSet, err := routingStore.LoadRuleSet(ctx)
+		if err != nil {
+			return fmt.Errorf("reload routing rules: %w", err)
+		}
+
+		newUpstreams, err := providerStore.ListEnabled(ctx)
+		if err != nil {
+			return fmt.Errorf("reload providers: %w", err)
+		}
+
+		if err := providerRegistry.ReplaceAll(newUpstreams); err != nil {
+			return fmt.Errorf("replace provider registry: %w", err)
+		}
+
+		router.SetRuleSet(newRuleSet)
+
+		return nil
+	}
+
+	routingAdmin := handlers.NewRoutingAdmin(
+		providerStore,
+		routingStore,
+		reloadRouting,
+	)
 	cfg := guardrail.LoadConfig()
 
 	registry := guardrail.NewRegistry()
@@ -286,7 +312,7 @@ func main() {
 				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					handlers.ChatWithRouting(
 						w, r, enforcement, policyEP, mandatoryInput, mandatoryOutput,
-						router, rbacStore, ruleSet, providerRegistry, selector,
+						router, rbacStore, providerRegistry, selector,
 					)
 				}),
 			),
@@ -349,6 +375,47 @@ func main() {
 	// token; the browser-facing /events and /dashboard also accept it via the
 	// "token" query parameter since EventSource and top-level navigation
 	// cannot set request headers.
+	mux.Handle("GET /admin/providers",
+		auth.AdminMiddleware(adminToken, routingAdmin.ListProviders()))
+
+	mux.Handle("POST /admin/providers",
+		auth.AdminMiddleware(adminToken, routingAdmin.CreateProvider()))
+
+	mux.Handle("GET /admin/providers/{id}",
+		auth.AdminMiddleware(adminToken, routingAdmin.GetProvider()))
+
+	mux.Handle("PUT /admin/providers/{id}",
+		auth.AdminMiddleware(adminToken, routingAdmin.UpdateProvider()))
+
+	mux.Handle("POST /admin/providers/{id}/enable",
+		auth.AdminMiddleware(adminToken, routingAdmin.EnableProvider()))
+
+	mux.Handle("POST /admin/providers/{id}/disable",
+		auth.AdminMiddleware(adminToken, routingAdmin.DisableProvider()))
+
+	mux.Handle("DELETE /admin/providers/{id}",
+		auth.AdminMiddleware(adminToken, routingAdmin.DeleteProvider()))
+
+	mux.Handle("GET /admin/routing-rules",
+		auth.AdminMiddleware(adminToken, routingAdmin.ListRules()))
+
+	mux.Handle("POST /admin/routing-rules",
+		auth.AdminMiddleware(adminToken, routingAdmin.CreateRule()))
+
+	mux.Handle("GET /admin/routing-rules/{id}",
+		auth.AdminMiddleware(adminToken, routingAdmin.GetRule()))
+
+	mux.Handle("PUT /admin/routing-rules/{id}",
+		auth.AdminMiddleware(adminToken, routingAdmin.UpdateRule()))
+
+	mux.Handle("POST /admin/routing-rules/{id}/enable",
+		auth.AdminMiddleware(adminToken, routingAdmin.EnableRule()))
+
+	mux.Handle("POST /admin/routing-rules/{id}/disable",
+		auth.AdminMiddleware(adminToken, routingAdmin.DisableRule()))
+
+	mux.Handle("DELETE /admin/routing-rules/{id}",
+		auth.AdminMiddleware(adminToken, routingAdmin.DeleteRule()))
 	mux.Handle("/events", auth.AdminMiddlewareQuery(adminToken, observability.SSEHandler(bus)))
 	if chURL != "" {
 		mux.Handle("/analytics/traces_count", auth.AdminMiddleware(adminToken, handlers.AnalyticsHandler(chURL, "traces_count")))
