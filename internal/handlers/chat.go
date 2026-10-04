@@ -35,7 +35,6 @@ func Chat(
 		nil,
 		nil,
 		nil,
-		nil,
 	)
 }
 
@@ -48,7 +47,6 @@ func ChatWithRouting(
 	outputSet guardrail.GuardrailSet,
 	provider proxy.Provider,
 	rbacStore *rbac.Store,
-	ruleSet *proxy.RuleSet,
 	providerRegistry *proxy.Registry,
 	selector *proxy.WeightedSelector,
 ) {
@@ -61,7 +59,6 @@ func ChatWithRouting(
 		outputSet,
 		provider,
 		rbacStore,
-		ruleSet,
 		providerRegistry,
 		selector,
 	)
@@ -76,7 +73,6 @@ func chatWithRouting(
 	outputSet guardrail.GuardrailSet,
 	provider proxy.Provider,
 	rbacStore *rbac.Store,
-	ruleSet *proxy.RuleSet,
 	providerRegistry *proxy.Registry,
 	selector *proxy.WeightedSelector,
 ) {
@@ -172,7 +168,7 @@ func chatWithRouting(
 
 	ctx := r.Context()
 
-	if ruleSet != nil {
+	if rbacStore != nil {
 		user, ok := auth.UserFromContext(ctx)
 		if !ok {
 			bus.Publish(observability.NewMessageEvent(
@@ -274,11 +270,6 @@ func chatWithRouting(
 	}
 
 	respBody, err = selectedProvider.Forward(ctx, body, requestID)
-	if err != nil {
-		log.Printf("error forwarding to provider: %v", err)
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
-	}
 	if err != nil {
 		log.Printf("error forwarding to provider: %v", err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
