@@ -442,19 +442,24 @@ func (u *Upstream) ForwardWithConfig(
 		}
 
 		if attempt < config.MaxRetries {
+			routing := routingTelemetryFromContext(ctx)
+
 			observability.DefaultBus.Publish(
 				observability.NewDataEvent(
 					requestID,
 					observability.StageRetry,
 					"started",
 					map[string]any{
-						"upstream": u.Name,
-						"attempt":  attempt + 1,
-						"reason":   err.Error(),
+						"attempt":  attempt,
+						"error":    err.Error(),
+						"route":    routing.Route,
+						"upstream": routing.Upstream,
+						"failover": routing.Failover,
 					},
 				),
 			)
 		}
+
 	}
 
 	return nil, lastErr

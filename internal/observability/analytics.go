@@ -203,3 +203,141 @@ ORDER BY p.created_at DESC
 LIMIT %d
 `, hoursBack, limit)
 }
+
+// ProviderTrafficQuery returns request volume and traffic percentage per provider.
+func (a *AnalyticsQueries) ProviderTrafficQuery(hoursBack int) string {
+	return fmt.Sprintf(`
+SELECT
+  provider,
+  count() AS request_count,
+  count() * 100.0 /
+    nullIf((SELECT count() FROM agentplane.traces
+            WHERE timestamp >= now() - INTERVAL %d HOUR), 0) AS traffic_percentage
+FROM agentplane.traces
+WHERE timestamp >= now() - INTERVAL %d HOUR
+  AND provider != ''
+GROUP BY provider
+ORDER BY request_count DESC
+`, hoursBack, hoursBack)
+}
+
+// RouteTrafficQuery returns request volume and traffic percentage per route.
+func (a *AnalyticsQueries) RouteTrafficQuery(hoursBack int) string {
+	return fmt.Sprintf(`
+SELECT
+  route,
+  count() AS request_count,
+  count() * 100.0 /
+    nullIf((SELECT count() FROM agentplane.traces
+            WHERE timestamp >= now() - INTERVAL %d HOUR), 0) AS traffic_percentage
+FROM agentplane.traces
+WHERE timestamp >= now() - INTERVAL %d HOUR
+  AND route != ''
+GROUP BY route
+ORDER BY request_count DESC
+`, hoursBack, hoursBack)
+}
+
+// LatencyPercentilesQuery returns p50, p95, and p99 request latency.
+func (a *AnalyticsQueries) LatencyPercentilesQuery(hoursBack int) string {
+	return fmt.Sprintf(`
+SELECT
+  quantile(0.50)(latency_ms) AS p50_latency_ms,
+  quantile(0.95)(latency_ms) AS p95_latency_ms,
+  quantile(0.99)(latency_ms) AS p99_latency_ms
+FROM agentplane.traces
+WHERE timestamp >= now() - INTERVAL %d HOUR
+`, hoursBack)
+}
+
+// ErrorRateSummaryQuery returns the aggregate request error rate.
+func (a *AnalyticsQueries) ErrorRateSummaryQuery(hoursBack int) string {
+	return fmt.Sprintf(`
+SELECT
+  count() AS total_requests,
+  countIf(status != 'success') AS error_count,
+  countIf(status != 'success') * 100.0 /
+    nullIf(count(), 0) AS error_rate_percentage
+FROM agentplane.traces
+WHERE timestamp >= now() - INTERVAL %d HOUR
+`, hoursBack)
+}
+
+// FailoverCountQuery returns the number of requests that experienced failover.
+func (a *AnalyticsQueries) FailoverCountQuery(hoursBack int) string {
+	return fmt.Sprintf(`
+SELECT
+  countIf(failover = 1) AS failover_count,
+  count() AS total_requests,
+  countIf(failover = 1) * 100.0 /
+    nullIf(count(), 0) AS failover_percentage
+FROM agentplane.traces
+WHERE timestamp >= now() - INTERVAL %d HOUR
+`, hoursBack)
+}
+
+// TokensByProviderQuery returns token usage grouped by provider.
+func (a *AnalyticsQueries) TokensByProviderQuery(hoursBack int) string {
+	return fmt.Sprintf(`
+SELECT
+  provider,
+  sum(input_tokens) AS input_tokens,
+  sum(output_tokens) AS output_tokens,
+  sum(total_tokens) AS total_tokens,
+  count() AS request_count
+FROM agentplane.traces
+WHERE timestamp >= now() - INTERVAL %d HOUR
+  AND provider != ''
+GROUP BY provider
+ORDER BY total_tokens DESC
+`, hoursBack)
+}
+
+// TokensByRouteQuery returns token usage grouped by route.
+func (a *AnalyticsQueries) TokensByRouteQuery(hoursBack int) string {
+	return fmt.Sprintf(`
+SELECT
+  route,
+  sum(input_tokens) AS input_tokens,
+  sum(output_tokens) AS output_tokens,
+  sum(total_tokens) AS total_tokens,
+  count() AS request_count
+FROM agentplane.traces
+WHERE timestamp >= now() - INTERVAL %d HOUR
+  AND route != ''
+GROUP BY route
+ORDER BY total_tokens DESC
+`, hoursBack)
+}
+
+// CostByProviderQuery returns estimated cost grouped by provider.
+func (a *AnalyticsQueries) CostByProviderQuery(hoursBack int) string {
+	return fmt.Sprintf(`
+SELECT
+  provider,
+  sum(estimated_cost) AS total_cost,
+  avg(estimated_cost) AS avg_cost_per_request,
+  count() AS request_count
+FROM agentplane.traces
+WHERE timestamp >= now() - INTERVAL %d HOUR
+  AND provider != ''
+GROUP BY provider
+ORDER BY total_cost DESC
+`, hoursBack)
+}
+
+// CostByRouteQuery returns estimated cost grouped by route.
+func (a *AnalyticsQueries) CostByRouteQuery(hoursBack int) string {
+	return fmt.Sprintf(`
+SELECT
+  route,
+  sum(estimated_cost) AS total_cost,
+  avg(estimated_cost) AS avg_cost_per_request,
+  count() AS request_count
+FROM agentplane.traces
+WHERE timestamp >= now() - INTERVAL %d HOUR
+  AND route != ''
+GROUP BY route
+ORDER BY total_cost DESC
+`, hoursBack)
+}

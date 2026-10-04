@@ -67,6 +67,13 @@ func (c *clickhouseAdapter) Close() error {
 	return nil
 }
 
+func boolToInt(v bool) uint8 {
+	if v {
+		return 1
+	}
+	return 0
+}
+
 func (c *clickhouseAdapter) StoreTrace(t Trace) error {
 	te := &ch.TraceEvent{
 		TraceID:         t.TraceID,
@@ -86,6 +93,9 @@ func (c *clickhouseAdapter) StoreTrace(t Trace) error {
 		EstimatedCost:   t.EstimatedCost,
 		GuardrailAction: t.GuardrailAction,
 		Route:           t.Route,
+		Upstream:        t.Upstream,
+		Attempt:         t.Attempt,
+		Failover:        boolToInt(t.Failover),
 		Timestamp:       t.Timestamp,
 	}
 	if err := c.client.InsertTrace(context.Background(), te); err != nil {
@@ -257,6 +267,10 @@ func (c *clickhouseAdapter) StoreUsage(u UsageEvent) error {
 		ReasoningTokens:   uint32(u.ReasoningTokens),
 		CachedInputTokens: uint32(u.CachedInputTokens),
 		EstimatedCost:     u.Cost,
+		Route:             u.Route,
+		Upstream:          u.Upstream,
+		Attempt:           u.Attempt,
+		Failover:          boolToInt(u.Failover),
 		CreatedAt:         u.Timestamp,
 	}
 	if err := c.client.InsertUsage(context.Background(), ue); err != nil {

@@ -91,18 +91,18 @@ func (c *Client) Query(ctx context.Context, query string, args ...interface{}) (
 // InsertTrace inserts a trace record
 func (c *Client) InsertTrace(ctx context.Context, trace *TraceEvent) error {
 	query := `
-		INSERT INTO agentplane.traces (
-			trace_id, request_id, timestamp, user_id, username, organization_id, project_id,
-			provider, model, latency_ms, status, cache_hit,
-			input_tokens, output_tokens, total_tokens, estimated_cost,
-			guardrail_action, route
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`
+    INSERT INTO agentplane.traces (
+        trace_id, request_id, timestamp, user_id, username, organization_id, project_id,
+        provider, model, latency_ms, status, cache_hit,
+        input_tokens, output_tokens, total_tokens, estimated_cost,
+        guardrail_action, route, upstream, attempt, failover
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
 	return c.Exec(ctx, query,
 		trace.TraceID, trace.RequestID, trace.Timestamp, trace.UserID, trace.Username, trace.OrgID, trace.ProjectID,
 		trace.Provider, trace.Model, trace.LatencyMs, trace.Status, boolToUint8(trace.CacheHit),
 		trace.InputTokens, trace.OutputTokens, trace.TotalTokens, trace.EstimatedCost,
-		trace.GuardrailAction, trace.Route,
+		trace.GuardrailAction, trace.Route, trace.Upstream, trace.Attempt, trace.Failover,
 	)
 }
 
@@ -153,11 +153,17 @@ func (c *Client) InsertGuardrail(ctx context.Context, g *GuardrailEvent) error {
 // InsertUsage inserts a usage event
 func (c *Client) InsertUsage(ctx context.Context, u *UsageEvent) error {
 	query := `
-		INSERT INTO agentplane.usage_events (
-			trace_id, provider, model, input_tokens, output_tokens, reasoning_tokens, cached_input_tokens, estimated_cost
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`
-	return c.Exec(ctx, query, u.TraceID, u.Provider, u.Model, u.InputTokens, u.OutputTokens, u.ReasoningTokens, u.CachedInputTokens, u.EstimatedCost)
+    INSERT INTO agentplane.usage_events (
+        trace_id, provider, model, input_tokens, output_tokens,
+        reasoning_tokens, cached_input_tokens, estimated_cost,
+        route, upstream, attempt, failover
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+	return c.Exec(ctx, query,
+		u.TraceID, u.Provider, u.Model, u.InputTokens, u.OutputTokens,
+		u.ReasoningTokens, u.CachedInputTokens, u.EstimatedCost,
+		u.Route, u.Upstream, u.Attempt, u.Failover,
+	)
 }
 
 func boolToUint8(b bool) uint8 {

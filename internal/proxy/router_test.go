@@ -6,6 +6,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/dexterhere04/AgentPlane/internal/observability"
 )
 
 type routerTestProvider struct {
@@ -643,5 +645,129 @@ func TestRouterDoesNotReuseFailedUpstreamDuringFailover(t *testing.T) {
 
 	if first.calls != 1 {
 		t.Fatalf("failed upstream must not be selected again, got %d calls", first.calls)
+	}
+}
+
+func TestRouterEmitsRoutingTelemetry(t *testing.T) {
+	first := &routerTestProvider{
+		name: "first",
+		errs: []error{
+			&StatusError{Code: 503, Body: "first down"},
+		},
+	}
+
+	second := &routerTestProvider{
+		name: "second",
+	}
+
+	router := newTestRouterWithSelector(
+		t,
+		nil,
+		[]RoutingRule{routeRule("production")},
+		&sequenceSelector{
+			indexes: []int{0, 0},
+		},
+		NewUpstream(
+			"first",
+			first,
+			WithProviderGroup("production"),
+			WithWeight(100),
+			WithMaxRetries(0),
+		),
+		NewUpstream(
+			"second",
+			second,
+			WithProviderGroup("production"),
+			WithWeight(100),
+			WithMaxRetries(0),
+		),
+	)
+
+	const requestID = "req-routing-telemetry"
+
+	resp, err := router.Forward(
+		routeContext(),
+		[]byte(`{"model":"gpt-4o"}`),
+		requestID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if string(resp) != `{"provider":"second"}` {
+		t.Fatalf("expected second provider, got %s", resp)
+	}
+
+	var routingDecision bool
+	var routingFailover bool
+	var providerFailover bool
+
+	for _, event := range observability.DefaultBus.History() {
+		if event.RequestID != requestID {
+			continue
+		}
+
+		var data map[string]any
+		if len(event.Data) > 0 {
+			if err := json.Unmarshal(event.Data, &data); err != nil {
+				t.Fatalf("decode event %s: %v", event.Stage, err)
+			}
+		}
+
+		switch event.Stage {
+		case observability.StageRoutingDecision:
+			routingDecision = true
+
+			if data["route"] != "test route" {
+				t.Fatalf("expected route test route, got %v", data["route"])
+			}
+			if data["selected_provider"] != "first" {
+				t.Fatalf("expected selected provider first, got %v", data["selected_provider"])
+			}
+			if data["upstream"] != "first" {
+				t.Fatalf("expected upstream first, got %v", data["upstream"])
+			}
+			if data["attempt"] != float64(1) {
+				t.Fatalf("expected attempt 1, got %v", data["attempt"])
+			}
+			if data["failover"] != false {
+				t.Fatalf("expected initial decision failover=false, got %v", data["failover"])
+			}
+
+		case observability.StageRoutingFailover:
+			routingFailover = true
+
+			if data["route"] != "test route" {
+				t.Fatalf("expected failover route test route, got %v", data["route"])
+			}
+			if data["from"] != "first" {
+				t.Fatalf("expected failover from first, got %v", data["from"])
+			}
+			if data["to"] != "second" {
+				t.Fatalf("expected failover to second, got %v", data["to"])
+			}
+			if data["upstream"] != "second" {
+				t.Fatalf("expected failover upstream second, got %v", data["upstream"])
+			}
+			if data["attempt"] != float64(2) {
+				t.Fatalf("expected failover attempt 2, got %v", data["attempt"])
+			}
+			if data["failover"] != true {
+				t.Fatalf("expected failover=true, got %v", data["failover"])
+			}
+
+		case observability.StageFailover:
+			providerFailover = true
+		}
+	}
+
+	if !routingDecision {
+		t.Fatal("expected routing_decision event")
+	}
+	if !routingFailover {
+		t.Fatal("expected routing_failover event")
+	}
+	if !providerFailover {
+		t.Fatal("expected existing provider_failover event")
 	}
 }

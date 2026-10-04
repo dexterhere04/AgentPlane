@@ -21,6 +21,9 @@ type TraceEvent struct {
 	EstimatedCost   float64
 	GuardrailAction string // "allowed", "blocked", "redacted"
 	Route           string
+	Upstream        string
+	Attempt         uint32
+	Failover        uint8
 	Timestamp       time.Time
 }
 
@@ -80,5 +83,9 @@ type UsageEvent struct {
 	ReasoningTokens   uint32
 	CachedInputTokens uint32
 	EstimatedCost     float64
+	Route             string
+	Upstream          string
+	Attempt           uint32
+	Failover          uint8
 	CreatedAt         time.Time
 }
