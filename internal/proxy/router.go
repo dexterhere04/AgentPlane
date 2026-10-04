@@ -15,10 +15,12 @@ var (
 )
 
 type routingTelemetry struct {
-	Route    string
-	Upstream string
-	Attempt  uint32
-	Failover bool
+	Route        string
+	Upstream     string
+	Attempt      uint32
+	Failover     bool
+	FailoverFrom string
+	FailoverTo   string
 }
 
 type routingTelemetryContextKey struct{}

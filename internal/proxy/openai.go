@@ -492,6 +492,8 @@ func captureUsageAsync(ctx context.Context, requestID, model string, in, out, to
 			Upstream:          routing.Upstream,
 			Attempt:           routing.Attempt,
 			Failover:          routing.Failover,
+			FailoverFrom:      routing.FailoverFrom,
+			FailoverTo:        routing.FailoverTo,
 		})
 	}()
 }

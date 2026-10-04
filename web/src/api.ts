@@ -265,3 +265,117 @@ export async function fetchUsers(): Promise<{ ok: boolean; status: number; users
   const body = (await parseJSON(res)) as { users?: AdminUser[] };
   return { ok: true, status: res.status, users: body?.users ?? [] };
 }
+
+export interface RoutingProviderTraffic {
+  provider: string;
+  request_count: number;
+  traffic_percentage: number;
+}
+
+export interface RoutingLatency {
+  provider: string;
+  p50_latency_ms: number;
+  p95_latency_ms: number;
+  p99_latency_ms: number;
+}
+
+export interface RoutingErrorSummary {
+  provider: string;
+  total_requests: number;
+  error_count: number;
+  error_rate_percentage: number;
+}
+
+export interface RoutingFailoverTransition {
+  failover_from: string;
+  failover_to: string;
+  failover_count: number;
+}
+
+export interface RoutingFailoverSummary {
+  failover_count: number;
+  total_requests: number;
+  failover_percentage: number;
+}
+
+export interface RoutingTokensByRoute {
+  route: string;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  request_count: number;
+}
+
+export interface RoutingTokensByProvider {
+  provider: string;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  request_count: number;
+}
+
+export interface RoutingCostByRoute {
+  route: string;
+  total_cost: number;
+  avg_cost_per_request: number;
+  request_count: number;
+}
+
+export interface RoutingCostByProvider {
+  provider: string;
+  total_cost: number;
+  avg_cost_per_request: number;
+  request_count: number;
+}
+
+export function fetchRoutingFailoverTransitions(hours = 24) {
+  return fetchAnalyticsRows<RoutingFailoverTransition>(
+    'failover_transitions',
+    hours
+  );
+}
+
+async function fetchAnalyticsRows<T>(type: string, hours = 24): Promise<{
+  ok: boolean;
+  status: number;
+  rows: T[];
+}> {
+  const result = await fetchAnalytics(type, hours);
+  return {
+    ok: result.ok,
+    status: result.status,
+    rows: result.rows as T[]
+  };
+}
+
+export function fetchRoutingProviderTraffic(hours = 24) {
+  return fetchAnalyticsRows<RoutingProviderTraffic>('provider_traffic', hours);
+}
+
+export function fetchRoutingLatency(hours = 24) {
+  return fetchAnalyticsRows<RoutingLatency>('latency_percentiles', hours);
+}
+
+export function fetchRoutingErrorSummary(hours = 24) {
+  return fetchAnalyticsRows<RoutingErrorSummary>('error_rate_summary', hours);
+}
+
+export function fetchRoutingFailovers(hours = 24) {
+  return fetchAnalyticsRows<RoutingFailoverSummary>('failover_count', hours);
+}
+
+export function fetchRoutingTokensByRoute(hours = 24) {
+  return fetchAnalyticsRows<RoutingTokensByRoute>('tokens_by_route', hours);
+}
+
+export function fetchRoutingTokensByProvider(hours = 24) {
+  return fetchAnalyticsRows<RoutingTokensByProvider>('tokens_by_provider', hours);
+}
+
+export function fetchRoutingCostByRoute(hours = 24) {
+  return fetchAnalyticsRows<RoutingCostByRoute>('cost_by_route', hours);
+}
+
+export function fetchRoutingCostByProvider(hours = 24) {
+  return fetchAnalyticsRows<RoutingCostByProvider>('cost_by_provider', hours);
+}

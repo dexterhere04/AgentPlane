@@ -2,7 +2,6 @@ package clickhouse
 
 import "time"
 
-// TraceEvent represents a request trace
 type TraceEvent struct {
 	TraceID         string
 	RequestID       string
@@ -13,17 +12,19 @@ type TraceEvent struct {
 	Provider        string
 	Model           string
 	LatencyMs       uint32
-	Status          string // "success", "error", "timeout"
+	Status          string
 	CacheHit        bool
 	InputTokens     uint32
 	OutputTokens    uint32
 	TotalTokens     uint32
 	EstimatedCost   float64
-	GuardrailAction string // "allowed", "blocked", "redacted"
+	GuardrailAction string
 	Route           string
 	Upstream        string
 	Attempt         uint32
 	Failover        uint8
+	FailoverFrom    string
+	FailoverTo      string
 	Timestamp       time.Time
 }
 

@@ -238,28 +238,50 @@ ORDER BY request_count DESC
 `, hoursBack, hoursBack)
 }
 
-// LatencyPercentilesQuery returns p50, p95, and p99 request latency.
 func (a *AnalyticsQueries) LatencyPercentilesQuery(hoursBack int) string {
 	return fmt.Sprintf(`
 SELECT
+  provider,
   quantile(0.50)(latency_ms) AS p50_latency_ms,
   quantile(0.95)(latency_ms) AS p95_latency_ms,
   quantile(0.99)(latency_ms) AS p99_latency_ms
 FROM agentplane.traces
 WHERE timestamp >= now() - INTERVAL %d HOUR
+  AND provider != ''
+GROUP BY provider
+ORDER BY provider
 `, hoursBack)
 }
 
-// ErrorRateSummaryQuery returns the aggregate request error rate.
 func (a *AnalyticsQueries) ErrorRateSummaryQuery(hoursBack int) string {
 	return fmt.Sprintf(`
 SELECT
+  provider,
   count() AS total_requests,
   countIf(status != 'success') AS error_count,
   countIf(status != 'success') * 100.0 /
     nullIf(count(), 0) AS error_rate_percentage
 FROM agentplane.traces
 WHERE timestamp >= now() - INTERVAL %d HOUR
+  AND provider != ''
+GROUP BY provider
+ORDER BY provider
+`, hoursBack)
+}
+
+func (a *AnalyticsQueries) FailoverTransitionsQuery(hoursBack int) string {
+	return fmt.Sprintf(`
+SELECT
+  failover_from,
+  failover_to,
+  count() AS failover_count
+FROM agentplane.traces
+WHERE timestamp >= now() - INTERVAL %d HOUR
+  AND failover = 1
+  AND failover_from != ''
+  AND failover_to != ''
+GROUP BY failover_from, failover_to
+ORDER BY failover_count DESC
 `, hoursBack)
 }
 

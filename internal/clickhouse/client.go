@@ -95,14 +95,15 @@ func (c *Client) InsertTrace(ctx context.Context, trace *TraceEvent) error {
         trace_id, request_id, timestamp, user_id, username, organization_id, project_id,
         provider, model, latency_ms, status, cache_hit,
         input_tokens, output_tokens, total_tokens, estimated_cost,
-        guardrail_action, route, upstream, attempt, failover
+        guardrail_action, route, upstream, attempt, failover, failover_from, failover_to
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 	return c.Exec(ctx, query,
 		trace.TraceID, trace.RequestID, trace.Timestamp, trace.UserID, trace.Username, trace.OrgID, trace.ProjectID,
 		trace.Provider, trace.Model, trace.LatencyMs, trace.Status, boolToUint8(trace.CacheHit),
 		trace.InputTokens, trace.OutputTokens, trace.TotalTokens, trace.EstimatedCost,
-		trace.GuardrailAction, trace.Route, trace.Upstream, trace.Attempt, trace.Failover,
+		trace.GuardrailAction, trace.Route, trace.Upstream, trace.Attempt, trace.Failover, trace.FailoverFrom,
+		trace.FailoverTo,
 	)
 }
 
