@@ -112,6 +112,8 @@ func analyticsQuery(q *observability.AnalyticsQueries, typ string, hours int) (s
 		return q.FailoverCountQuery(hours), true
 	case "tokens_by_provider":
 		return q.TokensByProviderQuery(hours), true
+	case "failover_transitions":
+		return q.FailoverTransitionsQuery(hours), true
 	case "tokens_by_route":
 		return q.TokensByRouteQuery(hours), true
 	case "cost_by_provider":

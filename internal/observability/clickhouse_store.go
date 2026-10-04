@@ -97,6 +97,8 @@ func (c *clickhouseAdapter) StoreTrace(t Trace) error {
 		Attempt:         t.Attempt,
 		Failover:        boolToInt(t.Failover),
 		Timestamp:       t.Timestamp,
+		FailoverFrom:    t.FailoverFrom,
+		FailoverTo:      t.FailoverTo,
 	}
 	if err := c.client.InsertTrace(context.Background(), te); err != nil {
 		log.Printf("observability: error storing trace (trace_id=%s): %v", t.TraceID, err)

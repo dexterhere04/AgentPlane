@@ -29,6 +29,8 @@ type Trace struct {
 	Upstream        string
 	Attempt         uint32
 	Failover        bool
+	FailoverFrom    string
+	FailoverTo      string
 }
 
 type Payload struct {
@@ -82,6 +84,8 @@ type UsageEvent struct {
 	Upstream          string
 	Attempt           uint32
 	Failover          bool
+	FailoverFrom      string
+	FailoverTo        string
 }
 
 // Store is an interface for persisting observability events.

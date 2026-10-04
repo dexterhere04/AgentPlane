@@ -6,7 +6,7 @@ import { createEventQueue, EventQueue, FlowMode } from './queue';
 import { resetSetup } from './setup';
 import { Icon, IconName } from './icons';
 import { Section } from './components/ui';
-
+import RoutingView from './components/RoutingView';
 import Overview from './components/Overview';
 import PipelineView from './components/PipelineView';
 import ChatPanel from './components/ChatPanel';
@@ -30,6 +30,7 @@ const SECTIONS: Record<string, SectionDef> = {
   chat: { id: 'chat', label: 'Playground', eyebrow: 'Test a request', icon: 'play' },
   pipeline: { id: 'pipeline', label: 'Pipeline', eyebrow: 'Request flow', icon: 'route' },
   guardrails: { id: 'guardrails', label: 'Guardrails', eyebrow: 'Safety checks', icon: 'shield' },
+  routing: { id: 'routing', label: 'Routing', eyebrow: 'Provider routing & failover', icon: 'route' },
   events: { id: 'events', label: 'Event Log', eyebrow: 'Live event stream', icon: 'list' },
   usage: { id: 'usage', label: 'Usage', eyebrow: 'Per-key attribution', icon: 'activity' },
   observability: { id: 'observability', label: 'Analytics', eyebrow: 'Traces, tokens & cost', icon: 'chart' },
@@ -39,8 +40,9 @@ const SECTIONS: Record<string, SectionDef> = {
 
 const NAV_GROUPS: { label: string; items: string[] }[] = [
   { label: 'Run', items: ['overview', 'chat', 'pipeline'] },
+  
   { label: 'Safety', items: ['guardrails'] },
-  { label: 'Observe', items: ['events', 'usage', 'observability'] },
+  { label: 'Observe', items: ['routing', 'events', 'usage', 'observability'] },
   { label: 'Admin', items: ['keys', 'access'] }
 ];
 
@@ -266,6 +268,10 @@ export default function App() {
               <PipelineView stream={stream} flowMode={flowMode} onToggleFlow={toggleFlow} queueDepth={queueDepth} userKey={userKey} />
             </Section>
           )}
+
+          {tab === 'routing' && (
+  <RoutingView stream={stream} />
+)}
 
           {tab === 'guardrails' && (
             <Section id="guardrails" eyebrow="Safety checks" title="Guardrails"
