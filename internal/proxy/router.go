@@ -144,6 +144,7 @@ func (r *Router) Forward(
 		body,
 		requestID,
 		rule.Name,
+		model,
 		candidates,
 		resilienceConfig,
 	)
@@ -154,6 +155,7 @@ func (r *Router) forwardWithFailover(
 	body []byte,
 	requestID string,
 	route string,
+	model string,
 	candidates []*Upstream,
 	resilienceConfig ResilienceConfig,
 ) ([]byte, error) {
@@ -191,6 +193,7 @@ func (r *Router) forwardWithFailover(
 					"selected",
 					map[string]any{
 						"route":             route,
+						"model":             model,
 						"selected_provider": selected.Name,
 						"upstream":          selected.Name,
 						"attempt":           attempt,
@@ -206,6 +209,7 @@ func (r *Router) forwardWithFailover(
 					"selected",
 					map[string]any{
 						"route":    route,
+						"model":    model,
 						"from":     previous.Name,
 						"to":       selected.Name,
 						"upstream": selected.Name,
@@ -215,13 +219,23 @@ func (r *Router) forwardWithFailover(
 				),
 			)
 		}
+		
+		routing := routingTelemetryFromContext(telemetryCtx)
+fmt.Printf(
+    "router telemetry: route=%q upstream=%q attempt=%d failover=%v\n",
+    routing.Route,
+    routing.Upstream,
+    routing.Attempt,
+    routing.Failover,
+)
 
-		resp, err := selected.ForwardWithConfig(
-			telemetryCtx,
-			body,
-			requestID,
-			resilienceConfig,
-		)
+resp, err := selected.ForwardWithConfig(
+    telemetryCtx,
+    body,
+    requestID,
+    resilienceConfig,
+)
+
 		if err == nil {
 			return resp, nil
 		}

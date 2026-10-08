@@ -50,6 +50,7 @@ func ChatWithRouting(
 	providerRegistry *proxy.Registry,
 	selector *proxy.WeightedSelector,
 ) {
+	
 	chatWithRouting(
 		w,
 		r,
@@ -168,43 +169,47 @@ func chatWithRouting(
 
 	ctx := r.Context()
 
-	if rbacStore != nil {
-		user, ok := auth.UserFromContext(ctx)
-		if !ok {
-			bus.Publish(observability.NewMessageEvent(
-				requestID,
-				observability.StageRequestReceived,
-				"error",
-				"missing authenticated user for routing",
-			))
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
+	var (
+    userID   string
+    username string
+    roles    []string
+)
 
-		var roles []string
-		if rbacStore != nil {
-			roles, err = rbacStore.ListUserRoles(ctx, user.ID)
-			if err != nil {
-				log.Printf("error loading roles for routing: %v", err)
-				http.Error(w, "routing unavailable", http.StatusServiceUnavailable)
-				return
-			}
-		}
+if user, ok := auth.UserFromContext(ctx); ok {
+    userID = user.ID.String()
+    username = user.Username
 
-		model := proxy.ResolveModel(body)
-		if model == "" {
-			writeModelRequired(w)
-			return
-		}
+    if rbacStore != nil {
+        roles, err = rbacStore.ListUserRoles(ctx, user.ID)
+        if err != nil {
+            log.Printf("error loading roles for routing: %v", err)
+            http.Error(w, "routing unavailable", http.StatusServiceUnavailable)
+            return
+        }
+    }
+} else if rbacStore != nil {
+    bus.Publish(observability.NewMessageEvent(
+        requestID,
+        observability.StageRequestReceived,
+        "error",
+        "missing authenticated user for routing",
+    ))
+    http.Error(w, "unauthorized", http.StatusUnauthorized)
+    return
+}
 
-		ctx = proxy.WithRouteRequest(ctx, proxy.RouteRequest{
-			Model:    model,
-			UserID:   user.ID.String(),
-			Username: user.Username,
-			Roles:    roles,
-		})
-	}
+model := proxy.ResolveModel(body)
+if model == "" {
+    writeModelRequired(w)
+    return
+}
 
+ctx = proxy.WithRouteRequest(ctx, proxy.RouteRequest{
+    Model:    model,
+    UserID:   userID,
+    Username: username,
+    Roles:    roles,
+})
 	// Authorization: chat:invoke is enforced by middleware (it needs no body).
 	// Per-model access is the dynamic half of the RBAC check and must run
 	// here, after the body has been read and validated.
@@ -264,12 +269,11 @@ func chatWithRouting(
 
 	var respBody []byte
 
-	selectedProvider := provider
-	if selectedProvider == nil {
-		selectedProvider = proxy.NewOpenAIProviderFromEnv()
+	if provider == nil {
+		provider = proxy.NewOpenAIProviderFromEnv()
 	}
 
-	respBody, err = selectedProvider.Forward(ctx, body, requestID)
+	respBody, err = provider.Forward(ctx, body, requestID)
 	if err != nil {
 		log.Printf("error forwarding to provider: %v", err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
