@@ -379,3 +379,222 @@ export function fetchRoutingCostByRoute(hours = 24) {
 export function fetchRoutingCostByProvider(hours = 24) {
   return fetchAnalyticsRows<RoutingCostByProvider>('cost_by_provider', hours);
 }
+
+export interface ProviderRecord {
+  id: string;
+  name: string;
+  base_url: string;
+  secret_ref?: string;
+  provider_group: string;
+  weight: number;
+  supported_models: string[];
+  timeout_ms: number;
+  max_retries: number;
+  enabled: boolean;
+}
+
+export interface RoutingRuleRecord {
+  id: string;
+  name: string;
+  priority: number;
+  model_matcher?: unknown;
+  role_matcher?: unknown;
+  user_matcher?: unknown;
+  action: string;
+  provider_group?: string;
+  timeout_retry_overrides?: unknown;
+  enabled: boolean;
+}
+
+async function adminRequest(
+  path: string,
+  options: RequestInit = {}
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  const res = await fetch(path, {
+    ...options,
+    headers: {
+      ...adminHeaders(Boolean(options.body)),
+      ...(options.headers || {})
+    }
+  });
+
+  return {
+    ok: res.ok,
+    status: res.status,
+    body: await parseJSON(res)
+  };
+}
+
+export async function fetchProviders(): Promise<{
+  ok: boolean;
+  status: number;
+  providers: ProviderRecord[];
+}> {
+  const result = await adminRequest('/admin/providers');
+
+  if (!result.ok) {
+    return { ok: false, status: result.status, providers: [] };
+  }
+
+  const body = result.body as
+    | { providers?: ProviderRecord[] }
+    | ProviderRecord[]
+    | null;
+
+  const providers = Array.isArray(body)
+    ? body
+    : body?.providers ?? [];
+
+  return {
+    ok: true,
+    status: result.status,
+    providers
+  };
+}
+
+export async function createProvider(
+  provider: Omit<ProviderRecord, 'id'>
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  return adminRequest('/admin/providers', {
+    method: 'POST',
+    body: JSON.stringify({
+      name: provider.name,
+      base_url: provider.base_url,
+      secret_key: provider.secret_ref || '',
+      provider_group: provider.provider_group,
+      weight: provider.weight,
+      supported_models: provider.supported_models,
+      timeout_ms: provider.timeout_ms,
+      max_retries: provider.max_retries,
+      enabled: provider.enabled
+    })
+  });
+}
+
+export async function updateProvider(
+  id: string,
+  provider: Omit<ProviderRecord, 'id'>
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  return adminRequest('/admin/providers/' + encodeURIComponent(id), {
+    method: 'PUT',
+    body: JSON.stringify({
+      name: provider.name,
+      base_url: provider.base_url,
+      secret_key: provider.secret_ref || '',
+      provider_group: provider.provider_group,
+      weight: provider.weight,
+      supported_models: provider.supported_models,
+      timeout_ms: provider.timeout_ms,
+      max_retries: provider.max_retries,
+      enabled: provider.enabled
+    })
+  });
+}
+
+export async function enableProvider(
+  id: string
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  return adminRequest('/admin/providers/' + encodeURIComponent(id) + '/enable', {
+    method: 'POST'
+  });
+}
+
+export async function disableProvider(
+  id: string
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  return adminRequest('/admin/providers/' + encodeURIComponent(id) + '/disable', {
+    method: 'POST'
+  });
+}
+
+export async function deleteProvider(
+  id: string
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  return adminRequest('/admin/providers/' + encodeURIComponent(id), {
+    method: 'DELETE'
+  });
+}
+
+export async function fetchRoutingRules(): Promise<{
+  ok: boolean;
+  status: number;
+  rules: RoutingRuleRecord[];
+}> {
+  const result = await adminRequest('/admin/routing-rules');
+
+  if (!result.ok) {
+    return { ok: false, status: result.status, rules: [] };
+  }
+
+  const body = result.body as
+    | { rules?: RoutingRuleRecord[]; routing_rules?: RoutingRuleRecord[] }
+    | RoutingRuleRecord[]
+    | null;
+
+  const rules = Array.isArray(body)
+    ? body
+    : body?.rules ?? body?.routing_rules ?? [];
+
+  return {
+    ok: true,
+    status: result.status,
+    rules
+  };
+}
+
+function routingRulePayload(rule: Omit<RoutingRuleRecord, 'id'>) {
+  return {
+    name: rule.name,
+    priority: rule.priority,
+    model_matcher: rule.model_matcher ?? {},
+    role_matcher: rule.role_matcher ?? {},
+    user_matcher: rule.user_matcher ?? {},
+    action: rule.action,
+    provider_group: rule.provider_group || '',
+    timeout_retry_overrides: rule.timeout_retry_overrides ?? {},
+    enabled: rule.enabled
+  };
+}
+
+export async function createRoutingRule(
+  rule: Omit<RoutingRuleRecord, 'id'>
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  return adminRequest('/admin/routing-rules', {
+    method: 'POST',
+    body: JSON.stringify(routingRulePayload(rule))
+  });
+}
+
+export async function updateRoutingRule(
+  id: string,
+  rule: Omit<RoutingRuleRecord, 'id'>
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  return adminRequest('/admin/routing-rules/' + encodeURIComponent(id), {
+    method: 'PUT',
+    body: JSON.stringify(routingRulePayload(rule))
+  });
+}
+
+export async function enableRoutingRule(
+  id: string
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  return adminRequest('/admin/routing-rules/' + encodeURIComponent(id) + '/enable', {
+    method: 'POST'
+  });
+}
+
+export async function disableRoutingRule(
+  id: string
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  return adminRequest('/admin/routing-rules/' + encodeURIComponent(id) + '/disable', {
+    method: 'POST'
+  });
+}
+
+export async function deleteRoutingRule(
+  id: string
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  return adminRequest('/admin/routing-rules/' + encodeURIComponent(id), {
+    method: 'DELETE'
+  });
+}

@@ -90,21 +90,50 @@ func (c *Client) Query(ctx context.Context, query string, args ...interface{}) (
 
 // InsertTrace inserts a trace record
 func (c *Client) InsertTrace(ctx context.Context, trace *TraceEvent) error {
-	query := `
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	batch, err := c.conn.PrepareBatch(ctx, `
     INSERT INTO agentplane.traces (
         trace_id, request_id, timestamp, user_id, username, organization_id, project_id,
         provider, model, latency_ms, status, cache_hit,
         input_tokens, output_tokens, total_tokens, estimated_cost,
         guardrail_action, route, upstream, attempt, failover, failover_from, failover_to
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`
-	return c.Exec(ctx, query,
-		trace.TraceID, trace.RequestID, trace.Timestamp, trace.UserID, trace.Username, trace.OrgID, trace.ProjectID,
-		trace.Provider, trace.Model, trace.LatencyMs, trace.Status, boolToUint8(trace.CacheHit),
-		trace.InputTokens, trace.OutputTokens, trace.TotalTokens, trace.EstimatedCost,
-		trace.GuardrailAction, trace.Route, trace.Upstream, trace.Attempt, trace.Failover, trace.FailoverFrom,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`)
+	if err != nil {
+		return err
+	}
+
+	if err := batch.Append(
+		trace.TraceID,
+		trace.RequestID,
+		trace.Timestamp,
+		trace.UserID,
+		trace.Username,
+		trace.OrgID,
+		trace.ProjectID,
+		trace.Provider,
+		trace.Model,
+		trace.LatencyMs,
+		trace.Status,
+		trace.CacheHit,
+		trace.InputTokens,
+		trace.OutputTokens,
+		trace.TotalTokens,
+		trace.EstimatedCost,
+		trace.GuardrailAction,
+		trace.Route,
+		trace.Upstream,
+		trace.Attempt,
+		trace.Failover != 0,
+		trace.FailoverFrom,
 		trace.FailoverTo,
-	)
+	); err != nil {
+		return err
+	}
+
+	return batch.Send()
 }
 
 // InsertPrompt inserts a prompt event

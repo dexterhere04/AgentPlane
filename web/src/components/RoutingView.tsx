@@ -20,6 +20,7 @@ import {
   fetchRoutingFailoverTransitions
 } from '../api';
 import { ApiEvent, StreamState } from '../types';
+import RoutingAdminView from './RoutingAdminView';
 import { Icon } from '../icons';
 import {
   Alert,
@@ -82,7 +83,6 @@ export default function RoutingView({ stream }: RoutingViewProps) {
   const [costByRoute, setCostByRoute] = useState<RoutingCostByRoute[]>([]);
   const [costByProvider, setCostByProvider] = useState<RoutingCostByProvider[]>([]);
   const [failoverTransitions, setFailoverTransitions] =
-  useState<RoutingFailoverTransition[]>([]);
   useState<RoutingFailoverTransition[]>([]);
   async function load() {
     setLoading(true);
@@ -458,6 +458,7 @@ export default function RoutingView({ stream }: RoutingViewProps) {
                 <div className="event-head">
                   <span>Time</span>
                   <span>Stage</span>
+                  <span>Model</span>
                   <span>Route</span>
                   <span>Provider</span>
                   <span>Attempt</span>
@@ -468,6 +469,7 @@ export default function RoutingView({ stream }: RoutingViewProps) {
                   {liveEvents.map((event) => {
                     const data = eventData(event);
                     const route = String(data.route ?? '');
+                    const model = String(data.model ?? '');
                     const provider = String(
                       data.selected_provider ??
                       data.upstream ??
@@ -494,6 +496,7 @@ export default function RoutingView({ stream }: RoutingViewProps) {
                               : 'DECISION'}
                           </Badge>
                         </span>
+                        <span>{model || '—'}</span>
                         <span>{route || 'default'}</span>
                         <span>{provider || 'unknown'}</span>
                         <span>{attempt || '—'}</span>
@@ -511,6 +514,7 @@ export default function RoutingView({ stream }: RoutingViewProps) {
           </Card>
         </div>
       </Section>
+      <RoutingAdminView />
     </>
   );
 }
