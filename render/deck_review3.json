@@ -1,0 +1,1559 @@
+{
+ "slide_size": "16:9",
+ "slides": [
+  {
+   "layout": "title",
+   "title": "AgentPlane — AI Gateway with Identity-Based Access Control",
+   "subtitle": "Review III  |  branch feat_rbac (latest)  |  Rubric: 20 marks (4 criteria x 5)\nTeam: Tharun S D R (23BCE5075)  ·  Janavee  ·  Afzal Ahamed A\nVIT Chennai  ·  16 September 2026",
+   "notes": "Review III. The rubric scores four criteria at 5 marks each: Implementation, Technical Accuracy, Results Obtained So Far (metrics + interpretation AND comparison), and Presentation and Clarity (logical explanation, justified decisions, accurate answers to panel questions). This deck is structured so each of the four has dedicated slides."
+  },
+  {
+   "layout": "title_content",
+   "title": "How this deck maps to the Review III rubric",
+   "bullets": [
+    {
+     "text": "Implementation (5) — working modules covering the approved scope",
+     "bold": true,
+     "color": "1F4E79",
+     "size": 15
+    },
+    {
+     "text": "Slides 5–18: architecture, request lifecycle, and every implemented module — RBAC policy, admin API, Access Control UI, secrets, guardrails, observability, console, deployment",
+     "level": 1,
+     "size": 14
+    },
+    {
+     "text": "Technical Accuracy (5) — correct methods, algorithms, parameters, practices",
+     "bold": true,
+     "color": "1F4E79",
+     "size": 15
+    },
+    {
+     "text": "Slides 8–11 (RBAC concepts, matching semantics, enforcement points, schema) · Slide 19 (practices) · Slide 20 (decisions and trade-offs) · Slide 21 (test evidence)",
+     "level": 1,
+     "size": 14
+    },
+    {
+     "text": "Results Obtained So Far (5) — interim metrics, tables, graphs, interpretation AND comparison",
+     "bold": true,
+     "color": "1F4E79",
+     "size": 15
+    },
+    {
+     "text": "Slides 21–26: test-suite results, what the evidence means, comparison against direct integration, code-scale graph, capability scoreboards (implemented / not yet)",
+     "level": 1,
+     "size": 14
+    },
+    {
+     "text": "Presentation and Clarity (5) — explains logically, justifies decisions, answers panel questions",
+     "bold": true,
+     "color": "1F4E79",
+     "size": 15
+    },
+    {
+     "text": "Slide 2 (this map) · Slide 20 (each decision justified) · Slide 28 (anticipated panel questions with answers) · Slide 29 (live demonstration) — one narrative: problem → design → evidence → comparison → roadmap → demo",
+     "level": 1,
+     "size": 14
+    }
+   ],
+   "notes": "State the rubric mapping up front so the panel knows where each criterion is addressed."
+  },
+  {
+   "layout": "title_content",
+   "title": "The problem: direct-to-provider LLM access",
+   "bullets": [
+    {
+     "text": "Every application holds its own provider key. Once there are three apps, nobody can answer \"which key is this, and who used it?\"",
+     "size": 15
+    },
+    {
+     "text": "No per-user control: anyone holding a key can call any model. There is no way to grant gpt-4o access to one team and cheap models to another.",
+     "size": 15
+    },
+    {
+     "text": "No identity in the request path — logs show an API key hash, not a person, so usage cannot be attributed or audited.",
+     "size": 15
+    },
+    {
+     "text": "Content risk is unmeasured: prompts can leak PII, credentials or secrets, and nothing inspects the request or the response before it leaves.",
+     "size": 15
+    },
+    {
+     "text": "Provider lock-in: swapping models means changing application code in every service.",
+     "size": 15
+    },
+    {
+     "text": "Rotating a compromised key means finding every place it was copied — a manual sweep across repositories, CI and laptops.",
+     "size": 15
+    }
+   ],
+   "notes": "Frame the problem in operational terms: sprawl, no attribution, no control, no inspection. This motivates a gateway with an identity layer."
+  },
+  {
+   "layout": "title_content",
+   "title": "What AgentPlane is",
+   "bullets": [
+    {
+     "text": "A single HTTP entry point in front of LLM providers: applications call AgentPlane; AgentPlane authenticates, authorises, inspects, injects the upstream key, forwards, and returns the response.",
+     "size": 14
+    },
+    {
+     "text": "Identity & access — API keys resolve to users; a deny-by-default RBAC layer decides whether the principal may perform the action.",
+     "size": 14
+    },
+    {
+     "text": "Secrets — upstream provider keys load through a pluggable secret store (env, file, Vault, AWS, Azure). No key material in application code.",
+     "size": 14
+    },
+    {
+     "text": "Guardrails — configurable input/output inspection across 10 providers with 4 enforcement actions (detect, warn, redact, block).",
+     "size": 14
+    },
+    {
+     "text": "Observability — every request becomes an event on an SSE bus and, when capture is enabled, a trace in ClickHouse for analytics and cost reporting.",
+     "size": 14
+    },
+    {
+     "text": "Operations console — a web control plane for keys, roles, guardrails, usage and live events.",
+     "size": 14
+    },
+    {
+     "text": "Scope delivered: V0 gateway + request authentication + PostgreSQL persistence + RBAC authorization + secrets backends + guardrails + observability.",
+     "bold": true,
+     "size": 14
+    }
+   ],
+   "notes": "One-slide mental model. Everything after this slide expands one of these six capability groups."
+  },
+  {
+   "layout": "title_only",
+   "title": "Architecture — layered modules",
+   "shapes": [
+    {
+     "type": "rounded_rectangle",
+     "left": 0.45,
+     "top": 1.75,
+     "width": 2.6,
+     "height": 0.62,
+     "fill": "44546A",
+     "text": "Client — POST /chat",
+     "text_color": "FFFFFF"
+    },
+    {
+     "type": "right_arrow",
+     "left": 3.1,
+     "top": 1.9,
+     "width": 0.45,
+     "height": 0.32,
+     "fill": "8EA9DB"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 3.6,
+     "top": 1.75,
+     "width": 2.9,
+     "height": 0.62,
+     "fill": "2E75B6",
+     "text": "Auth middleware — API key",
+     "text_color": "FFFFFF"
+    },
+    {
+     "type": "right_arrow",
+     "left": 6.55,
+     "top": 1.9,
+     "width": 0.45,
+     "height": 0.32,
+     "fill": "8EA9DB"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 7.05,
+     "top": 1.75,
+     "width": 2.7,
+     "height": 0.62,
+     "fill": "C55A11",
+     "text": "Policy (RBAC)",
+     "text_color": "FFFFFF"
+    },
+    {
+     "type": "right_arrow",
+     "left": 9.8,
+     "top": 1.9,
+     "width": 0.45,
+     "height": 0.32,
+     "fill": "8EA9DB"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 10.3,
+     "top": 1.75,
+     "width": 2.6,
+     "height": 0.62,
+     "fill": "2E75B6",
+     "text": "Handler — /chat",
+     "text_color": "FFFFFF"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 0.45,
+     "top": 2.95,
+     "width": 2.6,
+     "height": 0.62,
+     "fill": "548235",
+     "text": "Guardrails — input",
+     "text_color": "FFFFFF"
+    },
+    {
+     "type": "right_arrow",
+     "left": 3.1,
+     "top": 3.1,
+     "width": 0.45,
+     "height": 0.32,
+     "fill": "A9D18E"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 3.6,
+     "top": 2.95,
+     "width": 2.9,
+     "height": 0.62,
+     "fill": "548235",
+     "text": "Provider proxy — inject key",
+     "text_color": "FFFFFF"
+    },
+    {
+     "type": "right_arrow",
+     "left": 6.55,
+     "top": 3.1,
+     "width": 0.45,
+     "height": 0.32,
+     "fill": "A9D18E"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 7.05,
+     "top": 2.95,
+     "width": 2.7,
+     "height": 0.62,
+     "fill": "548235",
+     "text": "Guardrails — output",
+     "text_color": "FFFFFF"
+    },
+    {
+     "type": "right_arrow",
+     "left": 9.8,
+     "top": 3.1,
+     "width": 0.45,
+     "height": 0.32,
+     "fill": "A9D18E"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 10.3,
+     "top": 2.95,
+     "width": 2.6,
+     "height": 0.62,
+     "fill": "44546A",
+     "text": "LLM provider",
+     "text_color": "FFFFFF"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 0.45,
+     "top": 4.1,
+     "width": 12.45,
+     "height": 0.75,
+     "fill": "D9E2F3",
+     "text": "Top row = identity plane (who is calling, are they allowed).",
+     "text_color": "1F4E79"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 0.45,
+     "top": 5.05,
+     "width": 12.45,
+     "height": 0.75,
+     "fill": "E2EFDA",
+     "text": "Bottom row = data plane (is the content safe, where does it go).",
+     "text_color": "375623"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 0.45,
+     "top": 6.0,
+     "width": 12.45,
+     "height": 1.3,
+     "fill": "F2F2F2",
+     "text": "Shared infrastructure: PostgreSQL (users, api_keys, roles, role_permissions, user_roles) · Secret store (env / file / chain / Vault AppRole / AWS / Azure) · Event bus with SSE · ClickHouse (traces, prompt_events, response_events, tool_call_events)",
+     "text_color": "333333"
+    }
+   ],
+   "notes": "Walk left-to-right: identity plane first (auth → policy → handler), then the data plane (input guardrails → proxy → output guardrails → provider). Bottom band = shared infrastructure. Every package owns exactly one concern."
+  },
+  {
+   "layout": "title_content",
+   "title": "Request lifecycle — one call through the gateway",
+   "bullets": [
+    {
+     "text": "1. Client sends POST /chat with Authorization: Bearer ap_live_…",
+     "size": 14
+    },
+    {
+     "text": "2. auth.Authenticator hashes the presented secret with the server pepper and resolves a user; failure → 401 Unauthorized",
+     "size": 14
+    },
+    {
+     "text": "3. policy.EnforcementPoint.Require(\"chat:invoke\") runs BEFORE the body is read — static check, 403 policy_denied on deny",
+     "size": 14
+    },
+    {
+     "text": "4. If the policy engine cannot be evaluated (database error) → 503 policy_unavailable — it fails closed, never silently allows",
+     "size": 14
+    },
+    {
+     "text": "5. handlers.Chat validates the JSON body, runs input guardrails, then authorises the dynamic permission model:<name> taken from the body",
+     "size": 14
+    },
+    {
+     "text": "6. proxy.OpenAIProvider loads the upstream key from the configured secret store, attaches it, and forwards the request",
+     "size": 14
+    },
+    {
+     "text": "7. Output guardrails inspect the response; findings and metrics are emitted to the event bus",
+     "size": 14
+    },
+    {
+     "text": "8. Response returned to the client — user, model, tokens and cost are recorded as an event (and a ClickHouse trace when capture is enabled)",
+     "size": 14
+    }
+   ],
+   "notes": "Emphasise the ordering decision: the static permission is enforced before the body is read (cheap rejection); the model permission comes after body validation because it is data-dependent. Both use the same EnforcementPoint."
+  },
+  {
+   "layout": "title_content",
+   "title": "Feature map — what is implemented in feat_rbac",
+   "bullets": [
+    {
+     "text": "1. Identity & access",
+     "bold": true,
+     "color": "1F4E79",
+     "size": 14
+    },
+    {
+     "text": "API-key authentication with per-user attribution · SHA-256 + pepper hashing · last-used tracking · key revocation · admin-token protected control plane",
+     "size": 14
+    },
+    {
+     "text": "RBAC policy engine: roles → permissions → users · deny-by-default · prefix wildcards (model:*) · fail-closed enforcement · admin REST API · Access Control UI",
+     "size": 14
+    },
+    {
+     "text": "2. Secrets",
+     "bold": true,
+     "color": "1F4E79",
+     "size": 14
+    },
+    {
+     "text": "Five backends (env, file, chain, Vault with AppRole, AWS Secrets Manager, Azure Key Vault) behind one interface · automatic AppRole token renewal",
+     "size": 14
+    },
+    {
+     "text": "3. Guardrails",
+     "bold": true,
+     "color": "1F4E79",
+     "size": 14
+    },
+    {
+     "text": "Input + output pipeline · 10 provider integrations · 4 actions (detect/warn/redact/block) · streaming-aware buffering · per-guardrail metrics",
+     "size": 14
+    },
+    {
+     "text": "4. Observability",
+     "bold": true,
+     "color": "1F4E79",
+     "size": 14
+    },
+    {
+     "text": "SSE event bus · capture decisions with secret hashing · payload compression · ClickHouse traces and events · usage, cost and per-user analytics",
+     "size": 14
+    },
+    {
+     "text": "5. Operations console",
+     "bold": true,
+     "color": "1F4E79",
+     "size": 14
+    },
+    {
+     "text": "Grouped navigation: Overview, Playground, Pipeline, Guardrails, Event Log, Usage, Analytics, Keys & Vault, Access Control, Setup checklist",
+     "size": 14
+    }
+   ],
+   "notes": "This is the 'all features' slide. Each group is expanded on the following slides."
+  },
+  {
+   "layout": "title_content",
+   "title": "RBAC design — concepts and matching",
+   "bullets": [
+    {
+     "text": "Principal",
+     "bold": true,
+     "size": 14
+    },
+    {
+     "text": "The authenticated users.User resolved by API-key authentication. Roles attach to users, so every key belonging to a user shares that user's permissions.",
+     "size": 14
+    },
+    {
+     "text": "Permission",
+     "bold": true,
+     "size": 14
+    },
+    {
+     "text": "An opaque string of the form <resource>:<action> — chat:invoke, model:gpt-4o, model:*, admin:*, *",
+     "size": 14
+    },
+    {
+     "text": "Role",
+     "bold": true,
+     "size": 14
+    },
+    {
+     "text": "A named set of permissions (roles + role_permissions). Users receive one or more roles through user_roles.",
+     "size": 14
+    },
+    {
+     "text": "Matching algorithm — policy.Match(granted, requested)",
+     "bold": true,
+     "color": "C55A11",
+     "size": 14
+    },
+    {
+     "text": "\"*\" matches everything (superuser). An exact string matches only itself. A trailing \":*\" is a prefix wildcard: model:* matches model:gpt-4o, model:gpt-4o-mini, …",
+     "size": 14
+    },
+    {
+     "text": "Deny-by-default: a user with no role assignment is permitted nothing. The migration seeds admin and member but deliberately assigns them to nobody.",
+     "size": 14
+    },
+    {
+     "text": "Model access is a permission rather than a separate allowlist table — one uniform matcher handles endpoints and resources.",
+     "size": 14
+    }
+   ],
+   "notes": "The wildcard rule is the core algorithm: exact match, global wildcard, or trailing prefix wildcard. Explain why deny-by-default is the safe failure mode and makes the effective permission set auditable."
+  },
+  {
+   "layout": "title_only",
+   "title": "RBAC enforcement — static, dynamic, fail-closed",
+   "tables": [
+    {
+     "left": 0.45,
+     "top": 1.65,
+     "width": 12.45,
+     "height": 2.2,
+     "rows": [
+      [
+       "Check",
+       "Where it runs",
+       "Why there"
+      ],
+      [
+       "chat:invoke",
+       "Middleware on /chat (cmd/server/main.go)",
+       "Static — needs no request body, so an unauthorised call is rejected before the body is read"
+      ],
+      [
+       "model:<name>",
+       "handlers.Chat, after body validation",
+       "Dynamic — the model name comes from the request body"
+      ]
+     ]
+    }
+   ],
+   "shapes": [
+    {
+     "type": "rounded_rectangle",
+     "left": 0.45,
+     "top": 4.45,
+     "width": 12.45,
+     "height": 1.3,
+     "fill": "FFF2CC",
+     "text": "Failure semantics: no user → 401  ·  explicit deny → 403 policy_denied  ·  policy engine error → 503 policy_unavailable.",
+     "text_color": "7F6000"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 0.45,
+     "top": 5.95,
+     "width": 12.45,
+     "height": 1.3,
+     "fill": "F2F2F2",
+     "text": "Chain on /chat: auth → Require(\"chat:invoke\") → handlers.Chat → input guardrails → proxy → output guardrails. A policy error fails CLOSED, so an outage never reads as a violation.",
+     "text_color": "333333"
+    }
+   ],
+   "notes": "Panel question to expect: why two checks? Cheapest check first (no body read), data-dependent check second. Both flow through the same generic enforcement point, so rate limits, quotas or ABAC can be added later without changing callers (first-deny-wins)."
+  },
+  {
+   "layout": "title_only",
+   "title": "RBAC data model — migration 000003",
+   "tables": [
+    {
+     "left": 0.45,
+     "top": 1.6,
+     "width": 12.45,
+     "height": 2.6,
+     "rows": [
+      [
+       "Table",
+       "Columns",
+       "Purpose"
+      ],
+      [
+       "roles",
+       "id UUID PK · name TEXT UNIQUE · description · created_at",
+       "Named permission sets"
+      ],
+      [
+       "role_permissions",
+       "role_id FK→roles ON DELETE CASCADE · permission TEXT · PK(role_id, permission)",
+       "Permissions granted by a role"
+      ],
+      [
+       "user_roles",
+       "user_id FK→users CASCADE · role_id FK→roles CASCADE · PK(user_id, role_id)",
+       "Role assignments; index on user_id"
+      ]
+     ]
+    }
+   ],
+   "shapes": [
+    {
+     "type": "rounded_rectangle",
+     "left": 0.45,
+     "top": 5.15,
+     "width": 12.45,
+     "height": 1.5,
+     "fill": "F2F2F2",
+     "text": "Seeded roles admin → * and member → chat:invoke, model:* are created by ON CONFLICT DO NOTHING but assigned to NOBODY. Idempotent re-runs are safe; cascading deletes prevent orphan permissions; migrations are embedded and applied at startup.",
+     "text_color": "333333"
+    }
+   ],
+   "notes": "Highlight the deliberate decision: seeding roles without assigning them. Existing users are denied until granted — the safe direction for an upgrade, and it makes the effective permission set auditable."
+  },
+  {
+   "layout": "title_only",
+   "title": "Admin API — roles and users",
+   "tables": [
+    {
+     "left": 0.45,
+     "top": 1.55,
+     "width": 12.45,
+     "height": 3.2,
+     "rows": [
+      [
+       "Method",
+       "Path",
+       "Purpose"
+      ],
+      [
+       "GET",
+       "/admin/roles",
+       "List roles with their permissions"
+      ],
+      [
+       "POST",
+       "/admin/roles",
+       "Create a role (optionally with initial permissions)"
+      ],
+      [
+       "POST",
+       "/admin/roles/{name}/permissions",
+       "Add a permission to a role"
+      ],
+      [
+       "DELETE",
+       "/admin/roles/{name}/permissions/{permission}",
+       "Remove a permission"
+      ],
+      [
+       "GET",
+       "/admin/users",
+       "List users with their roles"
+      ],
+      [
+       "GET",
+       "/admin/users/{id}/roles",
+       "List a user's roles"
+      ],
+      [
+       "POST",
+       "/admin/users/{id}/roles",
+       "Assign a role to a user"
+      ],
+      [
+       "DELETE",
+       "/admin/users/{id}/roles/{role}",
+       "Revoke a role from a user"
+      ]
+     ]
+    }
+   ],
+   "notes": "Every control-plane route is wrapped by auth.AdminMiddleware and rejected without the admin bearer token. Example: POST /admin/roles {\"name\":\"gpt4o-only\",\"permissions\":[\"chat:invoke\",\"model:gpt-4o\"]} then POST /admin/users/{id}/roles {\"role\":\"gpt4o-only\"} — a role limited to one model. Roadmap: replace the static admin token with enforcement of admin:*."
+  },
+  {
+   "layout": "title_content",
+   "title": "Feature — Access Control UI (commit 0718c93)",
+   "bullets": [
+    {
+     "text": "New web section: Access Control (sidebar index 08) with two tabs",
+     "bold": true,
+     "size": 14
+    },
+    {
+     "text": "Roles tab — list every role with its permissions; create a role; add or remove individual permissions inline.",
+     "size": 14
+    },
+    {
+     "text": "Users tab — list every user with their assigned roles; assign or revoke a role per user.",
+     "size": 14
+    },
+    {
+     "text": "Provisioning integration",
+     "bold": true,
+     "size": 14
+    },
+    {
+     "text": "The Keys & Vault provisioning form gained an optional role selector. Because role assignment is a different operation from provisioning, the UI performs two steps: it provisions the user and key, then calls POST /admin/users/{id}/roles with the chosen role.",
+     "size": 14
+    },
+    {
+     "text": "If the second step fails the user and key still exist, and the UI surfaces the error so the role can be assigned later from Access Control → Users. No silent half-provisioned state.",
+     "size": 14
+    },
+    {
+     "text": "Size: AccessControlView.tsx (365 lines) + api.ts client additions (+94) + App.tsx wiring and new icons — 523 insertions across 5 files.",
+     "level": 1,
+     "size": 14
+    }
+   ],
+   "notes": "This slide is the strongest implementation evidence for the branch: a complete UI over the RBAC API, including two-step provisioning and explicit error surfacing."
+  },
+  {
+   "layout": "title_content",
+   "title": "Feature — secrets and the Vault AppRole fix",
+   "bullets": [
+    {
+     "text": "One interface, five backends selected by SECRET_STORE: env · file · chain · HashiCorp Vault (AppRole) · AWS Secrets Manager · Azure Key Vault.",
+     "size": 14
+    },
+    {
+     "text": "Callers never read the environment directly — they call config.OpenAIKey(), config.KeyPepper(), config.AdminToken(). Swapping the backend requires no change outside config/ and secrets/.",
+     "size": 14
+    },
+    {
+     "text": "Bug fixed in this branch: expired AppRole tokens (commit 434a1b7)",
+     "bold": true,
+     "color": "C55A11",
+     "size": 14
+    },
+    {
+     "text": "Vault AppRole tokens have a TTL. Once expired, the gateway could no longer read the upstream provider key and every chat request failed — a silent outage that appears hours after a healthy startup.",
+     "size": 14
+    },
+    {
+     "text": "Fix: the Vault store performs a proper AppRole login, retains the lease, renews or re-authenticates before expiry, and re-reads secrets after renewal.",
+     "size": 14
+    },
+    {
+     "text": "config/store.go was reworked to share the secret-store selection logic; regression coverage added in tests/vault_test.go (+116 lines).",
+     "size": 14
+    },
+    {
+     "text": "Commit footprint: 273 insertions / 56 deletions across 3 files.",
+     "level": 1,
+     "size": 14
+    }
+   ],
+   "notes": "This is the technical-accuracy story: a real production-class failure (token TTL) with a root-cause fix and a regression test, not a cosmetic change."
+  },
+  {
+   "layout": "title_content",
+   "title": "Feature — API-key lifecycle (hash-only)",
+   "bullets": [
+    {
+     "text": "Provisioning: POST /provision/user creates the user, mints a key, and returns the full key exactly once. Only key_id and the hash are persisted — plaintext is never stored or logged.",
+     "size": 15
+    },
+    {
+     "text": "Hashing: SHA-256(secret + API_KEY_PEPPER). The pepper is server-side, so a stolen database dump alone cannot be used to forge keys.",
+     "size": 15
+    },
+    {
+     "text": "Authentication: the presented bearer secret is hashed and matched to the stored hash; the resolved user is attached to the request context and flows into authorization.",
+     "size": 15
+    },
+    {
+     "text": "Attribution: chat requests are attributed to the authenticated user — this is what makes per-user usage, cost and audit possible.",
+     "size": 15
+    },
+    {
+     "text": "Revocation: POST /admin/api-keys/revoke by key_id. Last-used timestamps are tracked per key, so dormant or suspicious keys can be identified.",
+     "size": 15
+    },
+    {
+     "text": "Design split: internal/api owns key generation and persistence, internal/users owns identities, internal/provisioning orchestrates both — none of them know about HTTP.",
+     "size": 15
+    }
+   ],
+   "notes": "Hash-only storage plus a server pepper is the security headline for keys. Provisioning is sequential by design; a transactional variant is on the roadmap."
+  },
+  {
+   "layout": "title_only",
+   "title": "Feature — guardrail pipeline (10 providers)",
+   "tables": [
+    {
+     "left": 0.45,
+     "top": 1.6,
+     "width": 12.45,
+     "height": 2.2,
+     "rows": [
+      [
+       "Stage",
+       "What it does",
+       "Providers / mechanisms"
+      ],
+      [
+       "Input",
+       "Inspects the request body before forwarding",
+       "PII · secrets · prompt-injection · content moderation · Lakera · Prisma AIRS · NVIDIA · Zscaler · AIM · custom rules"
+      ],
+      [
+       "Output",
+       "Inspects the model response before returning it",
+       "Same provider set, applied in the response direction"
+      ],
+      [
+       "Actions",
+       "Decision → action mapping",
+       "Detect (record) · Warn (allow + flag) · Redact (mask) · Block (refuse)"
+      ],
+      [
+       "Streaming",
+       "Guardrail-aware buffering",
+       "Chunks buffered before release"
+      ]
+     ]
+    }
+   ],
+   "shapes": [
+    {
+     "type": "rounded_rectangle",
+     "left": 0.45,
+     "top": 5.65,
+     "width": 12.45,
+     "height": 1.2,
+     "fill": "E2EFDA",
+     "text": "Guardrails are a registry of independent providers invoked as a chain producing a Decision — the same structural pattern as the policy layer. Identity policy and content policy stay separate packages.",
+     "text_color": "375623"
+    }
+   ],
+   "notes": "Key technical point: guardrails inspect content, authorization inspects identity. Both use a chain + Decision + fail-closed pattern, keeping the codebase consistent without merging concerns."
+  },
+  {
+   "layout": "title_content",
+   "title": "Feature — observability and analytics",
+   "bullets": [
+    {
+     "text": "Event bus + SSE: every stage publishes events; GET /events streams them live to the console (Event Log view).",
+     "size": 14
+    },
+    {
+     "text": "ClickHouse store: four MergeTree tables — traces, prompt_events, response_events, tool_call_events — ordered by (timestamp, organization_id, user_id) and (created_at, trace_id) for time-series analytics.",
+     "size": 14
+    },
+    {
+     "text": "Capture decisions: a dedicated capture-decision layer decides what may be recorded, so sensitive payloads are not persisted by default.",
+     "size": 14
+    },
+    {
+     "text": "Hashing and compression: secrets and identifiers are hashed before storage and payloads compressed, keeping the store small and safe.",
+     "size": 14
+    },
+    {
+     "text": "Usage and cost: pricing configuration maps models to token prices; the gateway records tokens and computes cost per request, aggregated per user in the Analytics and Usage views.",
+     "size": 14
+    },
+    {
+     "text": "Endpoints: GET /metrics, GET /analytics/traces_count and GET /admin/analytics — the last two behind the admin token.",
+     "size": 14
+    },
+    {
+     "text": "Observability work also fixed ClickHouse config loading and SQL splitting, including connecting to the default database before running schema migrations.",
+     "size": 14
+    }
+   ],
+   "notes": "This is where interim metrics come from. Mention that capture decisions plus hashing are what make storing traces acceptable at all."
+  },
+  {
+   "layout": "title_content",
+   "title": "Feature — the operations console (web/)",
+   "bullets": [
+    {
+     "text": "Grouped navigation, redesigned in this branch (commit bb1d3e2) — 13 sections organised into Run / Safety / Observe / Admin",
+     "bold": true,
+     "size": 14
+    },
+    {
+     "text": "Run: Overview · Playground (chat overlay with streaming) · Pipeline (request walkthrough)",
+     "size": 14
+    },
+    {
+     "text": "Safety: Guardrails (provider status and configuration)",
+     "size": 14
+    },
+    {
+     "text": "Observe: Event Log (live SSE) · Usage · Analytics (per user)",
+     "size": 14
+    },
+    {
+     "text": "Admin: Keys & Vault (provision, revoke, secret-store status) · Access Control (roles and users) · Setup checklist",
+     "size": 14
+    },
+    {
+     "text": "15 React components including AccessControlView, VaultView, GuardrailsView, ObservabilityView, UsageView, UserAnalytics, ProvisionedKeysView, SetupChecklist and a shared ui.tsx primitive set.",
+     "size": 14
+    },
+    {
+     "text": "Client plumbing: api.ts (typed chat + admin clients), stream.ts (SSE), queue.ts (event queue), setup.ts (first-run checks).",
+     "size": 14
+    },
+    {
+     "text": "SetupChecklist (156 new lines) reports which prerequisites are configured and which are missing, so the stack can be brought up without reading the source.",
+     "size": 14
+    },
+    {
+     "text": "Redesign footprint: 1,341 insertions / 963 deletions across 13 files, including a rewritten stylesheet.",
+     "level": 1,
+     "size": 14
+    }
+   ],
+   "notes": "The console is how the panel sees the system working. It is served statically by nginx on the compose network, keeping the SPA off the Go process."
+  },
+  {
+   "layout": "title_content",
+   "title": "Deployment — reproducible stack",
+   "bullets": [
+    {
+     "text": "docker-compose services: vault (dev-mode HashiCorp Vault) · vault-init (seeds AppRole and secrets) · postgres · clickhouse · mock (mock provider API for offline testing) · agentplane (the gateway).",
+     "size": 14
+    },
+    {
+     "text": "Named volumes vault-creds and pgdata persist Vault credentials and the database between runs.",
+     "size": 14
+    },
+    {
+     "text": "The gateway image is a multi-stage Go build; migrations are embedded in the binary and applied automatically at startup — schema drift between environments is not possible.",
+     "size": 14
+    },
+    {
+     "text": "The web console builds to web/dist and is served by nginx (web/Dockerfile + nginx.conf).",
+     "size": 14
+    },
+    {
+     "text": "A mock provider (testing/, its own Go module with a faker) lets the entire pipeline — auth, RBAC, guardrails, observability — be exercised without spending provider tokens.",
+     "size": 14
+    },
+    {
+     "text": "dev.sh wires local development: Postgres, API-key auth environment variables and secret-store selection.",
+     "size": 14
+    },
+    {
+     "text": ".env.example documents every required variable: DATABASE_URL, API_KEY_PEPPER, AGENTPLANE_ADMIN_TOKEN, SECRET_STORE and the provider key location.",
+     "size": 14
+    }
+   ],
+   "notes": "Deployment counts as implementation evidence: a reviewer can reproduce the whole system locally, Vault AppRole and ClickHouse included."
+  },
+  {
+   "layout": "title_content",
+   "title": "Technical accuracy — the practices behind the code",
+   "bullets": [
+    {
+     "text": "Single responsibility per package",
+     "bold": true,
+     "size": 14
+    },
+    {
+     "text": "Change the provider → only proxy changes. Change the HTTP framework → only handlers change. Change the config source → only config/secrets change.",
+     "size": 14
+    },
+    {
+     "text": "Provider abstraction",
+     "bold": true,
+     "size": 14
+    },
+    {
+     "text": "The proxy package hides provider-specific knowledge behind a Provider interface (Name() + Forward()). Adding Anthropic, Gemini, Groq or Ollama means adding a type, not editing handlers.",
+     "size": 14
+    },
+    {
+     "text": "Configuration abstraction",
+     "bold": true,
+     "size": 14
+    },
+    {
+     "text": "Secret access sits behind secrets.SecretStore; callers use config.<X>() and never depend on where the secret lives.",
+     "size": 14
+    },
+    {
+     "text": "Two policy layers, one structural pattern",
+     "bold": true,
+     "size": 14
+    },
+    {
+     "text": "guardrail = content policy, policy = identity policy. Both are chains evaluated to a Decision, and both fail closed.",
+     "size": 14
+    },
+    {
+     "text": "Defensive security defaults",
+     "bold": true,
+     "size": 14
+    },
+    {
+     "text": "Deny-by-default authorization · fail-closed on policy error · hash-only key storage with a server pepper · secrets never logged · admin surface behind a token.",
+     "size": 14
+    },
+    {
+     "text": "Go engineering and process",
+     "bold": true,
+     "size": 14
+    },
+    {
+     "text": "Context propagation of the authenticated user · interface-driven boundaries · integration tests guarded by t.Skip so unit runs stay hermetic · conventional commits per module with docs updated alongside the code.",
+     "size": 14
+    }
+   ],
+   "notes": "This slide answers 'are the methods and practices correct'. Every claim is visible in the repository structure and commits."
+  },
+  {
+   "layout": "title_content",
+   "title": "Decisions and trade-offs (why it is built this way)",
+   "bullets": [
+    {
+     "text": "Separate policy package instead of extending guardrail",
+     "bold": true,
+     "size": 14
+    },
+    {
+     "text": "They change for different reasons — identity/resources vs request content — so keeping them apart preserves single responsibility and lets each evolve independently.",
+     "size": 14
+    },
+    {
+     "text": "User-level roles instead of per-key scopes",
+     "bold": true,
+     "size": 14
+    },
+    {
+     "text": "Authentication already resolves a user, so roles need no change to the API-key schema. Per-key scopes remain an additive extension.",
+     "size": 14
+    },
+    {
+     "text": "Deny-by-default authorization",
+     "bold": true,
+     "size": 14
+    },
+    {
+     "text": "Access should require an explicit grant: a missing assignment means no permissions, never an implicit allow — and the effective permission set stays auditable.",
+     "size": 14
+    },
+    {
+     "text": "Model access as a permission, not a separate allowlist table",
+     "bold": true,
+     "size": 14
+    },
+    {
+     "text": "model:gpt-4o and model:* go through the same matcher as chat:invoke, so endpoints and resources share one uniform authorization model.",
+     "size": 14
+    },
+    {
+     "text": "Fail closed, and report it distinctly (503 policy_unavailable)",
+     "bold": true,
+     "size": 14
+    },
+    {
+     "text": "An authorization outage must never read as a permissive state, and must not look like a policy violation either.",
+     "size": 14
+    },
+    {
+     "text": "Hash-only key storage with a server pepper",
+     "bold": true,
+     "size": 14
+    },
+    {
+     "text": "A stolen database dump alone cannot forge keys; the plaintext is shown once at provisioning and never persisted or logged.",
+     "size": 14
+    }
+   ],
+   "notes": "This slide exists for the Presentation and Clarity criterion: every architectural choice is stated with its justification. If the panel pushes on one, lead with the reason, then name the trade-off it accepts."
+  },
+  {
+   "layout": "title_only",
+   "title": "Results — test suite on feat_rbac",
+   "tables": [
+    {
+     "left": 0.45,
+     "top": 1.6,
+     "width": 6.05,
+     "height": 3.1,
+     "rows": [
+      [
+       "Package",
+       "go test result"
+      ],
+      [
+       "internal/api",
+       "ok"
+      ],
+      [
+       "internal/auth",
+       "ok"
+      ],
+      [
+       "internal/clickhouse",
+       "ok"
+      ],
+      [
+       "internal/config",
+       "ok"
+      ],
+      [
+       "internal/observability",
+       "ok"
+      ],
+      [
+       "internal/policy",
+       "ok"
+      ],
+      [
+       "internal/policy/rbac",
+       "ok"
+      ],
+      [
+       "internal/proxy",
+       "ok"
+      ],
+      [
+       "internal/users",
+       "ok"
+      ],
+      [
+       "tests (end-to-end)",
+       "ok"
+      ]
+     ]
+    },
+    {
+     "left": 6.85,
+     "top": 1.6,
+     "width": 6.05,
+     "height": 3.1,
+     "rows": [
+      [
+       "Interim metric",
+       "Value"
+      ],
+      [
+       "Packages passing / failing",
+       "10 / 0"
+      ],
+      [
+       "Test functions in repository",
+       "287"
+      ],
+      [
+       "Test files",
+       "33"
+      ],
+      [
+       "End-to-end test functions",
+       "219 (tests/)"
+      ],
+      [
+       "Unit tests (policy, RBAC, proxy, config)",
+       "58"
+      ],
+      [
+       "Integration tests",
+       "Skip without DATABASE_URL"
+      ],
+      [
+       "CI on pull requests",
+       "PR-Agent review"
+      ]
+     ]
+    }
+   ],
+   "notes": "Command: go test ./... → 10 packages ok, 0 failures on this branch. Integration suites that need Postgres/Vault SKIP (t.Skip) rather than fail when those services are absent — a deliberate design choice so unit runs stay hermetic. Talking point: RBAC-specific coverage is 18 tests (10 in internal/policy, 8 in internal/policy/rbac)."
+  },
+  {
+   "layout": "title_content",
+   "title": "Results — what the test evidence means",
+   "bullets": [
+    {
+     "text": "Command: go test ./... — 10 packages ok, 0 failures on this branch.",
+     "size": 15
+    },
+    {
+     "text": "Unit coverage sits on the security-critical paths: authentication, RBAC matching and enforcement, proxy forwarding, configuration, observability.",
+     "size": 15
+    },
+    {
+     "text": "An end-to-end suite (219 test functions) covers handlers, guardrails, PII/secret detection, streaming and the provision → chat → revoke flow.",
+     "size": 15
+    },
+    {
+     "text": "RBAC carries 18 tests (10 in internal/policy, 8 in internal/policy/rbac) covering allow, deny, wildcard matching and fail-closed behaviour.",
+     "size": 15
+    },
+    {
+     "text": "Integration suites need Postgres/Vault and skip cleanly (t.Skip) when absent — they run in the compose stack, so unit runs stay hermetic.",
+     "size": 15
+    },
+    {
+     "text": "Interpretation: the newest and riskiest module — authorization — carries the most direct coverage relative to its size.",
+     "size": 15
+    }
+   ],
+   "notes": "This slide explains the numbers rather than listing them, which is what the 'technically sound interpretation' criterion asks for."
+  },
+  {
+   "layout": "title_only",
+   "title": "Results — comparison against the current approach",
+   "tables": [
+    {
+     "left": 0.45,
+     "top": 1.55,
+     "width": 12.45,
+     "height": 3.4,
+     "rows": [
+      [
+       "Aspect",
+       "Direct-to-provider integration (before)",
+       "AgentPlane (this branch)"
+      ],
+      [
+       "Who is calling",
+       "A bearer key with no identity",
+       "Key resolves to a user; roles attach to the user"
+      ],
+      [
+       "Access control",
+       "All-or-nothing — any key can call any model",
+       "Deny-by-default RBAC; per-model permissions (model:gpt-4o, model:*)"
+      ],
+      [
+       "Provider key handling",
+       "Copied into every application",
+       "One secret store: env / file / chain / Vault AppRole / AWS / Azure"
+      ],
+      [
+       "Content safety",
+       "No inspection of prompts or responses",
+       "Input and output guardrails — 10 providers, 4 actions"
+      ],
+      [
+       "Attribution and cost",
+       "A key hash in logs; spend unattributable",
+       "Per-user tokens and cost, ClickHouse traces, usage views"
+      ],
+      [
+       "Rollout of a new model",
+       "Change application code in every service",
+       "Grant model:<name> — a permission change, not a deployment"
+      ]
+     ]
+    }
+   ],
+   "notes": "Comparison, as the rubric asks. Same request, three different outcomes after this branch: key with no role → 403 policy_denied; key with member → 200; key with a gpt4o-only role asking for another model → 403. Versus purpose-built gateways (LiteLLM, Portkey, Kong AI Gateway): those also proxy and guardrail, so the differentiators here are deny-by-default identity authorization with per-model permissions, the pluggable secret-store abstraction, and per-user cost attribution. State that as 'comparable, with a different emphasis', not as 'better'."
+  },
+  {
+   "layout": "title_only",
+   "title": "Results — code scale and distribution",
+   "charts": [
+    {
+     "type": "bar_h",
+     "left": 0.45,
+     "top": 1.7,
+     "width": 7.3,
+     "height": 4.3,
+     "title": "Lines of Go by package (top 10)",
+     "categories": [
+      "observability",
+      "handlers",
+      "guardrail:functions",
+      "guardrail",
+      "auth",
+      "dashboard",
+      "policy:rbac",
+      "api",
+      "proxy",
+      "policy"
+     ],
+     "series": {
+      "LOC": [
+       1219,
+       1118,
+       1085,
+       1002,
+       952,
+       918,
+       710,
+       631,
+       514,
+       442
+      ]
+     }
+    }
+   ],
+   "tables": [
+    {
+     "left": 8.0,
+     "top": 1.7,
+     "width": 4.9,
+     "height": 2.6,
+     "rows": [
+      [
+       "Metric",
+       "Value"
+      ],
+      [
+       "Branch vs main",
+       "+10,578 / −218"
+      ],
+      [
+       "Commits on branch",
+       "8"
+      ],
+      [
+       "Files changed",
+       "89"
+      ],
+      [
+       "Go source (18 pkgs)",
+       "12,418 lines"
+      ],
+      [
+       "Tests",
+       "4,050 lines"
+      ],
+      [
+       "Web console",
+       "3,893 lines"
+      ],
+      [
+       "Documentation",
+       "4,225 lines"
+      ],
+      [
+       "Test : source ratio",
+       "≈ 1 : 3"
+      ]
+     ]
+    }
+   ],
+   "shapes": [
+    {
+     "type": "rounded_rectangle",
+     "left": 0.45,
+     "top": 6.25,
+     "width": 12.45,
+     "height": 0.9,
+     "fill": "E2EFDA",
+     "text": "Interpretation: work is distributed across every pipeline stage rather than concentrated in one module — auth, policy, guardrails, observability and the control plane all carry real weight.",
+     "text_color": "375623"
+    }
+   ],
+   "notes": "If asked how much of the scope is done, point at this distribution plus the capability scoreboard on the following two slides."
+  },
+  {
+   "layout": "title_only",
+   "title": "Results — scoreboard: implemented",
+   "tables": [
+    {
+     "left": 0.45,
+     "top": 1.5,
+     "width": 12.45,
+     "height": 3.4,
+     "rows": [
+      [
+       "Pipeline stage",
+       "Status",
+       "Evidence in repository"
+      ],
+      [
+       "API-key authentication",
+       "Implemented",
+       "internal/auth — middleware, stores, tests"
+      ],
+      [
+       "Authorization (RBAC)",
+       "Implemented",
+       "internal/policy + rbac, migration 000003, admin API + UI"
+      ],
+      [
+       "Guardrails (input and output)",
+       "Implemented",
+       "internal/guardrail, 10 provider integrations, e2e tests"
+      ],
+      [
+       "Secret store and key injection",
+       "Implemented",
+       "internal/secrets (env/file/chain/Vault/AWS/Azure)"
+      ],
+      [
+       "Provider proxy",
+       "Implemented",
+       "internal/proxy — Provider interface, forwarding"
+      ],
+      [
+       "Observability and analytics",
+       "Implemented",
+       "SSE bus, ClickHouse traces, usage and cost views"
+      ],
+      [
+       "Control-plane UI",
+       "Implemented",
+       "web/ — 15 components, grouped nav, setup checklist"
+      ]
+     ]
+    }
+   ],
+   "notes": "Seven pipeline stages implemented, each with a pointer to the code that proves it. Status is claimed only where tests or running modules exist. If asked, the two hardest to fake are RBAC (schema + engine + UI) and the guardrail provider chain."
+  },
+  {
+   "layout": "title_only",
+   "title": "Results — scoreboard: not yet done",
+   "tables": [
+    {
+     "left": 0.45,
+     "top": 1.5,
+     "width": 12.45,
+     "height": 2.6,
+     "rows": [
+      [
+       "Planned stage",
+       "Why it is not done yet",
+       "Insertion point"
+      ],
+      [
+       "Rate limiting and quotas",
+       "Deferred until authorization was stable",
+       "Additional Policy behind EnforcementPoint"
+      ],
+      [
+       "Request/response audit logging",
+       "Capture decisions exist; retention policy not defined",
+       "Capture-decision layer"
+      ],
+      [
+       "Multi-provider routing",
+       "Only the OpenAI-compatible adapter is written",
+       "Provider interface (proxy/)"
+      ],
+      [
+       "End-to-end SSE streaming to client",
+       "Upstream stream is coalesced today",
+       "Streaming buffer already in place"
+      ]
+     ]
+    }
+   ],
+   "shapes": [
+    {
+     "type": "rounded_rectangle",
+     "left": 0.45,
+     "top": 5.05,
+     "width": 12.45,
+     "height": 1.35,
+     "fill": "FFF2CC",
+     "text": "Stating the gaps explicitly is what keeps the implemented claims credible — and each gap already has a defined place to land in the architecture, which is the point of the layered design.",
+     "text_color": "7F6000"
+    }
+   ],
+   "notes": "Expect a question on rate limiting: the honest answer is that the EnforcementPoint was designed to accept it as another Policy, and it is scheduled after authorization hardening."
+  },
+  {
+   "layout": "title_content",
+   "title": "Roadmap — what comes next",
+   "bullets": [
+    {
+     "text": "Enforce admin:* on the control-plane endpoints, replacing the static admin token and closing the loop on the permission model.",
+     "size": 14
+    },
+    {
+     "text": "Per-API-key scopes on top of user-level roles: a user baseline with optional per-key restrictions.",
+     "size": 14
+    },
+    {
+     "text": "Additional Policy implementations behind the existing EnforcementPoint — rate limiting, quotas, attribute-based rules — added without touching callers.",
+     "size": 14
+    },
+    {
+     "text": "Permission caching to remove one database round-trip per request (the current design loads permissions per evaluation).",
+     "size": 14
+    },
+    {
+     "text": "Provider expansion: Anthropic, Gemini, Groq and Ollama adapters against the existing Provider interface.",
+     "size": 14
+    },
+    {
+     "text": "True end-to-end SSE streaming to the client (today the upstream stream is coalesced); the guardrail buffer already models the streaming path.",
+     "size": 14
+    },
+    {
+     "text": "Transactional user and key provisioning, a key-rotation UI, and configurable provider timeouts.",
+     "size": 14
+    },
+    {
+     "text": "Sequencing rationale: hardening first (admin:*, per-key scopes), then throughput and reach (caching, providers, streaming).",
+     "size": 14
+    }
+   ],
+   "notes": "Show the roadmap is sequenced, not a wish list: hardening → efficiency → reach."
+  },
+  {
+   "layout": "title_content",
+   "title": "Anticipated panel questions",
+   "bullets": [
+    {
+     "text": "Why two authorization checks?",
+     "bold": true,
+     "size": 14
+    },
+    {
+     "text": "The static chat:invoke check rejects before the body is read; the model:<name> check must come after validation because the model name is request data. Both use one EnforcementPoint.",
+     "size": 14
+    },
+    {
+     "text": "What if the policy engine or database is down?",
+     "bold": true,
+     "size": 14
+    },
+    {
+     "text": "It fails closed — 503 policy_unavailable. An authorization outage never becomes an implicit allow.",
+     "size": 14
+    },
+    {
+     "text": "Existing users lose access after this upgrade. Is that safe?",
+     "bold": true,
+     "size": 14
+    },
+    {
+     "text": "Deliberate: the migration seeds admin and member but assigns them to nobody. Granting member restores standard access in one documented call.",
+     "size": 14
+    },
+    {
+     "text": "Can a key be recovered from the database?",
+     "bold": true,
+     "size": 14
+    },
+    {
+     "text": "No. Only SHA-256(secret + API_KEY_PEPPER) is stored; the plaintext is returned once at provisioning.",
+     "size": 14
+    },
+    {
+     "text": "Why no rate limiting yet?",
+     "bold": true,
+     "size": 14
+    },
+    {
+     "text": "Sequenced after authorization hardening. The EnforcementPoint already accepts additional policies (rate limits, quotas, ABAC) without changing callers.",
+     "size": 14
+    },
+    {
+     "text": "How is correctness demonstrated?",
+     "bold": true,
+     "size": 14
+    },
+    {
+     "text": "go test ./... — 10 packages ok, 0 failures, 287 test functions. Integration suites need Postgres/Vault, skip without them, and run in the compose stack.",
+     "size": 14
+    }
+   ],
+   "notes": "Rehearse these six answers out loud — the rubric explicitly scores responding accurately to panel questions."
+  },
+  {
+   "layout": "title_content",
+   "title": "Demonstration — what we will show live",
+   "bullets": [
+    {
+     "text": "1. docker compose up — gateway, Postgres, ClickHouse, Vault and the mock provider come up; migrations apply automatically.",
+     "size": 14
+    },
+    {
+     "text": "2. Provision a user and mint a key with the admin token — key returned once, hash-only stored.",
+     "size": 14
+    },
+    {
+     "text": "3. POST /chat with the fresh key and no role → 403 policy_denied; deny-by-default visible in one call.",
+     "size": 14
+    },
+    {
+     "text": "4. Assign the member role from the Access Control UI → the same request succeeds; the model permission is then evaluated separately.",
+     "size": 14
+    },
+    {
+     "text": "5. Create a restricted role gpt4o-only and assign it → a request for another model is denied, proving per-model authorization.",
+     "size": 14
+    },
+    {
+     "text": "6. Revoke the key → subsequent calls return 401 and the console shows the key as revoked.",
+     "size": 14
+    },
+    {
+     "text": "7. Trigger a guardrail with PII or a credential in the prompt → observe detect → redact → block and the finding in the Event Log.",
+     "size": 14
+    },
+    {
+     "text": "8. Open Usage/Analytics → tokens, cost and per-user attribution for the calls just made; finish with go test ./... passing.",
+     "size": 14
+    }
+   ],
+   "notes": "Keep the demo to these steps; each is a visible pass/fail, which is the most persuasive evidence for implementation and results."
+  },
+  {
+   "layout": "title_content",
+   "title": "Summary",
+   "bullets": [
+    {
+     "text": "AgentPlane is a working AI gateway: authentication, deny-by-default RBAC authorization, secret-store abstraction, guardrail pipeline, observability and a control-plane console.",
+     "size": 15
+    },
+    {
+     "text": "The latest branch (feat_rbac) delivered authorization end to end — schema, engine, enforcement middleware, admin API and UI — plus a Vault AppRole token-renewal fix with regression tests.",
+     "size": 15
+    },
+    {
+     "text": "Correctness is evidenced, not asserted: 10/10 packages passing, 0 failures, 287 test functions and an end-to-end suite; integration tests skip cleanly without external services.",
+     "size": 15
+    },
+    {
+     "text": "Scale: 8 commits and 89 files on this branch (+10,578 lines); 12,418 lines of Go across 18 packages; 3,893 lines of UI; 17 design documents.",
+     "size": 15
+    },
+    {
+     "text": "Remaining scope is named honestly — rate limiting, audit logging, multi-provider routing, client-side streaming — and each item has a defined insertion point in the existing architecture.",
+     "size": 15
+    },
+    {
+     "text": "Thank you — questions welcome.",
+     "bold": true,
+     "color": "1F4E79",
+     "size": 15
+    }
+   ],
+   "notes": "Close on the three rubric axes: what works, why it is technically right, and what the interim results show."
+  }
+ ]
+}

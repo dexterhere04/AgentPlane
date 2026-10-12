@@ -91,7 +91,7 @@ Normalized token counts (365-day retention):
 
 - `trace_id` — reference to traces table
 - `provider`, `model` — from request
-- `input_tokens`, `output_tokens`, `total_tokens` — normalized from provider response
+- `input_tokens`, `output_tokens` — normalized from provider response (total is derived as their sum; the request-level `traces.total_tokens` remains canonical for aggregates)
 - `reasoning_tokens`, `cached_input_tokens` — advanced usage (0 if unsupported by provider)
 - `estimated_cost` — dollars (same caveat as traces)
 - `created_at` — storage timestamp

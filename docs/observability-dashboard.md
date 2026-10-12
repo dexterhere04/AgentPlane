@@ -22,6 +22,8 @@ All endpoints are GET-only. Non-GET requests receive `405`.
 | `GET /api/observability/guardrails`       | Guardrail action/phase aggregates and newest safe guardrail metadata; maximum 100 recent events.                                              |
 | `GET /api/observability/traces`           | Newest trace summaries with keyset pagination; maximum 100 rows per page.                                                                     |
 | `GET /api/observability/traces/{traceID}` | Trace summary, usage metadata, prompt/response capture metadata, guardrail events, and tool metadata. The ID may be a trace ID or request ID. |
+| `GET /api/observability/users`            | Per-user request, token, cost, and average-latency aggregates over the selected range; next to the trace explorer this backs the per-user spend view. Accepts `range` and `limit` (1–100, default 50). |
+| `GET /api/observability/prompts`          | Searchable prompt log for the per-user analytics view: returns stored prompt text joined with trace metadata (`trace_id`, `username`, `model`, `total_tokens`, `estimated_cost`). Accepts `range`, `user`, `q`, and `limit` (1–100, default 200). Response payloads are never returned. |
 
 The legacy `GET /analytics/traces_count?hours=1|6|24|168` remains available for compatibility and returns `{"count":N}` through the same analytics store. Its old raw ClickHouse HTTP SQL forwarding was removed.
 
@@ -79,7 +81,7 @@ Capture modes remain governed by `OBSERVE_PROMPT_MODE`, `OBSERVE_RESPONSE_MODE`,
 - `sampled`: selected payloads and hashes are stored; unselected requests have no capture row.
 - `hash_only`: hash and size metadata are stored without a payload blob.
 
-The API never selects or returns prompt/response blobs, regardless of mode. The observability UI renders only capture metadata: disabled means no payload was captured; hash-only shows hash/size without payload; sampled and full modes state that payload retrieval is not exposed. Missing capture metadata is described as unavailable/ambiguous, not inferred to mean disabled. Guardrail reason/details and tool inputs/outputs are also omitted.
+Trace-detail and capture-metadata responses never select or return prompt/response blobs. The one intentional exception is the admin-only `/api/observability/prompts` search endpoint, which returns stored prompt text for the prompt log; response payloads are never returned by any endpoint. The observability UI renders only capture metadata: disabled means no payload was captured; hash-only shows hash/size without payload; sampled and full modes state that payload retrieval is not exposed. Missing capture metadata is described as unavailable/ambiguous, not inferred to mean disabled. Guardrail reason/details and tool inputs/outputs are also omitted.
 
 ## Dashboard Frontend
 
