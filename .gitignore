@@ -7,3 +7,7 @@ provider-issue-21.md
 # the cmd/server/ source directory).
 /server
 /agentplane
+# Backup files
+*.bak
+# Compiled mock API binary (built from testing/cmd/mockapi)
+testing/mockapi

@@ -22,9 +22,23 @@ type storeProviderSecretResponse struct {
 
 // providerSecretKeys maps a provider slug to the secret-store key the gateway
 // reads at request time. Openly extensible to future providers; only these
-// keys are writable through this endpoint.
+// keys are writable through this endpoint. A caller may always override the
+// default by passing an explicit secret_key in the request.
 var providerSecretKeys = map[string]string{
-	"openai": "OPENAI_API_KEY",
+	"openai":       "OPENAI_API_KEY",
+	"azure_openai": "AZURE_OPENAI_API_KEY",
+	"azure":        "AZURE_OPENAI_API_KEY",
+	"anthropic":    "ANTHROPIC_API_KEY",
+	"gemini":       "GEMINI_API_KEY",
+	"google":       "GOOGLE_API_KEY",
+	"mistral":      "MISTRAL_API_KEY",
+	"groq":         "GROQ_API_KEY",
+	"together":     "TOGETHER_API_KEY",
+	"openrouter":   "OPENROUTER_API_KEY",
+	"deepseek":     "DEEPSEEK_API_KEY",
+	"xai":          "XAI_API_KEY",
+	"fireworks":    "FIREWORKS_API_KEY",
+	"perplexity":   "PERPLEXITY_API_KEY",
 }
 
 // StoreProviderSecret persists a provider API key into the configured secret

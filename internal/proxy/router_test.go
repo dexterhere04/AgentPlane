@@ -216,7 +216,7 @@ func TestRoutingRuleResilienceConfig(t *testing.T) {
 	}
 }
 
-func TestRouterRejectsRequestWhenNoRuleMatches(t *testing.T) {
+func TestRouterFallsBackToDefaultWhenNoRuleMatches(t *testing.T) {
 	defaultProvider := &routerTestProvider{name: "default"}
 	groupProvider := &routerTestProvider{name: "group"}
 
@@ -240,17 +240,21 @@ func TestRouterRejectsRequestWhenNoRuleMatches(t *testing.T) {
 		},
 	)
 
-	_, err := router.Forward(
+	resp, err := router.Forward(
 		ctx,
 		[]byte(`{"model":"gpt-3.5"}`),
 		"req-1",
 	)
-	if !errors.Is(err, ErrNoProvider) {
-		t.Fatalf("expected ErrNoProvider, got %v", err)
+	if err != nil {
+		t.Fatalf("expected fallback to default provider, got %v", err)
 	}
 
-	if defaultProvider.calls != 0 {
-		t.Fatalf("default provider called %d times; want 0", defaultProvider.calls)
+	if string(resp) != `{"provider":"default"}` {
+		t.Fatalf("expected default provider, got %s", resp)
+	}
+
+	if defaultProvider.calls != 1 {
+		t.Fatalf("default provider called %d times; want 1", defaultProvider.calls)
 	}
 
 	if groupProvider.calls != 0 {

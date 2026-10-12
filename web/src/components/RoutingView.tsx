@@ -17,7 +17,9 @@ import {
   RoutingTokensByProvider,
   RoutingTokensByRoute,
   RoutingFailoverTransition,
-  fetchRoutingFailoverTransitions
+  fetchRoutingFailoverTransitions,
+  fetchRoutingMetrics,
+  RoutingMetrics
 } from '../api';
 import { ApiEvent, StreamState } from '../types';
 import RoutingAdminView from './RoutingAdminView';
@@ -83,6 +85,7 @@ export default function RoutingView({ stream }: RoutingViewProps) {
   const [costByProvider, setCostByProvider] = useState<RoutingCostByProvider[]>([]);
   const [failoverTransitions, setFailoverTransitions] =
   useState<RoutingFailoverTransition[]>([]);
+  const [routingMetrics, setRoutingMetrics] = useState<RoutingMetrics | null>(null);
   async function load() {
     setLoading(true);
     setError('');
@@ -124,6 +127,25 @@ export default function RoutingView({ stream }: RoutingViewProps) {
 
     return () => window.clearInterval(timer);
   }, [hours]);
+
+  // In-process routing counters from /metrics: live and DB-independent, so
+  // they refresh faster than the ClickHouse-backed analytics above.
+  useEffect(() => {
+    let mounted = true;
+
+    const tick = async () => {
+      const result = await fetchRoutingMetrics();
+      if (mounted && result.ok) setRoutingMetrics(result.metrics);
+    };
+
+    void tick();
+    const timer = window.setInterval(() => void tick(), 5000);
+
+    return () => {
+      mounted = false;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   const liveEvents = useMemo(
     () => routingEvents(stream).slice(0, 30),
@@ -400,6 +422,87 @@ export default function RoutingView({ stream }: RoutingViewProps) {
             </div>
           </Card>
         </div>
+        <div style={{ marginTop: 16 }}>
+          <Card
+            title="Routing metrics"
+            subtitle="Live in-process counters from /metrics — no ClickHouse required"
+            right={<Badge tone={stream.connected ? 'pass' : 'neutral'} dot>{stream.connected ? 'LIVE' : 'OFFLINE'}</Badge>}
+          >
+            {!routingMetrics ||
+            (routingMetrics.decisions === 0 && routingMetrics.upstreams.length === 0) ? (
+              <EmptyState
+                icon={<Icon name="gauge" size={20} />}
+                text="No routing decisions recorded yet in this process."
+              />
+            ) : (
+              <>
+                <div className="stat-grid">
+                  <Stat
+                    label="Decisions"
+                    value={fmtNum(routingMetrics.decisions)}
+                    note="primary selections"
+                    tone="accent"
+                  />
+                  <Stat
+                    label="Failovers"
+                    value={fmtNum(routingMetrics.failovers)}
+                    note="provider switches"
+                    tone={routingMetrics.failovers ? 'amber' : 'green'}
+                  />
+                  <Stat
+                    label="Retries"
+                    value={fmtNum(routingMetrics.retries)}
+                    note="same-provider retries"
+                  />
+                  <Stat
+                    label="Breaker trips"
+                    value={fmtNum(routingMetrics.breaker_trips)}
+                    note={`${fmtNum(routingMetrics.breaker_recoveries)} recoveries`}
+                    tone={routingMetrics.breaker_trips ? 'red' : 'green'}
+                  />
+                  <Stat
+                    label="No provider"
+                    value={fmtNum(routingMetrics.no_provider)}
+                    note="unroutable requests"
+                  />
+                  <Stat
+                    label="Denied"
+                    value={fmtNum(routingMetrics.denied)}
+                    note="deny-rule requests"
+                  />
+                </div>
+
+                {routingMetrics.upstreams.length > 0 && (
+                  <table className="table" style={{ marginTop: 16 }}>
+                    <thead>
+                      <tr>
+                        <th>Upstream</th>
+                        <th>Decisions</th>
+                        <th>Failovers</th>
+                        <th>Retries</th>
+                        <th>Breaker trips</th>
+                        <th>Recoveries</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {routingMetrics.upstreams.map((upstream) => (
+                        <tr key={upstream.name}>
+                          <td>{upstream.name}</td>
+                          <td>{fmtNum(upstream.decisions)}</td>
+                          <td>{fmtNum(upstream.failovers)}</td>
+                          <td>{fmtNum(upstream.retries)}</td>
+                          <td>{fmtNum(upstream.breaker_trips)}</td>
+                          <td>{fmtNum(upstream.breaker_recoveries)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </>
+            )}
+          </Card>
+        </div>
+
             <div style={{ marginTop: 16 }}>
   <Card
     title="Failover transitions"

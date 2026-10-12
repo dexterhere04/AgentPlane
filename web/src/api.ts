@@ -172,6 +172,61 @@ export async function fetchMetrics(): Promise<{ ok: boolean; body: Record<string
   return { ok: res.ok, body };
 }
 
+export interface UpstreamRoutingMetrics {
+  name: string;
+  decisions: number;
+  failovers: number;
+  retries: number;
+  breaker_trips: number;
+  breaker_recoveries: number;
+}
+
+export interface RoutingMetrics {
+  decisions: number;
+  failovers: number;
+  retries: number;
+  breaker_trips: number;
+  breaker_recoveries: number;
+  no_provider: number;
+  denied: number;
+  upstreams: UpstreamRoutingMetrics[];
+}
+
+// fetchRoutingMetrics pulls the in-process routing counters from /metrics.
+// These are served synchronously by the gateway, so they are available even
+// when ClickHouse tracing is disabled.
+export async function fetchRoutingMetrics(): Promise<{ ok: boolean; metrics: RoutingMetrics }> {
+  const res = await fetchMetrics();
+  const body = res.body as Record<string, unknown>;
+
+  const rows = Array.isArray(body.routing_upstreams)
+    ? (body.routing_upstreams as Record<string, unknown>[])
+    : [];
+
+  const upstreams: UpstreamRoutingMetrics[] = rows.map((row) => ({
+    name: String(row.name ?? ''),
+    decisions: Number(row.decisions ?? 0),
+    failovers: Number(row.failovers ?? 0),
+    retries: Number(row.retries ?? 0),
+    breaker_trips: Number(row.breaker_trips ?? 0),
+    breaker_recoveries: Number(row.breaker_recoveries ?? 0)
+  }));
+
+  return {
+    ok: res.ok,
+    metrics: {
+      decisions: Number(body.routing_decisions_total ?? 0),
+      failovers: Number(body.routing_failovers_total ?? 0),
+      retries: Number(body.routing_retries_total ?? 0),
+      breaker_trips: Number(body.routing_breaker_trips_total ?? 0),
+      breaker_recoveries: Number(body.routing_breaker_recoveries_total ?? 0),
+      no_provider: Number(body.routing_no_provider_total ?? 0),
+      denied: Number(body.routing_denied_total ?? 0),
+      upstreams
+    }
+  };
+}
+
 export interface Role {
   name: string;
   description: string;
@@ -390,7 +445,55 @@ export interface ProviderRecord {
   supported_models: string[];
   timeout_ms: number;
   max_retries: number;
+  breaker_failure_threshold: number;
   enabled: boolean;
+}
+
+export interface UpstreamStatus {
+  name: string;
+  enabled: boolean;
+  weight: number;
+  models: string[];
+  breaker: string;
+  breaker_failure_threshold: number;
+}
+
+export async function fetchUpstreamStatuses(): Promise<{
+  ok: boolean;
+  status: number;
+  upstreams: UpstreamStatus[];
+}> {
+  const result = await adminRequest('/admin/upstreams');
+
+  if (!result.ok) {
+    return { ok: false, status: result.status, upstreams: [] };
+  }
+
+  const body = result.body as
+    | Record<string, unknown>[]
+    | { upstreams?: Record<string, unknown>[] }
+    | null;
+
+  const rows = Array.isArray(body)
+    ? body
+    : body?.upstreams ?? [];
+
+  const upstreams: UpstreamStatus[] = rows.map((row) => ({
+    name: String(row.name ?? row.Name ?? ''),
+    enabled: Boolean(row.enabled ?? row.Enabled ?? false),
+    weight: Number(row.weight ?? row.Weight ?? 1),
+    models: (row.models ?? row.Models ?? []) as string[],
+    breaker: String(row.breaker ?? row.State ?? row.State ?? 'unknown'),
+    breaker_failure_threshold: Number(
+      row.breaker_failure_threshold ?? row.BreakerFailureThreshold ?? 5
+    )
+  }));
+
+  return {
+    ok: true,
+    status: result.status,
+    upstreams
+  };
 }
 
 export interface RoutingRuleRecord {
@@ -461,6 +564,9 @@ export async function fetchProviders(): Promise<{
     ) as string[],
     timeout_ms: Number(row.timeout_ms ?? row.TimeoutMS ?? 60000),
     max_retries: Number(row.max_retries ?? row.MaxRetries ?? 1),
+    breaker_failure_threshold: Number(
+      row.breaker_failure_threshold ?? row.BreakerFailureThreshold ?? 5
+    ),
     enabled: Boolean(row.enabled ?? row.Enabled ?? false)
   }));
 
@@ -485,6 +591,7 @@ export async function createProvider(
       supported_models: provider.supported_models,
       timeout_ms: provider.timeout_ms,
       max_retries: provider.max_retries,
+      breaker_failure_threshold: provider.breaker_failure_threshold,
       enabled: provider.enabled
     })
   });
@@ -505,6 +612,7 @@ export async function updateProvider(
       supported_models: provider.supported_models,
       timeout_ms: provider.timeout_ms,
       max_retries: provider.max_retries,
+      breaker_failure_threshold: provider.breaker_failure_threshold,
       enabled: provider.enabled
     })
   });

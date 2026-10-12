@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { Icon } from '../icons';
 import {
   createProvider,
@@ -11,10 +11,12 @@ import {
   enableRoutingRule,
   fetchProviders,
   fetchRoutingRules,
+  fetchUpstreamStatuses,
   getAdminToken,
   setAdminToken,
   ProviderRecord,
   RoutingRuleRecord,
+  UpstreamStatus,
   updateProvider,
   updateRoutingRule
 } from '../api';
@@ -35,8 +37,15 @@ const emptyProvider: Omit<ProviderRecord, 'id'> = {
   supported_models: [],
   timeout_ms: 60000,
   max_retries: 1,
+  breaker_failure_threshold: 5,
   enabled: true
 };
+
+const BREAKER_THRESHOLD_OPTIONS = [
+  { value: 3, label: 'Strict (3 failures)' },
+  { value: 5, label: 'Default (5 failures)' },
+  { value: 10, label: 'Lenient (10 failures)' }
+];
 
 interface RoutingRuleForm {
   name: string;
@@ -70,6 +79,37 @@ function prettyJSON(value: unknown): string {
   } catch {
     return '{}';
   }
+}
+
+function toUpstreamMap(upstreams: UpstreamStatus[]): Record<string, UpstreamStatus> {
+  const map: Record<string, UpstreamStatus> = {};
+  for (const u of upstreams) map[u.name] = u;
+  return map;
+}
+
+function breakerBadge(state: string | undefined, threshold?: number): ReactNode {
+  const badge = (() => {
+    switch ((state || '').toLowerCase()) {
+      case 'open':
+        return <Badge tone="error">OPEN</Badge>;
+      case 'half_open':
+      case 'half-open':
+        return <Badge tone="warn">HALF-OPEN</Badge>;
+      case 'closed':
+        return <Badge tone="pass">CLOSED</Badge>;
+      default:
+        return <Badge tone="neutral">—</Badge>;
+    }
+  })();
+
+  if (threshold == null) return badge;
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      {badge}
+      <span className="card-sub">thr {threshold}</span>
+    </div>
+  );
 }
 
 
@@ -118,6 +158,7 @@ function parseJSON(value: string, field: string): unknown {
 export default function RoutingAdminView() {
   const [providers, setProviders] = useState<ProviderRecord[]>([]);
   const [rules, setRules] = useState<RoutingRuleRecord[]>([]);
+  const [upstreams, setUpstreams] = useState<Record<string, UpstreamStatus>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -186,9 +227,10 @@ function requireValidatedAdmin(): boolean {
     setLoading(true);
     setError('');
 
-    const [providerResult, ruleResult] = await Promise.all([
+    const [providerResult, ruleResult, upstreamResult] = await Promise.all([
       fetchProviders(),
-      fetchRoutingRules()
+      fetchRoutingRules(),
+      fetchUpstreamStatuses()
     ]);
 
     if (!providerResult.ok || !ruleResult.ok) {
@@ -197,11 +239,24 @@ function requireValidatedAdmin(): boolean {
 
     setProviders(providerResult.providers);
     setRules(ruleResult.rules);
+    setUpstreams(toUpstreamMap(upstreamResult.upstreams));
     setLoading(false);
   }
 
   useEffect(() => {
     void load();
+  }, []);
+
+  // Live circuit-breaker health: refresh the read-only status snapshot
+  // without disturbing the admin form or provider list.
+  useEffect(() => {
+    const tick = async () => {
+      const result = await fetchUpstreamStatuses();
+      if (result.ok) setUpstreams(toUpstreamMap(result.upstreams));
+    };
+
+    const id = window.setInterval(() => void tick(), 5000);
+    return () => window.clearInterval(id);
   }, []);
 
 
@@ -376,6 +431,7 @@ function requireValidatedAdmin(): boolean {
       supported_models: provider.supported_models || [],
       timeout_ms: provider.timeout_ms,
       max_retries: provider.max_retries,
+      breaker_failure_threshold: provider.breaker_failure_threshold,
       enabled: provider.enabled
     });
   }
@@ -470,6 +526,7 @@ function requireValidatedAdmin(): boolean {
                     <th>Models</th>
                     <th>Weight</th>
                     <th>Status</th>
+                    <th>Breaker</th>
                     <th />
                   </tr>
                 </thead>
@@ -488,6 +545,7 @@ function requireValidatedAdmin(): boolean {
                           {provider.enabled ? 'ENABLED' : 'DISABLED'}
                         </Badge>
                       </td>
+                      <td>{breakerBadge(upstreams[provider.name]?.breaker, upstreams[provider.name]?.breaker_failure_threshold)}</td>
                       <td>
                         <div style={{ display: 'flex', gap: 6 }}>
                           <button
@@ -650,6 +708,26 @@ function requireValidatedAdmin(): boolean {
                       })
                     }
                   />
+                </label>
+
+                <label>
+                  Circuit breaker
+                  <select
+                    className="input"
+                    value={providerForm.breaker_failure_threshold}
+                    onChange={(e) =>
+                      setProviderForm({
+                        ...providerForm,
+                        breaker_failure_threshold: Number(e.target.value)
+                      })
+                    }
+                  >
+                    {BREAKER_THRESHOLD_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
                 </label>
 
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

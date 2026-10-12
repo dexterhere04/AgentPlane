@@ -187,6 +187,7 @@ func main() {
 	routingAdmin := handlers.NewRoutingAdmin(
 		providerStore,
 		routingStore,
+		providerRegistry,
 		reloadRouting,
 	)
 	cfg := guardrail.LoadConfig()
@@ -434,6 +435,11 @@ func main() {
 		adminOrRBAC(routingAdmin.DisableProvider()))
 	mux.Handle("DELETE /admin/providers/{id}",
 		adminOrRBAC(routingAdmin.DeleteProvider()))
+
+	// Live upstream / circuit-breaker status. Read-only snapshot of the
+	// runtime registry, separate from the persisted provider records above.
+	mux.Handle("GET /admin/upstreams",
+		adminOrRBAC(routingAdmin.ListUpstreams()))
 
 	// Routing-rule administration.
 	mux.Handle("GET /admin/routing-rules",

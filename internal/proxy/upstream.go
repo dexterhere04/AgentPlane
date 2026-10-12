@@ -237,6 +237,14 @@ func (b *CircuitBreaker) State() BreakerState {
 	return b.state
 }
 
+// Threshold reports the configured consecutive-failure threshold after
+// defaults have been applied.
+func (b *CircuitBreaker) Threshold() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.cfg.FailureThreshold
+}
+
 // trip must be called with mu held.
 func (b *CircuitBreaker) trip() {
 	b.state = BreakerOpen
@@ -417,7 +425,11 @@ func (u *Upstream) ForwardWithConfig(
 			config.Timeout,
 		)
 		if err == nil {
+			before := u.Breaker.State()
 			u.Breaker.RecordSuccess()
+			if before != BreakerClosed && u.Breaker.State() == BreakerClosed {
+				DefaultMetrics.RecordBreakerRecovery(u.Name)
+			}
 			return resp, nil
 		}
 
@@ -432,7 +444,11 @@ func (u *Upstream) ForwardWithConfig(
 		retryable, failure := classify(err)
 
 		if failure {
+			before := u.Breaker.State()
 			u.Breaker.RecordFailure()
+			if before != BreakerOpen && u.Breaker.State() == BreakerOpen {
+				DefaultMetrics.RecordBreakerTrip(u.Name)
+			}
 		} else {
 			u.Breaker.Release()
 		}
@@ -442,6 +458,7 @@ func (u *Upstream) ForwardWithConfig(
 		}
 
 		if attempt < config.MaxRetries {
+			DefaultMetrics.RecordRetry(u.Name)
 			routing := routingTelemetryFromContext(ctx)
 
 			observability.DefaultBus.Publish(
@@ -561,22 +578,24 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 
 // UpstreamStatus is a point-in-time snapshot for admin/metrics endpoints.
 type UpstreamStatus struct {
-	Name    string       `json:"name"`
-	Enabled bool         `json:"enabled"`
-	Weight  int          `json:"weight"`
-	Models  []string     `json:"models"`
-	Breaker BreakerState `json:"-"`
-	State   string       `json:"breaker"`
+	Name                    string       `json:"name"`
+	Enabled                 bool         `json:"enabled"`
+	Weight                  int          `json:"weight"`
+	Models                  []string     `json:"models"`
+	Breaker                 BreakerState `json:"-"`
+	State                   string       `json:"breaker"`
+	BreakerFailureThreshold int          `json:"breaker_failure_threshold"`
 }
 
 func (u *Upstream) Status() UpstreamStatus {
 	st := u.Breaker.State()
 	return UpstreamStatus{
-		Name:    u.Name,
-		Enabled: u.Enabled(),
-		Weight:  u.Weight,
-		Models:  append([]string(nil), u.Models...),
-		Breaker: st,
-		State:   st.String(),
+		Name:                    u.Name,
+		Enabled:                 u.Enabled(),
+		Weight:                  u.Weight,
+		Models:                  append([]string(nil), u.Models...),
+		Breaker:                 st,
+		State:                   st.String(),
+		BreakerFailureThreshold: u.Breaker.Threshold(),
 	}
 }
