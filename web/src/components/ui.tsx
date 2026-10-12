@@ -179,6 +179,8 @@ export function shortId(id: string): string {
   return id.replace('req-', '').slice(-8);
 }
 
-export function fmtNum(n: number, digits = 0): string {
-  return n.toLocaleString('en-US', { maximumFractionDigits: digits, minimumFractionDigits: 0 });
+export function fmtNum(n: number | string | null | undefined, digits = 0): string {
+  const v = typeof n === 'string' ? parseFloat(n) : n;
+  if (v == null || Number.isNaN(v)) return '0';
+  return v.toLocaleString('en-US', { maximumFractionDigits: digits, minimumFractionDigits: 0 });
 }

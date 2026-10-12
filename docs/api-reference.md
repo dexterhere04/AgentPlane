@@ -5,9 +5,9 @@ All endpoints are served from `http://localhost:3001` by default.
 ## Authentication
 
 - `/chat` requires a bearer API key: `Authorization: Bearer ap_live_<key_id>_<secret>`.
-- Admin endpoints require the admin token: `Authorization: Bearer <AGENTPLANE_ADMIN_TOKEN>`.
+- Admin endpoints accept either the static admin token (`Authorization: Bearer <AGENTPLANE_ADMIN_TOKEN>`) or any database-backed API key whose user holds the `admin` role. The browser-facing `/events` and `/dashboard` also accept the credential via `?token=<...>` (EventSource and top-level navigation cannot set request headers).
 
-Keys are minted via `POST /provision/user`.
+Keys are minted via `POST /provision/user`; roles are granted via `POST /admin/users/{id}/roles`.
 
 ## Authorization
 
@@ -19,7 +19,7 @@ Grant access by assigning a role (for example the built-in `member`) via `POST /
 
 ## `POST /chat`
 
-Forward a chat completion request to the OpenAI-compatible upstream provider.
+Forward a chat completion request through the router to a configured upstream provider.
 
 ### Headers
 
@@ -30,7 +30,13 @@ Forward a chat completion request to the OpenAI-compatible upstream provider.
 
 ### Request Body
 
-Any valid JSON object. The body is forwarded (possibly after guardrail redaction) to `{OPENAI_BASE_URL}/chat/completions` (default `https://api.openai.com/v1/chat/completions`). Set `"stream": true` to use the streaming path — the gateway coalesces the stream and returns a single completion (see `docs/packages/proxy.md`).
+Any valid JSON object. The body is authorized against the policy layer (see
+[Authorization](#authorization)), checked by the input guardrails, then
+forwarded through the `Router` to the upstream selected for the request's
+model/user attributes. Set `"stream": true` to use the streaming path — the
+gateway coalesces the stream and returns a single completion (see
+`docs/packages/proxy.md`). Routing behavior is described in
+[Provider Routing & Router](provider-routing-and-router.md).
 
 **Minimal example:**
 
@@ -369,7 +375,7 @@ Remove a role from a user.
 
 ## `GET /events`
 
-Server-sent event stream of request lifecycle events. Requires the admin token via `Authorization: Bearer <admin-token>` or, for browser clients that cannot set headers, `?token=<admin-token>`. Optionally filter with `?request_id=<id>`.
+Server-sent event stream of request lifecycle events (including `routing_decision` and `routing_failover` events). Requires the admin token via `Authorization: Bearer <admin-token>` or, for browser clients that cannot set headers, `?token=<admin-token>`. Optionally filter with `?request_id=<id>`.
 
 ## `GET /dashboard`
 
@@ -377,4 +383,41 @@ HTML dashboard (embeds the SSE stream and a chat widget). Requires the admin tok
 
 ## `GET /metrics`
 
-JSON snapshot of guardrail metrics (evaluations, blocks, redactions, warns, passes, errors, average latency). Requires the admin token via `Authorization: Bearer <admin-token>`.
+JSON snapshot of metrics, merging guardrail counters (`guardrail_*`) and routing counters (`routing_*`), including a per-upstream breakdown in `routing_upstreams`. Counter semantics are documented in [Routing Metrics](routing-metrics.md). Requires the admin token via `Authorization: Bearer <admin-token>`.
+
+## `GET /admin/analytics`
+
+Windowed analytics over the ClickHouse `agentplane.traces` table. Requires the admin token. Returns ClickHouse `FORMAT JSON` output verbatim.
+
+### Query Params
+
+| Param | Default | Range |
+|-------|---------|-------|
+| `type` | — | whitelisted query (see below) |
+| `hours` | `24` | `1`–`720` (30 days) |
+
+Accepted `type` values and their result shapes are listed in [Routing Metrics](routing-metrics.md) (routing queries such as `provider_traffic`, `route_traffic`, `failover_count`, `failover_transitions`, `tokens_by_provider`, `tokens_by_route`, `cost_by_provider`, `cost_by_route`) plus the general observability queries (`traces_count`, `latency`, `latency_percentiles`, `token_usage`, `cost`, `top_models`, `provider_usage`, `guardrail_events`, `error_rate`, `error_rate_summary`, `tool_calls`). A pinned, single-query route also exists at `GET /analytics/traces_count`.
+
+## `GET /admin/upstreams`
+
+Read-only, poll-safe snapshot of every registered runtime upstream and its live circuit-breaker state. Response shape and semantics: [Routing Administration](routing-admin.md) §5.
+
+## Provider & Routing-Rule Administration
+
+CRUD + enable/disable for `providers` and `routing_rules` (create, read, update, delete on `/admin/providers`, `/admin/providers/{id}`, `/admin/routing-rules`, `/admin/routing-rules/{id}`, with `POST .../enable` and `POST .../disable`). Request/response schemas, matcher JSON forms, and examples: [Routing Administration](routing-admin.md) §3–§4.
+
+## `POST /admin/secrets/provider`
+
+Store a provider API key in the secret store. Requires the admin token.
+
+```json
+{ "provider": "openai", "api_key": "<provider-api-key>" }
+```
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `provider` | string | Yes | Provider slug (e.g. `openai`, `anthropic`, `gemini`, ...) mapping to a default secret-store key |
+| `secret_key` | string | No | Override the secret-store key name |
+| `api_key` | string | Yes | The provider credential |
+
+Provider records reference the stored credential via their `secret_key` field.

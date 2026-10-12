@@ -249,7 +249,7 @@ Manual validation confirmed:
 - Missing credentials return HTTP 401.
 - Invalid credentials return HTTP 401.
 - A valid credential reaches the application authentication path.
-- `/events` exposes the request lifecycle events once the admin token is presented (`Authorization: Bearer <admin-token>` or `?token=<admin-token>`); `/metrics` and `/dashboard` are likewise admin-token protected.
+- `/events` exposes the request lifecycle events once admin credentials are presented (`Authorization: Bearer <admin-token>` or `?token=<admin-token>`); `/metrics` and `/dashboard` (and every `/admin/*` route) are likewise admin-gated. Admin credentials are either the static `AGENTPLANE_ADMIN_TOKEN` or a database-backed API key whose user holds the `admin` role — so an admin key provisioned through the gateway operates the whole control plane.
 - A missing Vault/OpenAI secret produces the expected upstream/configuration failure rather than bypassing authentication.
 - Provisioning generates an API key that can subsequently be used for authentication.
 - Revocation causes the database `revoked_at` field to be populated.

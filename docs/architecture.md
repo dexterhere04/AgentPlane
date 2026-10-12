@@ -25,18 +25,28 @@ AgentPlane uses a layered architecture following the Single Responsibility Princ
           +--------+---------+
                     |
                     v
-          +------------------+
-          |   Guardrails     |  (internal/guardrail/) input + output
-          +--------+---------+
-                    |
-                    v
-          +------------------+
-          |  Provider Proxy  |  (internal/proxy/openai.go)
-          +--------+---------+
-                    |
-                    v
-             OpenAI API
++------------------+
+           |   Guardrails     |  (internal/guardrail/) input + output
+           +--------+---------+
+                     |
+                     v
+           +------------------+
+           |     Router       |  (internal/proxy/router.go) match rule, select
+           +--------+---------+
+                     |
+                     v
+           +------------------+
+           |  Upstreams       |  (internal/proxy/upstream.go) timeout,
+           |  (chain)         |   retry, circuit breaker, failover
+           +--------+---------+
+                     |
+                     v
+              Provider API
 ```
+
+Routing is a **forwarding** concern: authorization (`policy`) decides whether a
+principal may act; guardrails check content; the router decides *where* the
+already-authorized request is sent. See `provider-routing-and-router.md`.
 
 ## Project Structure
 
@@ -59,13 +69,17 @@ agentplane/
 |   |   +-- rbac/              # roles, permissions, assignments
 |   +-- users/                 # user persistence
 |   +-- provisioning/          # user + API-key provisioning flow
-|   +-- handlers/              # chat, provision, revoke, metrics
+|   +-- handlers/              # chat, routing admin, analytics, provision/revoke, metrics, secrets
 |   +-- guardrail/             # guardrail pipeline + providers
-|   +-- observability/         # event bus / SSE
-|   +-- proxy/                 # provider forwarding
+|   +-- observability/         # event bus / SSE + analytics queries
+|   +-- clickhouse/            # tracing persistence (traces, prompt/response, tool calls)
+|   +-- proxy/                 # provider abstraction, router, registry, upstream, selector,
+|   |                          # routing rules/store, routing metrics (registry.go, router.go,
+|   |                          # upstream.go, selector.go, routing.go, routing_store.go, metrics.go)
 |   +-- secrets/               # secret stores (env, file, Vault, AWS, Azure)
-|   +-- dashboard/             # embedded HTML dashboard
+|   +-- dashboard/             # embedded HTML dashboard (Go)
 |
++-- web/                       # in-app dashboard (React + Vite, served on :3000)
 +-- migrations/                # embedded SQL migrations
 +-- testing/                   # local mock API (separate module)
 +-- .env.example
@@ -87,7 +101,7 @@ agentplane/
 | `policy` | `policy/` | Identity-based authorization (RBAC roles/permissions) | Inspect request content or forward requests |
 | `handlers` | `handlers/` | HTTP validation, body reading, response writing | Know provider-specific details |
 | `guardrail` | `guardrail/` | Policy enforcement (input + output) | Forward requests |
-| `proxy` | `proxy/` | Provider communication, key injection, forwarding | Handle HTTP concerns beyond outbound calls |
+| `proxy` | `proxy/` | Provider communication, routing (router/registry/selector), resilient forwarding (timeout/retry/breaker/failover) | Handle HTTP concerns beyond outbound calls |
 | `api` | `api/` | API-key generation and persistence (hashes only) | Know about users or HTTP |
 | `users` | `users/` | User persistence | Know about API keys or HTTP |
 | `provisioning` | `provisioning/` | Orchestrate user + key creation | Do HTTP |
