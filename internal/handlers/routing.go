@@ -16,31 +16,35 @@ import (
 type RoutingAdmin struct {
 	providers *proxy.ProviderStore
 	rules     *proxy.RoutingRuleStore
+	registry  *proxy.Registry
 	reload    func(context.Context) error
 }
 
 func NewRoutingAdmin(
 	providers *proxy.ProviderStore,
 	rules *proxy.RoutingRuleStore,
+	registry *proxy.Registry,
 	reload func(context.Context) error,
 ) *RoutingAdmin {
 	return &RoutingAdmin{
 		providers: providers,
 		rules:     rules,
+		registry:  registry,
 		reload:    reload,
 	}
 }
 
 type providerRequest struct {
-	Name            string   `json:"name"`
-	BaseURL         string   `json:"base_url"`
-	SecretKey       string   `json:"secret_key,omitempty"`
-	ProviderGroup   string   `json:"provider_group,omitempty"`
-	Weight          int      `json:"weight"`
-	SupportedModels []string `json:"supported_models"`
-	TimeoutMS       int      `json:"timeout_ms"`
-	MaxRetries      int      `json:"max_retries"`
-	Enabled         bool     `json:"enabled"`
+	Name                    string   `json:"name"`
+	BaseURL                 string   `json:"base_url"`
+	SecretKey               string   `json:"secret_key,omitempty"`
+	ProviderGroup           string   `json:"provider_group,omitempty"`
+	Weight                  int      `json:"weight"`
+	SupportedModels         []string `json:"supported_models"`
+	TimeoutMS               int      `json:"timeout_ms"`
+	MaxRetries              int      `json:"max_retries"`
+	BreakerFailureThreshold int      `json:"breaker_failure_threshold"`
+	Enabled                 bool     `json:"enabled"`
 }
 
 type routingRuleRequest struct {
@@ -64,6 +68,19 @@ func (h *RoutingAdmin) ListProviders() http.Handler {
 		}
 
 		writeJSON(w, http.StatusOK, records)
+	})
+}
+
+// ListUpstreams reports live runtime status for every registered upstream,
+// including circuit-breaker state. It is read-only and safe to poll.
+func (h *RoutingAdmin) ListUpstreams() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h.registry == nil {
+			writeJSON(w, http.StatusOK, []proxy.UpstreamStatus{})
+			return
+		}
+
+		writeJSON(w, http.StatusOK, h.registry.Statuses())
 	})
 }
 
@@ -104,15 +121,16 @@ func (h *RoutingAdmin) CreateProvider() http.Handler {
 		}
 
 		record := proxy.ProviderRecord{
-			Name:            strings.TrimSpace(req.Name),
-			BaseURL:         strings.TrimSpace(req.BaseURL),
-			SecretRef:       strings.TrimSpace(req.SecretKey),
-			ProviderGroup:   strings.TrimSpace(req.ProviderGroup),
-			Weight:          req.Weight,
-			SupportedModels: req.SupportedModels,
-			TimeoutMS:       req.TimeoutMS,
-			MaxRetries:      req.MaxRetries,
-			Enabled:         req.Enabled,
+			Name:                    strings.TrimSpace(req.Name),
+			BaseURL:                 strings.TrimSpace(req.BaseURL),
+			SecretRef:               strings.TrimSpace(req.SecretKey),
+			ProviderGroup:           strings.TrimSpace(req.ProviderGroup),
+			Weight:                  req.Weight,
+			SupportedModels:         req.SupportedModels,
+			TimeoutMS:               req.TimeoutMS,
+			MaxRetries:              req.MaxRetries,
+			BreakerFailureThreshold: req.BreakerFailureThreshold,
+			Enabled:                 req.Enabled,
 		}
 
 		created, err := h.providers.Create(r.Context(), record)
@@ -159,16 +177,17 @@ func (h *RoutingAdmin) UpdateProvider() http.Handler {
 		}
 
 		record := proxy.ProviderRecord{
-			ID:              id,
-			Name:            strings.TrimSpace(req.Name),
-			BaseURL:         strings.TrimSpace(req.BaseURL),
-			SecretRef:       strings.TrimSpace(req.SecretKey),
-			ProviderGroup:   strings.TrimSpace(req.ProviderGroup),
-			Weight:          req.Weight,
-			SupportedModels: req.SupportedModels,
-			TimeoutMS:       req.TimeoutMS,
-			MaxRetries:      req.MaxRetries,
-			Enabled:         req.Enabled,
+			ID:                      id,
+			Name:                    strings.TrimSpace(req.Name),
+			BaseURL:                 strings.TrimSpace(req.BaseURL),
+			SecretRef:               strings.TrimSpace(req.SecretKey),
+			ProviderGroup:           strings.TrimSpace(req.ProviderGroup),
+			Weight:                  req.Weight,
+			SupportedModels:         req.SupportedModels,
+			TimeoutMS:               req.TimeoutMS,
+			MaxRetries:              req.MaxRetries,
+			BreakerFailureThreshold: req.BreakerFailureThreshold,
+			Enabled:                 req.Enabled,
 		}
 
 		updated, err := h.providers.Update(r.Context(), id, record)
@@ -477,6 +496,10 @@ func validateProviderRequest(req providerRequest) error {
 
 	if req.MaxRetries < 0 {
 		return errors.New("max_retries must be >= 0")
+	}
+
+	if req.BreakerFailureThreshold < 1 {
+		return errors.New("breaker_failure_threshold must be >= 1")
 	}
 
 	return nil

@@ -430,7 +430,7 @@ func recordTraceAsync(
 		Timestamp:     time.Now(),
 		UserID:        userID,
 		Username:      username,
-		Provider:      "openai",
+		Provider:      routing.Upstream,
 		Model:         model,
 		LatencyMS:     latency,
 		Status:        status,
@@ -442,8 +442,8 @@ func recordTraceAsync(
 		Upstream:      routing.Upstream,
 		Attempt:       routing.Attempt,
 		Failover:      routing.Failover,
-		FailoverFrom: routing.FailoverFrom,
-		FailoverTo:   routing.FailoverTo,
+		FailoverFrom:  routing.FailoverFrom,
+		FailoverTo:    routing.FailoverTo,
 	})
 }
 
@@ -485,7 +485,7 @@ func captureUsageAsync(ctx context.Context, requestID, model string, in, out, to
 			TraceID:           requestID,
 			RequestID:         requestID,
 			Timestamp:         time.Now(),
-			Provider:          "openai",
+			Provider:          routing.Upstream,
 			Model:             model,
 			InputTokens:       in,
 			OutputTokens:      out,

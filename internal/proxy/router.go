@@ -118,11 +118,12 @@ func (r *Router) Forward(
 	}
 
 	if !matched {
-		return nil, ErrNoProvider
+		return r.forwardDefault(ctx, body, requestID)
 	}
 
 	switch rule.Action {
 	case "deny", "force_deny":
+		DefaultMetrics.RecordDenied()
 		return nil, fmt.Errorf("%w: %s", ErrRoutingDenied, rule.Name)
 	case "route", "weighted":
 		// Continue to provider selection.
@@ -141,6 +142,7 @@ func (r *Router) Forward(
 
 	candidates := r.registry.Candidates(model, rule.ProviderGroup)
 	if len(candidates) == 0 {
+		DefaultMetrics.RecordNoProvider()
 		return nil, ErrNoProvider
 	}
 
@@ -203,6 +205,7 @@ func (r *Router) forwardWithFailover(
 		telemetryCtx := withRoutingTelemetry(ctx, telemetry)
 
 		if !failover {
+			DefaultMetrics.RecordDecision(selected.Name)
 			observability.DefaultBus.Publish(
 				observability.NewDataEvent(
 					requestID,
@@ -219,6 +222,7 @@ func (r *Router) forwardWithFailover(
 				),
 			)
 		} else {
+			DefaultMetrics.RecordFailover(previous.Name, selected.Name)
 			observability.DefaultBus.Publish(
 				observability.NewDataEvent(
 					requestID,

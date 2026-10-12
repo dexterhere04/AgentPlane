@@ -39,29 +39,31 @@ func isUniqueViolation(err error) bool {
 }
 
 type ProviderRecord struct {
-	ID              uuid.UUID
-	Name            string
-	BaseURL         string
-	SecretRef       string
-	ProviderGroup   string
-	Weight          int
-	SupportedModels []string
-	TimeoutMS       int
-	MaxRetries      int
-	Enabled         bool
+	ID                      uuid.UUID
+	Name                    string
+	BaseURL                 string
+	SecretRef               string
+	ProviderGroup           string
+	Weight                  int
+	SupportedModels         []string
+	TimeoutMS               int
+	MaxRetries              int
+	BreakerFailureThreshold int
+	Enabled                 bool
 }
 
 type providerRow struct {
-	ID              uuid.UUID
-	Name            string
-	BaseURL         string
-	SecretRef       string
-	ProviderGroup   string
-	Weight          int
-	SupportedModels []string
-	TimeoutMS       int
-	MaxRetries      int
-	Enabled         bool
+	ID                      uuid.UUID
+	Name                    string
+	BaseURL                 string
+	SecretRef               string
+	ProviderGroup           string
+	Weight                  int
+	SupportedModels         []string
+	TimeoutMS               int
+	MaxRetries              int
+	BreakerFailureThreshold int
+	Enabled                 bool
 }
 
 func (s *ProviderStore) Get(ctx context.Context, id uuid.UUID) (ProviderRecord, error) {
@@ -76,6 +78,7 @@ func (s *ProviderStore) Get(ctx context.Context, id uuid.UUID) (ProviderRecord, 
 			supported_models,
 			timeout_ms,
 			max_retries,
+			breaker_failure_threshold,
 			enabled
 		FROM providers
 		WHERE id = $1
@@ -94,6 +97,7 @@ func (s *ProviderStore) Get(ctx context.Context, id uuid.UUID) (ProviderRecord, 
 		&supportedModels,
 		&row.TimeoutMS,
 		&row.MaxRetries,
+		&row.BreakerFailureThreshold,
 		&row.Enabled,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -122,6 +126,7 @@ func (s *ProviderStore) List(ctx context.Context) ([]ProviderRecord, error) {
 			supported_models,
 			timeout_ms,
 			max_retries,
+			breaker_failure_threshold,
 			enabled
 		FROM providers
 		ORDER BY name ASC
@@ -154,9 +159,10 @@ func (s *ProviderStore) Create(
 			supported_models,
 			timeout_ms,
 			max_retries,
+			breaker_failure_threshold,
 			enabled
 		)
-		VALUES ($1,$2,$3,NULLIF($4,''),NULLIF($5,''),$6,$7,$8,$9,$10)
+		VALUES ($1,$2,$3,NULLIF($4,''),NULLIF($5,''),$6,$7,$8,$9,$10,$11)
 		RETURNING
 			id,
 			name,
@@ -167,6 +173,7 @@ func (s *ProviderStore) Create(
 			supported_models,
 			timeout_ms,
 			max_retries,
+			breaker_failure_threshold,
 			enabled
 	`
 
@@ -185,6 +192,7 @@ func (s *ProviderStore) Create(
 		models,
 		record.TimeoutMS,
 		record.MaxRetries,
+		record.BreakerFailureThreshold,
 		record.Enabled,
 	).Scan(
 		&row.ID,
@@ -196,6 +204,7 @@ func (s *ProviderStore) Create(
 		&supportedModels,
 		&row.TimeoutMS,
 		&row.MaxRetries,
+		&row.BreakerFailureThreshold,
 		&row.Enabled,
 	)
 	if err != nil {
@@ -233,7 +242,8 @@ func (s *ProviderStore) Update(
 			supported_models = $7,
 			timeout_ms = $8,
 			max_retries = $9,
-			enabled = $10,
+			breaker_failure_threshold = $10,
+			enabled = $11,
 			updated_at = now()
 		WHERE id = $1
 		RETURNING
@@ -246,6 +256,7 @@ func (s *ProviderStore) Update(
 			supported_models,
 			timeout_ms,
 			max_retries,
+			breaker_failure_threshold,
 			enabled
 	`
 
@@ -264,6 +275,7 @@ func (s *ProviderStore) Update(
 		models,
 		record.TimeoutMS,
 		record.MaxRetries,
+		record.BreakerFailureThreshold,
 		record.Enabled,
 	).Scan(
 		&row.ID,
@@ -275,6 +287,7 @@ func (s *ProviderStore) Update(
 		&supportedModels,
 		&row.TimeoutMS,
 		&row.MaxRetries,
+		&row.BreakerFailureThreshold,
 		&row.Enabled,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -340,6 +353,7 @@ func (s *ProviderStore) ListEnabled(ctx context.Context) ([]*Upstream, error) {
 			supported_models,
 			timeout_ms,
 			max_retries,
+			breaker_failure_threshold,
 			enabled
 		FROM providers
 		WHERE enabled = TRUE
@@ -376,6 +390,7 @@ func (s *ProviderStore) queryRecords(
 			&supportedModels,
 			&row.TimeoutMS,
 			&row.MaxRetries,
+			&row.BreakerFailureThreshold,
 			&row.Enabled,
 		); err != nil {
 			return nil, fmt.Errorf("scan provider: %w", err)
@@ -421,6 +436,7 @@ func (s *ProviderStore) loadUpstreams(
 			&supportedModels,
 			&row.TimeoutMS,
 			&row.MaxRetries,
+			&row.BreakerFailureThreshold,
 			&row.Enabled,
 		); err != nil {
 			return nil, fmt.Errorf("scan provider: %w", err)
@@ -459,6 +475,9 @@ func (s *ProviderStore) loadUpstreams(
 			WithModels(row.SupportedModels...),
 			WithTimeout(time.Duration(row.TimeoutMS)*time.Millisecond),
 			WithMaxRetries(row.MaxRetries),
+			WithBreaker(BreakerConfig{
+				FailureThreshold: row.BreakerFailureThreshold,
+			}),
 		)
 
 		upstreams = append(upstreams, upstream)
@@ -473,15 +492,16 @@ func (s *ProviderStore) loadUpstreams(
 
 func providerRecord(row providerRow) ProviderRecord {
 	return ProviderRecord{
-		ID:              row.ID,
-		Name:            row.Name,
-		BaseURL:         row.BaseURL,
-		SecretRef:       row.SecretRef,
-		ProviderGroup:   row.ProviderGroup,
-		Weight:          row.Weight,
-		SupportedModels: row.SupportedModels,
-		TimeoutMS:       row.TimeoutMS,
-		MaxRetries:      row.MaxRetries,
-		Enabled:         row.Enabled,
+		ID:                      row.ID,
+		Name:                    row.Name,
+		BaseURL:                 row.BaseURL,
+		SecretRef:               row.SecretRef,
+		ProviderGroup:           row.ProviderGroup,
+		Weight:                  row.Weight,
+		SupportedModels:         row.SupportedModels,
+		TimeoutMS:               row.TimeoutMS,
+		MaxRetries:              row.MaxRetries,
+		BreakerFailureThreshold: row.BreakerFailureThreshold,
+		Enabled:                 row.Enabled,
 	}
 }

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/dexterhere04/AgentPlane/internal/auth"
 	"github.com/dexterhere04/AgentPlane/internal/guardrail"
@@ -50,7 +51,7 @@ func ChatWithRouting(
 	providerRegistry *proxy.Registry,
 	selector *proxy.WeightedSelector,
 ) {
-	
+
 	chatWithRouting(
 		w,
 		r,
@@ -89,10 +90,10 @@ func chatWithRouting(
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageRequestReceived, "started", r.Method+" /chat"))
 
 	var (
-    userID   string
-    username string
-    roles    []string
-)
+		userID   string
+		username string
+		roles    []string
+	)
 	if user, ok := auth.UserFromContext(r.Context()); ok {
 		userID = user.ID.String()
 		username = user.Username
@@ -173,41 +174,41 @@ func chatWithRouting(
 
 	ctx := r.Context()
 
-if user, ok := auth.UserFromContext(ctx); ok {
-    userID = user.ID.String()
-    username = user.Username
+	if user, ok := auth.UserFromContext(ctx); ok {
+		userID = user.ID.String()
+		username = user.Username
 
-    if rbacStore != nil {
-        roles, err = rbacStore.ListUserRoles(ctx, user.ID)
-        if err != nil {
-            log.Printf("error loading roles for routing: %v", err)
-            http.Error(w, "routing unavailable", http.StatusServiceUnavailable)
-            return
-        }
-    }
-} else if rbacStore != nil {
-    bus.Publish(observability.NewMessageEvent(
-        requestID,
-        observability.StageRequestReceived,
-        "error",
-        "missing authenticated user for routing",
-    ))
-    http.Error(w, "unauthorized", http.StatusUnauthorized)
-    return
-}
+		if rbacStore != nil {
+			roles, err = rbacStore.ListUserRoles(ctx, user.ID)
+			if err != nil {
+				log.Printf("error loading roles for routing: %v", err)
+				http.Error(w, "routing unavailable", http.StatusServiceUnavailable)
+				return
+			}
+		}
+	} else if rbacStore != nil {
+		bus.Publish(observability.NewMessageEvent(
+			requestID,
+			observability.StageRequestReceived,
+			"error",
+			"missing authenticated user for routing",
+		))
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 
-model := proxy.ResolveModel(body)
-if model == "" {
-    writeModelRequired(w)
-    return
-}
+	model := proxy.ResolveModel(body)
+	if model == "" {
+		writeModelRequired(w)
+		return
+	}
 
-ctx = proxy.WithRouteRequest(ctx, proxy.RouteRequest{
-    Model:    model,
-    UserID:   userID,
-    Username: username,
-    Roles:    roles,
-})
+	ctx = proxy.WithRouteRequest(ctx, proxy.RouteRequest{
+		Model:    model,
+		UserID:   userID,
+		Username: username,
+		Roles:    roles,
+	})
 	// Authorization: chat:invoke is enforced by middleware (it needs no body).
 	// Per-model access is the dynamic half of the RBAC check and must run
 	// here, after the body has been read and validated.
@@ -273,8 +274,9 @@ ctx = proxy.WithRouteRequest(ctx, proxy.RouteRequest{
 
 	respBody, err = provider.Forward(ctx, body, requestID)
 	if err != nil {
-		log.Printf("error forwarding to provider: %v", err)
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		status := forwardingStatus(err)
+		log.Printf("error forwarding to provider (status %d): %v", status, err)
+		http.Error(w, err.Error(), status)
 		return
 	}
 
@@ -303,6 +305,25 @@ ctx = proxy.WithRouteRequest(ctx, proxy.RouteRequest{
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(respBody)
+}
+
+// forwardingStatus maps a routing/forwarding failure to the HTTP status the
+// client should see. A routing deny is an operator override, not an upstream
+// fault, so it surfaces as 403; unavailable routing, no eligible provider, or
+// an open circuit is a transient gateway condition (503); anything else is a
+// bad upstream response (502).
+func forwardingStatus(err error) int {
+	switch {
+	case errors.Is(err, proxy.ErrRoutingDenied):
+		return http.StatusForbidden
+	case errors.Is(err, proxy.ErrNoProvider),
+		errors.Is(err, proxy.ErrRoutingUnavailable),
+		errors.Is(err, proxy.ErrCircuitOpen),
+		errors.Is(err, proxy.ErrUpstreamDisabled):
+		return http.StatusServiceUnavailable
+	default:
+		return http.StatusBadGateway
+	}
 }
 
 func writeModelRequired(w http.ResponseWriter) {
