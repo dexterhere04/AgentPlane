@@ -216,7 +216,7 @@ func TestRoutingRuleResilienceConfig(t *testing.T) {
 	}
 }
 
-func TestRouterUsesDefaultProviderWhenNoRuleMatches(t *testing.T) {
+func TestRouterRejectsRequestWhenNoRuleMatches(t *testing.T) {
 	defaultProvider := &routerTestProvider{name: "default"}
 	groupProvider := &routerTestProvider{name: "group"}
 
@@ -229,7 +229,7 @@ func TestRouterUsesDefaultProviderWhenNoRuleMatches(t *testing.T) {
 	router := newTestRouter(
 		t,
 		defaultProvider,
-		nil,
+		[]RoutingRule{},
 		upstream,
 	)
 
@@ -240,21 +240,21 @@ func TestRouterUsesDefaultProviderWhenNoRuleMatches(t *testing.T) {
 		},
 	)
 
-	resp, err := router.Forward(ctx, []byte(`{"model":"gpt-3.5"}`), "req-1")
-	if err != nil {
-		t.Fatal(err)
+	_, err := router.Forward(
+		ctx,
+		[]byte(`{"model":"gpt-3.5"}`),
+		"req-1",
+	)
+	if !errors.Is(err, ErrNoProvider) {
+		t.Fatalf("expected ErrNoProvider, got %v", err)
 	}
 
-	if string(resp) != `{"provider":"default"}` {
-		t.Fatalf("expected default provider, got %s", resp)
-	}
-
-	if defaultProvider.calls != 1 {
-		t.Fatalf("expected default provider to be called once, got %d", defaultProvider.calls)
+	if defaultProvider.calls != 0 {
+		t.Fatalf("default provider called %d times; want 0", defaultProvider.calls)
 	}
 
 	if groupProvider.calls != 0 {
-		t.Fatalf("expected group provider not to be called, got %d", groupProvider.calls)
+		t.Fatalf("group provider called %d times; want 0", groupProvider.calls)
 	}
 }
 
@@ -769,5 +769,41 @@ func TestRouterEmitsRoutingTelemetry(t *testing.T) {
 	}
 	if !providerFailover {
 		t.Fatal("expected existing provider_failover event")
+	}
+}
+
+func TestRouterDeniesBeforeProviderSelection(t *testing.T) {
+	for _, action := range []string{"deny", "force_deny"} {
+		t.Run(action, func(t *testing.T) {
+			provider := &routerTestProvider{name: "group"}
+			upstream := NewUpstream(
+				"group-provider",
+				provider,
+				WithProviderGroup("production"),
+			)
+
+			rule := routeRule("production")
+			rule.Action = action
+
+			router := newTestRouter(
+				t,
+				&routerTestProvider{name: "default"},
+				[]RoutingRule{rule},
+				upstream,
+			)
+
+			_, err := router.Forward(
+				routeContext(),
+				[]byte(`{"model":"gpt-4o"}`),
+				"req-denied",
+			)
+
+			if !errors.Is(err, ErrRoutingDenied) {
+				t.Fatalf("error = %v, want ErrRoutingDenied", err)
+			}
+			if provider.calls != 0 {
+				t.Fatalf("provider called %d times; want 0", provider.calls)
+			}
+		})
 	}
 }

@@ -11,6 +11,8 @@ import {
   enableRoutingRule,
   fetchProviders,
   fetchRoutingRules,
+  getAdminToken,
+  setAdminToken,
   ProviderRecord,
   RoutingRuleRecord,
   updateProvider,
@@ -70,6 +72,41 @@ function prettyJSON(value: unknown): string {
   }
 }
 
+
+function matcherSummary(value: unknown, field: 'model' | 'role' | 'user'): string {
+  if (value == null || value === '') return 'Any';
+
+  let matcher: Record<string, unknown>;
+  try {
+    matcher = typeof value === 'string' ? JSON.parse(value) : value as Record<string, unknown>;
+  } catch {
+    return 'Invalid matcher';
+  }
+
+  if (!matcher || Object.keys(matcher).length === 0) return 'Any';
+
+  if (field === 'model') {
+    if (typeof matcher.equals === 'string') return matcher.equals;
+    if (typeof matcher.prefix === 'string') return `${matcher.prefix}*`;
+    if (Array.isArray(matcher.in)) return matcher.in.join(', ');
+  }
+
+  if (field === 'role') {
+    if (typeof matcher.equals === 'string') return matcher.equals;
+    if (Array.isArray(matcher.in)) return matcher.in.join(', ');
+  }
+
+  if (field === 'user') {
+    const users = Array.isArray(matcher.usernames) ? matcher.usernames : [];
+    const ids = Array.isArray(matcher.ids) ? matcher.ids : [];
+    const values = [...users, ...ids].filter((item) => typeof item === 'string');
+    if (values.length > 0) return values.join(', ');
+  }
+
+  return 'Configured';
+}
+
+
 function parseJSON(value: string, field: string): unknown {
   try {
     return JSON.parse(value || '{}');
@@ -90,7 +127,61 @@ const [ruleForm, setRuleForm] = useState<RoutingRuleForm>(emptyRule);
   const [editingProvider, setEditingProvider] = useState<string | null>(null);
 
   const [editingRule, setEditingRule] = useState<string | null>(null);
+const [tokenInput, setTokenInput] = useState(getAdminToken());
+const [tokenStatus, setTokenStatus] = useState<
+  'unvalidated' | 'checking' | 'valid' | 'invalid'
+>('unvalidated');
 
+async function validateAdminToken() {
+  const token = tokenInput.trim();
+
+  if (!token) {
+    setTokenStatus('invalid');
+    setError('Enter an admin token before validating.');
+    return;
+  }
+
+  setTokenStatus('checking');
+  setError('');
+
+  try {
+    // Use the existing protected endpoint; no public validation route.
+    const response = await fetch('/admin/providers', {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` }
+    });
+
+    if (response.status === 401 || response.status === 403) {
+      setTokenStatus('invalid');
+      setError('Admin token validation failed. Check the token and try again.');
+      return;
+    }
+
+    if (!response.ok) {
+      setTokenStatus('invalid');
+      setError(`Token validation could not be confirmed (HTTP ${response.status}).`);
+      return;
+    }
+
+    setAdminToken(token);
+    setTokenStatus('valid');
+    setError('');
+  } catch {
+    setTokenStatus('invalid');
+    setError('Unable to reach the gateway to validate the admin token.');
+  }
+}
+
+function requireValidatedAdmin(): boolean {
+  if (tokenStatus === 'valid' && tokenInput.trim() === getAdminToken()) {
+    return true;
+  }
+
+  setError(
+    'You must be an admin to perform this operation. Get your key validated to perform the action.'
+  );
+  return false;
+}
   async function load() {
     setLoading(true);
     setError('');
@@ -113,7 +204,9 @@ const [ruleForm, setRuleForm] = useState<RoutingRuleForm>(emptyRule);
     void load();
   }, []);
 
+
   async function saveProvider() {
+    if (!requireValidatedAdmin()) return;
     setSaving(true);
     setError('');
 
@@ -130,9 +223,17 @@ const [ruleForm, setRuleForm] = useState<RoutingRuleForm>(emptyRule);
         );
       }
 
+      // Fetch the authoritative provider list after the write succeeds.
+      // Do not reload routing rules just to refresh provider state.
+      const providerResult = await fetchProviders();
+
+      if (!providerResult.ok) {
+        throw new Error('Provider saved, but refreshing the provider list failed.');
+      }
+
+      setProviders(providerResult.providers);
       setProviderForm(emptyProvider);
       setEditingProvider(null);
-      await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Provider save failed.');
     } finally {
@@ -140,7 +241,9 @@ const [ruleForm, setRuleForm] = useState<RoutingRuleForm>(emptyRule);
     }
   }
 
+
   async function saveRule() {
+    if (!requireValidatedAdmin()) return;
     setSaving(true);
     setError('');
 
@@ -178,20 +281,40 @@ const [ruleForm, setRuleForm] = useState<RoutingRuleForm>(emptyRule);
     }
   }
 
+
   async function toggleProvider(provider: ProviderRecord) {
-    const result = provider.enabled
-      ? await disableProvider(provider.id)
-      : await enableProvider(provider.id);
+    if (!requireValidatedAdmin()) return;
+    setError('');
 
-    if (!result.ok) {
-      setError(`Unable to change provider "${provider.name}".`);
-      return;
+    const nextEnabled = !provider.enabled;
+
+    try {
+      const result = nextEnabled
+        ? await enableProvider(provider.id)
+        : await disableProvider(provider.id);
+
+      if (!result.ok) {
+        throw new Error(`Unable to change provider "${provider.name}".`);
+      }
+
+      setProviders((current) =>
+        current.map((item) =>
+          item.id === provider.id
+            ? { ...item, enabled: nextEnabled }
+            : item
+        )
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : `Unable to change provider "${provider.name}".`
+      );
     }
-
-    await load();
   }
 
   async function toggleRule(rule: RoutingRuleRecord) {
+    if (!requireValidatedAdmin()) return;
     const result = rule.enabled
       ? await disableRoutingRule(rule.id)
       : await enableRoutingRule(rule.id);
@@ -205,6 +328,7 @@ const [ruleForm, setRuleForm] = useState<RoutingRuleForm>(emptyRule);
   }
 
   async function removeProvider(provider: ProviderRecord) {
+    if (!requireValidatedAdmin()) return;
     if (!window.confirm(`Delete provider "${provider.name}"?`)) return;
 
     const result = await deleteProvider(provider.id);
@@ -223,6 +347,7 @@ const [ruleForm, setRuleForm] = useState<RoutingRuleForm>(emptyRule);
   }
 
   async function removeRule(rule: RoutingRuleRecord) {
+    if (!requireValidatedAdmin()) return;
     if (!window.confirm(`Delete routing rule "${rule.name}"?`)) return;
 
     const result = await deleteRoutingRule(rule.id);
@@ -273,7 +398,44 @@ const [ruleForm, setRuleForm] = useState<RoutingRuleForm>(emptyRule);
   return (
     <div style={{ marginTop: 24 }}>
       {error && <Alert tone="warn">{error}</Alert>}
-
+      <Card
+  title="Admin Token Validator"
+  subtitle="Validate your admin token before managing providers or routing rules."
+>
+  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+    <input
+      className="input mono"
+      type="password"
+      autoComplete="current-password"
+      aria-label="Admin token"
+      placeholder="Enter admin token"
+      value={tokenInput}
+      onChange={(e) => {
+        setTokenInput(e.target.value);
+        setTokenStatus('unvalidated');
+      }}
+      style={{ flex: '1 1 280px' }}
+    />
+    <button
+      className="btn"
+      disabled={tokenStatus === 'checking'}
+      onClick={() => void validateAdminToken()}
+    >
+      {tokenStatus === 'checking' ? 'Validating…' : 'Validate token'}
+    </button>
+    <Badge
+      tone={tokenStatus === 'valid' ? 'pass' : 'neutral'}
+    >
+      {tokenStatus === 'valid'
+        ? 'VALIDATED'
+        : tokenStatus === 'checking'
+          ? 'CHECKING'
+          : tokenStatus === 'invalid'
+            ? 'INVALID'
+            : 'NOT VALIDATED'}
+    </Badge>
+  </div>
+</Card>
       <Card
         title="Provider / upstream administration"
         subtitle="Create and manage the upstreams used by routing and failover."
@@ -562,6 +724,7 @@ const [ruleForm, setRuleForm] = useState<RoutingRuleForm>(emptyRule);
                   <tr>
                     <th>Name</th>
                     <th>Priority</th>
+                    <th>Match conditions</th>
                     <th>Action</th>
                     <th>Provider group</th>
                     <th>Status</th>
@@ -573,6 +736,11 @@ const [ruleForm, setRuleForm] = useState<RoutingRuleForm>(emptyRule);
                     <tr key={rule.id}>
                       <td><strong>{rule.name}</strong></td>
                       <td>{rule.priority}</td>
+                      <td>
+  <div><strong>Model:</strong> {matcherSummary(rule.model_matcher, 'model')}</div>
+  <div><strong>Role:</strong> {matcherSummary(rule.role_matcher, 'role')}</div>
+  <div><strong>User:</strong> {matcherSummary(rule.user_matcher, 'user')}</div>
+</td>
                       <td>{rule.action}</td>
                       <td>{rule.provider_group || '—'}</td>
                       <td>
@@ -687,7 +855,7 @@ const [ruleForm, setRuleForm] = useState<RoutingRuleForm>(emptyRule);
                         model_matcher: e.target.value
                       })
                     }
-                    placeholder='{"pattern":"gpt-4o"}'
+                    placeholder='{"equals":"gpt-4o"}'
                   />
                 </label>
 
@@ -703,7 +871,7 @@ const [ruleForm, setRuleForm] = useState<RoutingRuleForm>(emptyRule);
                         role_matcher: e.target.value
                       })
                     }
-                    placeholder='{"roles":["engineering"]}'
+                    placeholder='{"in":["engineering"]}'
                   />
                 </label>
 
@@ -719,7 +887,7 @@ const [ruleForm, setRuleForm] = useState<RoutingRuleForm>(emptyRule);
                         user_matcher: e.target.value
                       })
                     }
-                    placeholder='{"user_ids":["..."]}'
+                    placeholder='{"usernames":["alice"]}'
                   />
                 </label>
 

@@ -424,13 +424,6 @@ func recordTraceAsync(
 	//routing := routingTelemetryFromContext(ctx)
 	routing := routingTelemetryFromContext(ctx)
 
-fmt.Printf(
-    "trace telemetry: route=%q upstream=%q attempt=%d failover=%v\n",
-    routing.Route,
-    routing.Upstream,
-    routing.Attempt,
-    routing.Failover,
-)
 	go observability.RecordTrace(observability.Trace{
 		TraceID:       requestID,
 		RequestID:     requestID,
@@ -449,6 +442,8 @@ fmt.Printf(
 		Upstream:      routing.Upstream,
 		Attempt:       routing.Attempt,
 		Failover:      routing.Failover,
+		FailoverFrom: routing.FailoverFrom,
+		FailoverTo:   routing.FailoverTo,
 	})
 }
 

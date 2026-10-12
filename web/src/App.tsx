@@ -6,7 +6,6 @@ import { createEventQueue, EventQueue, FlowMode } from './queue';
 import { resetSetup } from './setup';
 import { Icon, IconName } from './icons';
 import { Section } from './components/ui';
-import RoutingView from './components/RoutingView';
 import Overview from './components/Overview';
 import PipelineView from './components/PipelineView';
 import ChatPanel from './components/ChatPanel';
@@ -17,6 +16,7 @@ import UsageView from './components/UsageView';
 import ObservabilityView from './components/ObservabilityView';
 import AccessControlView from './components/AccessControlView';
 import ChatOverlay from './components/ChatOverlay';
+import RoutingView from './components/RoutingView';
 
 interface SectionDef {
   id: string;

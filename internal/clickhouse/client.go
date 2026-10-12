@@ -186,13 +186,13 @@ func (c *Client) InsertUsage(ctx context.Context, u *UsageEvent) error {
     INSERT INTO agentplane.usage_events (
         trace_id, provider, model, input_tokens, output_tokens,
         reasoning_tokens, cached_input_tokens, estimated_cost,
-        route, upstream, attempt, failover
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        route, upstream, attempt, failover, failover_from, failover_to
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 	return c.Exec(ctx, query,
 		u.TraceID, u.Provider, u.Model, u.InputTokens, u.OutputTokens,
 		u.ReasoningTokens, u.CachedInputTokens, u.EstimatedCost,
-		u.Route, u.Upstream, u.Attempt, u.Failover,
+		u.Route, u.Upstream, u.Attempt, u.Failover, u.FailoverFrom, u.FailoverTo,
 	)
 }
 

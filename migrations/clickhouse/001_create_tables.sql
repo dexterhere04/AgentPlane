@@ -138,6 +138,12 @@ ALTER TABLE agentplane.usage_events
 ALTER TABLE agentplane.usage_events
     ADD COLUMN IF NOT EXISTS failover UInt8 DEFAULT 0;
 
+ALTER TABLE agentplane.usage_events
+    ADD COLUMN IF NOT EXISTS failover_from String DEFAULT '';
+
+ALTER TABLE agentplane.usage_events
+    ADD COLUMN IF NOT EXISTS failover_to String DEFAULT '';
+
 ALTER TABLE agentplane.traces
     ADD COLUMN IF NOT EXISTS failover_from String DEFAULT '';
 

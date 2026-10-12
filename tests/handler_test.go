@@ -17,7 +17,7 @@ func TestHandlerChatCleanRequest(t *testing.T) {
 	provider := &testCallingProvider{NameStr: "mock", Response: []byte(`{"choices":[{"message":{"content":"Hello back"}}]}`)}
 
 	enforcement := newTestEnforcement(&testGuardrail{
-		NameStr: "passer",
+		NameStr:  "passer",
 		InputDec: guardrail.DecisionPass, OutputDec: guardrail.DecisionPass,
 	})
 
@@ -75,7 +75,7 @@ func TestHandlerChatInputGuardrailBlock(t *testing.T) {
 	provider := &testCallingProvider{NameStr: "mock", Response: []byte(`{}`)}
 
 	g := &testGuardrail{
-		NameStr: "blocker",
+		NameStr:  "blocker",
 		InputDec: guardrail.DecisionBlock, InputMsg: "detected secret",
 		Findings: []guardrail.Finding{
 			{Guardrail: "blocker", Type: "aws_key", Severity: guardrail.SeverityCritical},
@@ -86,7 +86,7 @@ func TestHandlerChatInputGuardrailBlock(t *testing.T) {
 	enforcement := newTestEnforcement(g)
 	inputSet := enforcementSet(g)
 
-	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{"messages":[{"role":"user","content":"hi"}]}`)))
+	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`)))
 	w := httptest.NewRecorder()
 	handlers.Chat(w, req, enforcement, nil, inputSet, guardrail.GuardrailSet{}, provider)
 
@@ -113,15 +113,15 @@ func TestHandlerChatInputGuardrailBlock(t *testing.T) {
 func TestHandlerChatInputRedact(t *testing.T) {
 	provider := &testCallingProvider{NameStr: "mock", Response: []byte(`{"ok":true}`)}
 	g := &testGuardrail{
-		NameStr: "pii",
+		NameStr:     "pii",
 		RedactInput: []byte(`{"messages":[{"role":"user","content":"[EMAIL REDACTED]"}]}`),
-		OutputDec: guardrail.DecisionPass,
+		OutputDec:   guardrail.DecisionPass,
 	}
 
 	enforcement := newTestEnforcement(g)
 	inputSet := enforcementSet(g)
 
-	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{"messages":[{"role":"user","content":"alice@example.com"}]}`)))
+	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"alice@example.com"}]}`)))
 	w := httptest.NewRecorder()
 	handlers.Chat(w, req, enforcement, nil, inputSet, guardrail.GuardrailSet{}, provider)
 
@@ -142,7 +142,7 @@ func TestHandlerChatOutputGuardrailBlock(t *testing.T) {
 		Response: []byte(`{"choices":[{"message":{"content":"bad output"}}]}`),
 	}
 	g := &testGuardrail{
-		NameStr: "secrets",
+		NameStr:   "secrets",
 		InputDec:  guardrail.DecisionPass,
 		OutputDec: guardrail.DecisionBlock, OutputMsg: "bad content",
 		Findings: []guardrail.Finding{
@@ -153,7 +153,7 @@ func TestHandlerChatOutputGuardrailBlock(t *testing.T) {
 	enforcement := newTestEnforcement(g)
 	outputSet := enforcementSet(g)
 
-	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{"messages":[{"role":"user","content":"hello"}]}`)))
+	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]}`)))
 	w := httptest.NewRecorder()
 	handlers.Chat(w, req, enforcement, nil, guardrail.GuardrailSet{}, outputSet, provider)
 
@@ -171,7 +171,7 @@ func TestHandlerChatOutputRedact(t *testing.T) {
 		Response: []byte(`{"choices":[{"message":{"content":"call 555-123-4567"}}]}`),
 	}
 	g := &testGuardrail{
-		NameStr: "pii",
+		NameStr:   "pii",
 		InputDec:  guardrail.DecisionPass,
 		RedactOut: []byte(`{"choices":[{"message":{"content":"call [PHONE REDACTED]"}}]}`),
 	}
@@ -179,7 +179,7 @@ func TestHandlerChatOutputRedact(t *testing.T) {
 	enforcement := newTestEnforcement(g)
 	outputSet := enforcementSet(g)
 
-	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{"messages":[{"role":"user","content":"hello"}]}`)))
+	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]}`)))
 	w := httptest.NewRecorder()
 	handlers.Chat(w, req, enforcement, nil, guardrail.GuardrailSet{}, outputSet, provider)
 
@@ -194,11 +194,11 @@ func TestHandlerChatOutputRedact(t *testing.T) {
 func TestHandlerChatProviderError(t *testing.T) {
 	provider := &testCallingProvider{NameStr: "mock", Err: fmt.Errorf("downstream failure")}
 	enforcement := newTestEnforcement(&testGuardrail{
-		NameStr: "passer",
+		NameStr:  "passer",
 		InputDec: guardrail.DecisionPass, OutputDec: guardrail.DecisionPass,
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{"messages":[{"role":"user","content":"hello"}]}`)))
+	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]}`)))
 	w := httptest.NewRecorder()
 	handlers.Chat(w, req, enforcement, nil, guardrail.GuardrailSet{}, guardrail.GuardrailSet{}, provider)
 
@@ -209,7 +209,7 @@ func TestHandlerChatProviderError(t *testing.T) {
 
 func TestHandlerChatNilProvider(t *testing.T) {
 	enforcement := newTestEnforcement(&testGuardrail{
-		NameStr: "passer",
+		NameStr:  "passer",
 		InputDec: guardrail.DecisionPass, OutputDec: guardrail.DecisionPass,
 	})
 
@@ -225,7 +225,7 @@ func TestHandlerChatNilProvider(t *testing.T) {
 func TestHandlerChatContentTypeHeader(t *testing.T) {
 	provider := &testCallingProvider{NameStr: "mock", Response: []byte(`{"ok":true}`)}
 	enforcement := newTestEnforcement(&testGuardrail{
-		NameStr: "passer",
+		NameStr:  "passer",
 		InputDec: guardrail.DecisionPass, OutputDec: guardrail.DecisionPass,
 	})
 
@@ -242,7 +242,7 @@ func TestHandlerChatContentTypeHeader(t *testing.T) {
 func TestHandlerChatWarnContinues(t *testing.T) {
 	provider := &testCallingProvider{NameStr: "mock", Response: []byte(`{"ok":true}`)}
 	g := &testGuardrail{
-		NameStr: "policy",
+		NameStr:  "policy",
 		InputDec: guardrail.DecisionWarn, InputMsg: "potentially harmful",
 		OutputDec: guardrail.DecisionWarn, OutputMsg: "potentially harmful",
 	}
@@ -250,7 +250,7 @@ func TestHandlerChatWarnContinues(t *testing.T) {
 	enforcement := newTestEnforcement(g)
 	inoutSet := enforcementSet(g)
 
-	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{"messages":[{"role":"user","content":"test"}]}`)))
+	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"test"}]}`)))
 	w := httptest.NewRecorder()
 	handlers.Chat(w, req, enforcement, nil, inoutSet, inoutSet, provider)
 
@@ -275,10 +275,10 @@ func TestHandlerChatReadBodyError(t *testing.T) {
 	}
 }
 
-func TestHandlerChatEmptyBodyPasses(t *testing.T) {
+func TestHandlerChatEmptyBodyRequiresModel(t *testing.T) {
 	provider := &testCallingProvider{NameStr: "mock", Response: []byte(`{}`)}
 	enforcement := newTestEnforcement(&testGuardrail{
-		NameStr: "passer",
+		NameStr:  "passer",
 		InputDec: guardrail.DecisionPass, OutputDec: guardrail.DecisionPass,
 	})
 
@@ -286,24 +286,30 @@ func TestHandlerChatEmptyBodyPasses(t *testing.T) {
 	w := httptest.NewRecorder()
 	handlers.Chat(w, req, enforcement, nil, guardrail.GuardrailSet{}, guardrail.GuardrailSet{}, provider)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200 for empty JSON object, got %d", w.Code)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing model, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "model_required") {
+		t.Errorf("expected model_required error, got %s", w.Body.String())
+	}
+	if provider.Called {
+		t.Error("provider should not be called when model is missing")
 	}
 }
 
 func TestHandlerChatErrorResponseFormat(t *testing.T) {
 	provider := &testCallingProvider{NameStr: "mock", Response: []byte(`{}`)}
 	g := &testGuardrail{
-		NameStr: "blocker",
+		NameStr:  "blocker",
 		InputDec: guardrail.DecisionBlock, InputMsg: "secret found",
-		Findings: []guardrail.Finding{{Type: "aws_key", Severity: guardrail.SeverityCritical}},
+		Findings:  []guardrail.Finding{{Type: "aws_key", Severity: guardrail.SeverityCritical}},
 		OutputDec: guardrail.DecisionPass,
 	}
 
 	enforcement := newTestEnforcement(g)
 	inputSet := enforcementSet(g)
 
-	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{"messages":[]}`)))
+	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{"model":"gpt-4o","messages":[]}`)))
 	w := httptest.NewRecorder()
 	handlers.Chat(w, req, enforcement, nil, inputSet, guardrail.GuardrailSet{}, provider)
 
@@ -318,19 +324,19 @@ func TestHandlerChatErrorResponseFormat(t *testing.T) {
 func TestHandlerChatMultipleGuardrailsOrder(t *testing.T) {
 	provider := &testCallingProvider{NameStr: "mock", Response: []byte(`{"ok":true}`)}
 	g1 := &testGuardrail{
-		NameStr: "first",
+		NameStr:     "first",
 		RedactInput: []byte(`redacted content`),
-		OutputDec: guardrail.DecisionPass,
+		OutputDec:   guardrail.DecisionPass,
 	}
 	g2 := &testGuardrail{
-		NameStr: "second",
+		NameStr:  "second",
 		InputDec: guardrail.DecisionPass, OutputDec: guardrail.DecisionPass,
 	}
 
 	enforcement := newTestEnforcement(g1, g2)
 	inputSet := guardrail.GuardrailSet{Guards: []guardrail.GuardrailSpec{{Name: "first"}, {Name: "second"}}}
 
-	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{"test":"original"}`)))
+	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewReader([]byte(`{"model":"gpt-4o","test":"original"}`)))
 	w := httptest.NewRecorder()
 	handlers.Chat(w, req, enforcement, nil, inputSet, guardrail.GuardrailSet{}, provider)
 
@@ -345,7 +351,7 @@ func TestHandlerChatMultipleGuardrailsOrder(t *testing.T) {
 func TestHandlerChatStreamingGuardrailsApply(t *testing.T) {
 	provider := &testCallingProvider{NameStr: "mock", Response: []byte(`{"stream_result":"ok"}`)}
 	enforcement := newTestEnforcement(&testGuardrail{
-		NameStr: "output",
+		NameStr:  "output",
 		InputDec: guardrail.DecisionPass, OutputDec: guardrail.DecisionPass,
 	})
 

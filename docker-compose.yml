@@ -129,6 +129,7 @@ services:
       VAULT_ADDR: http://vault:8200
       VAULT_MOUNT_PATH: agentplane
       OPENAI_BASE_URL: http://mock:3002/v1
+      API_KEY_PEPPER: ${API_KEY_PEPPER}
       DATABASE_URL: postgres://agentplane:agentplane@postgres:5432/agentplane?sslmode=disable
       AGENTPLANE_ADMIN_TOKEN: dev-admin-token-change-me
       CLICKHOUSE_HOST: clickhouse

@@ -2,7 +2,7 @@ const ADMIN_TOKEN_KEY = 'agentplane.adminToken';
 const USER_KEY_KEY = 'agentplane.userKey';
 
 export function getAdminToken(): string {
-  return localStorage.getItem(ADMIN_TOKEN_KEY) || 'dev-admin-token-change-me';
+  return localStorage.getItem(ADMIN_TOKEN_KEY) || '';
 }
 
 export function setAdminToken(token: string): void {
@@ -433,17 +433,36 @@ export async function fetchProviders(): Promise<{
   const result = await adminRequest('/admin/providers');
 
   if (!result.ok) {
-    return { ok: false, status: result.status, providers: [] };
+    return {
+      ok: false,
+      status: result.status,
+      providers: []
+    };
   }
 
   const body = result.body as
-    | { providers?: ProviderRecord[] }
-    | ProviderRecord[]
+    | Record<string, unknown>[]
+    | { providers?: Record<string, unknown>[] }
     | null;
 
-  const providers = Array.isArray(body)
+  const rows = Array.isArray(body)
     ? body
     : body?.providers ?? [];
+
+  const providers: ProviderRecord[] = rows.map((row) => ({
+    id: String(row.id ?? row.ID ?? ''),
+    name: String(row.name ?? row.Name ?? ''),
+    base_url: String(row.base_url ?? row.BaseURL ?? ''),
+    secret_ref: String(row.secret_ref ?? row.SecretRef ?? ''),
+    provider_group: String(row.provider_group ?? row.ProviderGroup ?? ''),
+    weight: Number(row.weight ?? row.Weight ?? 1),
+    supported_models: (
+      row.supported_models ?? row.SupportedModels ?? []
+    ) as string[],
+    timeout_ms: Number(row.timeout_ms ?? row.TimeoutMS ?? 60000),
+    max_retries: Number(row.max_retries ?? row.MaxRetries ?? 1),
+    enabled: Boolean(row.enabled ?? row.Enabled ?? false)
+  }));
 
   return {
     ok: true,
@@ -515,6 +534,7 @@ export async function deleteProvider(
   });
 }
 
+
 export async function fetchRoutingRules(): Promise<{
   ok: boolean;
   status: number;
@@ -527,13 +547,32 @@ export async function fetchRoutingRules(): Promise<{
   }
 
   const body = result.body as
-    | { rules?: RoutingRuleRecord[]; routing_rules?: RoutingRuleRecord[] }
-    | RoutingRuleRecord[]
+    | Record<string, unknown>[]
+    | {
+        rules?: Record<string, unknown>[];
+        routing_rules?: Record<string, unknown>[];
+      }
     | null;
 
-  const rules = Array.isArray(body)
+  const rows = Array.isArray(body)
     ? body
     : body?.rules ?? body?.routing_rules ?? [];
+
+  const rules: RoutingRuleRecord[] = rows.map((row) => ({
+    id: String(row.id ?? row.ID ?? ''),
+    name: String(row.name ?? row.Name ?? ''),
+    priority: Number(row.priority ?? row.Priority ?? 0),
+    model_matcher: row.model_matcher ?? row.ModelMatcher ?? {},
+    role_matcher: row.role_matcher ?? row.RoleMatcher ?? {},
+    user_matcher: row.user_matcher ?? row.UserMatcher ?? {},
+    action: String(row.action ?? row.Action ?? ''),
+    provider_group: String(
+      row.provider_group ?? row.ProviderGroup ?? ''
+    ),
+    timeout_retry_overrides:
+      row.timeout_retry_overrides ?? row.TimeoutRetryOverrides ?? {},
+    enabled: Boolean(row.enabled ?? row.Enabled ?? false)
+  })) as RoutingRuleRecord[];
 
   return {
     ok: true,

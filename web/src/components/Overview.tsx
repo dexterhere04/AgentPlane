@@ -37,6 +37,7 @@ const TELEMETRY = [
 const SERVICES: { id: string; label: string; desc: string; icon: IconName }[] = [
   { id: 'chat', label: 'Playground', desc: 'Send a test prompt through the gateway', icon: 'play' },
   { id: 'pipeline', label: 'Pipeline', desc: 'Watch every stage of a request live', icon: 'route' },
+  { id: 'routing', label: 'Routing', desc: 'Configure routing rules and provider selection', icon: 'route' },
   { id: 'guardrails', label: 'Guardrails', desc: 'Test PII, secret and injection checks', icon: 'shield' },
   { id: 'events', label: 'Event Log', desc: 'Raw SSE events for every request', icon: 'list' },
   { id: 'keys', label: 'Keys & Vault', desc: 'Provider secrets and user API keys', icon: 'key' },

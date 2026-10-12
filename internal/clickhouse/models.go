@@ -88,5 +88,7 @@ type UsageEvent struct {
 	Upstream          string
 	Attempt           uint32
 	Failover          uint8
+	FailoverFrom      string
+	FailoverTo        string
 	CreatedAt         time.Time
 }
