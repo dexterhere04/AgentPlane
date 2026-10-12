@@ -33,7 +33,6 @@ import {
   fmtNum,
   fmtTime
 } from './ui';
-
 interface RoutingViewProps {
   stream: StreamState;
 }

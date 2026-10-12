@@ -187,8 +187,9 @@ type RuleSet struct {
 func NewRuleSet(rules []RoutingRule) (*RuleSet, error) {
 	copied := append([]RoutingRule(nil), rules...)
 
-	for _, rule := range copied {
-		if err := validateRule(rule); err != nil {
+	for i := range copied {
+		copied[i].Action = strings.ToLower(strings.TrimSpace(copied[i].Action))
+		if err := validateRule(copied[i]); err != nil {
 			return nil, err
 		}
 	}
@@ -197,11 +198,9 @@ func NewRuleSet(rules []RoutingRule) (*RuleSet, error) {
 		if copied[i].Priority != copied[j].Priority {
 			return copied[i].Priority < copied[j].Priority
 		}
-
 		if copied[i].ID != copied[j].ID {
 			return copied[i].ID < copied[j].ID
 		}
-
 		return copied[i].Name < copied[j].Name
 	})
 
@@ -210,20 +209,28 @@ func NewRuleSet(rules []RoutingRule) (*RuleSet, error) {
 
 // Match returns the first enabled rule matching the request.
 func (s *RuleSet) Match(req RouteRequest) (RoutingRule, bool, error) {
+	// Force-deny rules take precedence over ordinary priority ordering.
 	for _, rule := range s.rules {
-		if !rule.Enabled {
+		if !rule.Enabled || rule.Action != "force_deny" {
 			continue
 		}
-
 		matches, err := ruleMatches(rule, req)
 		if err != nil {
-			return RoutingRule{}, false, fmt.Errorf(
-				"routing rule %q: %w",
-				rule.Name,
-				err,
-			)
+			return RoutingRule{}, false, fmt.Errorf("routing rule %q: %w", rule.Name, err)
 		}
+		if matches {
+			return rule, true, nil
+		}
+	}
 
+	for _, rule := range s.rules {
+		if !rule.Enabled || rule.Action == "force_deny" {
+			continue
+		}
+		matches, err := ruleMatches(rule, req)
+		if err != nil {
+			return RoutingRule{}, false, fmt.Errorf("routing rule %q: %w", rule.Name, err)
+		}
 		if matches {
 			return rule, true, nil
 		}
@@ -239,6 +246,16 @@ func validateRule(rule RoutingRule) error {
 
 	if strings.TrimSpace(rule.Action) == "" {
 		return fmt.Errorf("routing rule %q: action is required", rule.Name)
+	}
+
+	switch strings.ToLower(strings.TrimSpace(rule.Action)) {
+	case "route", "weighted", "deny", "force_deny":
+	default:
+		return fmt.Errorf(
+			"routing rule %q: unsupported action %q (supported: route, weighted, deny, force_deny)",
+			rule.Name,
+			rule.Action,
+		)
 	}
 
 	if err := validateMatcherObject(rule.ModelMatcher, "model_matcher"); err != nil {
@@ -309,6 +326,9 @@ func matchModel(raw json.RawMessage, model string) (bool, error) {
 	var matcher StringMatcher
 	if err := json.Unmarshal(raw, &matcher); err != nil {
 		return false, fmt.Errorf("invalid model_matcher: %w", err)
+	}
+	if matcher.Equals == "*" {
+		return true, nil
 	}
 
 	if matcher.Equals == "" && len(matcher.In) == 0 && matcher.Prefix == "" {

@@ -194,14 +194,14 @@ func TestRuleSetPriorityWins(t *testing.T) {
 			ID:       "2",
 			Name:     "lower-priority-number",
 			Priority: 5,
-			Action:   "route-a",
+			Action:   "route",
 			Enabled:  true,
 		},
 		{
 			ID:       "1",
 			Name:     "higher-priority-number",
 			Priority: 10,
-			Action:   "route-b",
+			Action:   "weighted",
 			Enabled:  true,
 		},
 	}
@@ -230,14 +230,14 @@ func TestRuleSetIgnoresDisabledRules(t *testing.T) {
 			ID:       "1",
 			Name:     "disabled",
 			Priority: 1,
-			Action:   "disabled",
+			Action:   "route",
 			Enabled:  false,
 		},
 		{
 			ID:       "2",
 			Name:     "enabled",
 			Priority: 2,
-			Action:   "enabled",
+			Action:   "route",
 			Enabled:  true,
 		},
 	}
@@ -266,14 +266,14 @@ func TestRuleSetEqualPriorityIsDeterministic(t *testing.T) {
 			ID:       "b",
 			Name:     "second",
 			Priority: 10,
-			Action:   "b",
+			Action:   "weighted",
 			Enabled:  true,
 		},
 		{
 			ID:       "a",
 			Name:     "first",
 			Priority: 10,
-			Action:   "a",
+			Action:   "route",
 			Enabled:  true,
 		},
 	}
@@ -354,5 +354,37 @@ func TestRuleSetRejectsInvalidMatcher(t *testing.T) {
 
 	if err == nil {
 		t.Fatal("expected invalid matcher error")
+	}
+}
+
+func TestRuleSetModelWildcard(t *testing.T) {
+	rules := []RoutingRule{
+		{
+			ID:           "wildcard",
+			Name:         "all-models",
+			Priority:     10,
+			ModelMatcher: rawJSON(t, `{"equals":"*"}`),
+			Action:       "route",
+			Enabled:      true,
+		},
+	}
+
+	set, err := NewRuleSet(rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, model := range []string{"gpt-4o", "gpt-4o-mini", "claude-3"} {
+		t.Run(model, func(t *testing.T) {
+			rule, ok, err := set.Match(RouteRequest{Model: model})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !ok {
+				t.Errorf("expected wildcard to match model %q", model)
+			} else if rule.Name != "all-models" {
+				t.Errorf("matched %q, want all-models", rule.Name)
+			}
+		})
 	}
 }

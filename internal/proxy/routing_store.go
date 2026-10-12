@@ -242,7 +242,7 @@ func (s *RoutingRuleStore) Create(
 		jsonOrNull(rule.UserMatcher),
 		rule.Action,
 		rule.ProviderGroup,
-		jsonOrNull(rule.TimeoutRetryOverrides),
+		jsonOrObject(rule.TimeoutRetryOverrides),
 		rule.Enabled,
 	).Scan(&id)
 	if err != nil {

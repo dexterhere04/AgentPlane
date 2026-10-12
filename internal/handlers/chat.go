@@ -88,7 +88,11 @@ func chatWithRouting(
 
 	bus.Publish(observability.NewMessageEvent(requestID, observability.StageRequestReceived, "started", r.Method+" /chat"))
 
-	var userID, username string
+	var (
+    userID   string
+    username string
+    roles    []string
+)
 	if user, ok := auth.UserFromContext(r.Context()); ok {
 		userID = user.ID.String()
 		username = user.Username
@@ -168,12 +172,6 @@ func chatWithRouting(
 	body = proxy.ApplyDefaultModel(body)
 
 	ctx := r.Context()
-
-	var (
-    userID   string
-    username string
-    roles    []string
-)
 
 if user, ok := auth.UserFromContext(ctx); ok {
     userID = user.ID.String()

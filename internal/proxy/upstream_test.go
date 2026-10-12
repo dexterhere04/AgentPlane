@@ -177,3 +177,48 @@ func TestForwardOpensBreakerAndDisable(t *testing.T) {
 		t.Fatalf("want ErrUpstreamDisabled, got %v", err)
 	}
 }
+
+type timeoutProvider struct {
+	cancelled chan struct{}
+}
+
+func (p *timeoutProvider) Name() string { return "timeout-provider" }
+
+func (p *timeoutProvider) Forward(ctx context.Context, _ []byte, _ string) ([]byte, error) {
+	<-ctx.Done()
+	close(p.cancelled)
+	return nil, ctx.Err()
+}
+
+func TestForwardCancelsOnTimeout(t *testing.T) {
+	provider := &timeoutProvider{
+		cancelled: make(chan struct{}),
+	}
+
+	upstream := NewUpstream(
+		"timeout-test",
+		provider,
+		WithMaxRetries(0),
+	)
+
+	_, err := upstream.ForwardWithConfig(
+		context.Background(),
+		nil,
+		"timeout-request",
+		ResilienceConfig{
+			Timeout:       20 * time.Millisecond,
+			MaxRetries:    0,
+			MaxRetriesSet: true,
+		},
+	)
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want context deadline exceeded", err)
+	}
+
+	select {
+	case <-provider.cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("provider context was not cancelled after timeout")
+	}
+}

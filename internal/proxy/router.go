@@ -12,6 +12,7 @@ import (
 var (
 	ErrRoutingUnavailable = errors.New("proxy: routing unavailable")
 	ErrNoProvider         = errors.New("proxy: no provider available")
+	ErrRoutingDenied      = errors.New("proxy: request denied by routing rule")
 )
 
 type routingTelemetry struct {
@@ -117,7 +118,16 @@ func (r *Router) Forward(
 	}
 
 	if !matched {
-		return r.forwardDefault(ctx, body, requestID)
+		return nil, ErrNoProvider
+	}
+
+	switch rule.Action {
+	case "deny", "force_deny":
+		return nil, fmt.Errorf("%w: %s", ErrRoutingDenied, rule.Name)
+	case "route", "weighted":
+		// Continue to provider selection.
+	default:
+		return nil, fmt.Errorf("routing rule %q: unsupported action %q", rule.Name, rule.Action)
 	}
 
 	if r.registry == nil || r.selector == nil {
@@ -178,12 +188,19 @@ func (r *Router) forwardWithFailover(
 			return nil, ErrNoProvider
 		}
 
-		telemetryCtx := withRoutingTelemetry(ctx, routingTelemetry{
+		telemetry := routingTelemetry{
 			Route:    route,
 			Upstream: selected.Name,
 			Attempt:  attempt,
 			Failover: failover,
-		})
+		}
+
+		if failover && previous != nil {
+			telemetry.FailoverFrom = previous.Name
+			telemetry.FailoverTo = selected.Name
+		}
+
+		telemetryCtx := withRoutingTelemetry(ctx, telemetry)
 
 		if !failover {
 			observability.DefaultBus.Publish(
@@ -219,22 +236,13 @@ func (r *Router) forwardWithFailover(
 				),
 			)
 		}
-		
-		routing := routingTelemetryFromContext(telemetryCtx)
-fmt.Printf(
-    "router telemetry: route=%q upstream=%q attempt=%d failover=%v\n",
-    routing.Route,
-    routing.Upstream,
-    routing.Attempt,
-    routing.Failover,
-)
 
-resp, err := selected.ForwardWithConfig(
-    telemetryCtx,
-    body,
-    requestID,
-    resilienceConfig,
-)
+		resp, err := selected.ForwardWithConfig(
+			telemetryCtx,
+			body,
+			requestID,
+			resilienceConfig,
+		)
 
 		if err == nil {
 			return resp, nil

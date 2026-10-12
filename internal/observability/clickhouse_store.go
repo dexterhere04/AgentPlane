@@ -273,6 +273,8 @@ func (c *clickhouseAdapter) StoreUsage(u UsageEvent) error {
 		Upstream:          u.Upstream,
 		Attempt:           u.Attempt,
 		Failover:          boolToInt(u.Failover),
+		FailoverFrom:      u.FailoverFrom,
+		FailoverTo:        u.FailoverTo,
 		CreatedAt:         u.Timestamp,
 	}
 	if err := c.client.InsertUsage(context.Background(), ue); err != nil {
