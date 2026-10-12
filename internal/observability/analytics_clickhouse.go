@@ -149,7 +149,7 @@ func (s *clickhouseAnalyticsStore) Health(ctx context.Context, filter AnalyticsF
 func (s *clickhouseAnalyticsStore) Overview(ctx context.Context, filter AnalyticsFilter) (AnalyticsOverview, error) {
 	source, args := filteredTraceSource(filter)
 	query := `SELECT count(), countIf(is_error = 0), countIf(is_error = 1),
-quantileTDigest(0.50)(latency_ms), quantileTDigest(0.95)(latency_ms), quantileTDigest(0.99)(latency_ms),
+toFloat64(quantileTDigest(0.50)(latency_ms)), toFloat64(quantileTDigest(0.95)(latency_ms)), toFloat64(quantileTDigest(0.99)(latency_ms)),
 sum(input_tokens), sum(output_tokens), sum(total_tokens), sum(estimated_cost), max(timestamp)
 FROM ` + source
 	rows, err := analyticsQuery(ctx, s.client, query, args...)
@@ -207,7 +207,7 @@ func (s *clickhouseAnalyticsStore) Series(ctx context.Context, filter AnalyticsF
 	bucket, label := bucketExpression(filter.Range)
 	source, args := filteredTraceSource(filter)
 	query := fmt.Sprintf(`SELECT %s, count(), countIf(is_error = 0), countIf(is_error = 1),
-quantileTDigest(0.50)(latency_ms), quantileTDigest(0.95)(latency_ms), quantileTDigest(0.99)(latency_ms),
+toFloat64(quantileTDigest(0.50)(latency_ms)), toFloat64(quantileTDigest(0.95)(latency_ms)), toFloat64(quantileTDigest(0.99)(latency_ms)),
 sum(input_tokens), sum(output_tokens), sum(total_tokens), sum(estimated_cost)
 FROM %s GROUP BY %s ORDER BY %s LIMIT 10000`, bucket, source, bucket, bucket)
 	rows, err := analyticsQuery(ctx, s.client, query, args...)
@@ -261,7 +261,7 @@ func (s *clickhouseAnalyticsStore) Breakdowns(ctx context.Context, filter Analyt
 	for key, dimension := range map[string]string{"provider": "provider", "model": "model", "route": "route"} {
 		query := fmt.Sprintf(`SELECT %s, count(), countIf(is_error = 0), countIf(is_error = 1),
 sum(input_tokens), sum(output_tokens), sum(total_tokens), sum(estimated_cost),
-quantileTDigest(0.50)(latency_ms), quantileTDigest(0.95)(latency_ms), quantileTDigest(0.99)(latency_ms)
+toFloat64(quantileTDigest(0.50)(latency_ms)), toFloat64(quantileTDigest(0.95)(latency_ms)), toFloat64(quantileTDigest(0.99)(latency_ms))
 FROM %s AND %s != '' GROUP BY %s ORDER BY count() DESC LIMIT 20`, dimension, source, dimension, dimension)
 		rows, err := analyticsQuery(ctx, s.client, query, args...)
 		if err != nil {

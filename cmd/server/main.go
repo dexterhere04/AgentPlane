@@ -300,6 +300,10 @@ func main() {
 	mux.Handle("/events", auth.AdminMiddlewareQuery(adminToken, observability.SSEHandler(bus)))
 	analyticsHandler := handlers.NewObservabilityHandler(analyticsStore)
 	mux.Handle("/api/observability/", auth.AdminMiddleware(adminToken, analyticsHandler))
+	// Compatibility alias for the pre-dashboard analytics route. It lives on the
+	// same handler mux as the /api/observability/* routes, so it must be mounted
+	// explicitly here rather than relying on the /api/observability/ prefix.
+	mux.Handle("/analytics/traces_count", auth.AdminMiddleware(adminToken, analyticsHandler))
 	mux.Handle("/dashboard", auth.AdminMiddlewareQuery(adminToken, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(dashboard.HTML))
