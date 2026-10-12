@@ -37,6 +37,8 @@ import {
 } from './ui';
 interface RoutingViewProps {
   stream: StreamState;
+  adminToken?: string;
+  onAdminTokenChange?: (token: string) => void;
 }
 
 function number(value: unknown): number {
@@ -70,7 +72,7 @@ function eventData(event: ApiEvent): Record<string, unknown> {
     : {};
 }
 
-export default function RoutingView({ stream }: RoutingViewProps) {
+export default function RoutingView({ stream, adminToken, onAdminTokenChange }: RoutingViewProps) {
   const [hours, setHours] = useState(24);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -616,7 +618,7 @@ export default function RoutingView({ stream }: RoutingViewProps) {
           </Card>
         </div>
       </Section>
-      <RoutingAdminView />
+      <RoutingAdminView adminToken={adminToken} onAdminTokenChange={onAdminTokenChange} />
     </>
   );
 }

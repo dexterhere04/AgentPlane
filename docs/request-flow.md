@@ -40,30 +40,52 @@ handlers.Chat()                     [internal/handlers/chat.go]
   |    - Block → 403, Redact → rewrite body, Warn/LogOnly → continue
   |    - Required guardrail error → 503 (fail-closed)
   |
-  | 10. provider.Forward(ctx, body, requestID)
+  | 10. Build RouteRequest (model, user, roles) into context,
+  |     then provider.Forward(ctx, body, requestID) → Router
+  |
+  v
+proxy.Router.Forward()              [internal/proxy/router.go]
+  |
+  | 11. Extract RouteRequest from context
+  | 12. Match routing rule by priority (first match wins)
+  |     - no rule → default provider  |  deny rule → 503 (routing denied)
+  | 13. Resolve model + provider group from rule
+  | 14. Registry.Candidates(model, group) → eligible upstreams
+  |     - none eligible → 503 (no provider)
+  | 15. WeightedSelector selects the primary upstream
+  |
+  v
+proxy.Upstream.ForwardWithConfig()  [internal/proxy/upstream.go]
+  |
+  | 16. Apply per-route timeout (context deadline)
+  | 17. Retry retryable failures with backoff + jitter (bounded)
+  | 18. Trip/recover circuit breaker on 5xx/failures
+  | 19. On exhaustion → Router.Failover to next upstream in chain
+  |     - failover emits routing_failover event + increments counters
   |
   v
 proxy.OpenAIProvider.Forward()      [internal/proxy/openai.go]
   |
-  | 11. Check API key set → empty error
-  | 12. Dispatch streaming vs non-streaming
-  | 13. Build request, set Content-Type + Authorization headers
-  | 14. Send (60s timeout)
-  | 15. Read response; non-200 → error
+  | 20. Build request, set Content-Type + Authorization headers
+  | 21. Send (60s provider-client timeout)
+  | 22. Read response; non-200 → error
   |     (streaming: consume SSE, rebuild one completion)
   |
   v
 Back in handlers.Chat()
   |
-  | 16. Proxy error → 502 Bad Gateway
-  | 17. Run output guardrails (enforcement.Evaluate, DirectionOutput)
+  | 23. Proxy/routing error → 502/503
+  | 24. Run output guardrails (enforcement.Evaluate, DirectionOutput)
   |     - Block → 403, Redact → rewrite body, Warn/LogOnly → continue
   |     - Required guardrail error → 503 (fail-closed)
-  | 18. Write 200 + response body
+  | 25. Write 200 + response body
   |
   v
 Client receives response
 ```
+
+Routing is a forwarding concern: authorization (steps 4 & 8) has already decided *whether*
+the request may proceed; the router decides *where* to send it.
 
 ## Policy Enforcement Flow (steps 4 & 8)
 
@@ -113,13 +135,19 @@ For each `GuardrailSpec` in the `GuardrailSet`, the `EnforcementPoint` performs:
 | 8 | Policy evaluation error | 503 | `{"error":{"type":"policy_unavailable",...}}` |
 | 9 | Input guardrail blocks | 403 | `{"error":{"type":"guardrail_blocked",...}}` |
 | 9 | Required guardrail error | 503 | `{"error":{"type":"guardrail_unavailable",...}}` |
-| 11 | API key not set | 502 | `OPENAI_API_KEY is not set` |
-| 13–15 | Request/network/read/non-200 | 502 | wrapped error message |
-| 17 | Output guardrail blocks | 403 | `{"error":{"type":"guardrail_blocked",...}}` |
-| 17 | Required guardrail error | 503 | `{"error":{"type":"guardrail_unavailable",...}}` |
+| 12 | No rule matches → default provider | — | (falls through) |
+| 12 | `deny` / `force_deny` rule matches | 503 | routing denied |
+| 14 | No eligible upstream (registry empty / all circuit-open) | 503 | no provider |
+| 16–19 | Upstream request/network/non-200, retries exhausted, all candidates failed | 502 | wrapped error message |
+| 24 | Output guardrail blocks | 403 | `{"error":{"type":"guardrail_blocked",...}}` |
+| 24 | Required guardrail error | 503 | `{"error":{"type":"guardrail_unavailable",...}}` |
 
 ## Timing
 
 - **Server startup:** establishes a Postgres pool, runs migrations, wires all packages, starts the mux.
-- **Request timeout:** 60 seconds (proxy HTTP client).
+- **Provider-client timeout:** 60 seconds (proxy HTTP client default).
+- **Per-route timeouts:** applied by the upstream from the matched route/provider
+  `timeout_ms` (or its override).
 - **No request timeout on the server side** (inherits Go's default, which is none).
+- **Retry backoff:** exponential with jitter, capped at the configured max; bounded by
+  `max_retries` (see `resilience-and-retry.md`).

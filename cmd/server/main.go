@@ -306,7 +306,16 @@ func main() {
 	if err := enforcement.ValidateSet(mandatoryOutput); err != nil {
 		log.Fatalf("mandatory output guardrails: %v", err)
 	}
-	adminOrRBAC := func(next http.Handler) http.Handler {
+	// adminAuth authorizes a request that carries either the static root admin
+	// token (AGENTPLANE_ADMIN_TOKEN) or a database-backed API key whose user
+	// holds the "admin" role. This lets an admin key provisioned through the
+	// control plane operate the whole gateway, not just the endpoints that
+	// happened to use adminOrRBAC.
+	//
+	// allowQuery additionally accepts the token via the "token" query
+	// parameter, for browser clients (EventSource, top-level navigation) that
+	// cannot set an Authorization header.
+	adminAuth := func(allowQuery bool, next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Preserve root admin-token access.
 			const bearerPrefix = "Bearer "
@@ -314,6 +323,9 @@ func main() {
 			token := ""
 			if strings.HasPrefix(header, bearerPrefix) {
 				token = strings.TrimSpace(strings.TrimPrefix(header, bearerPrefix))
+			}
+			if token == "" && allowQuery {
+				token = strings.TrimSpace(r.URL.Query().Get("token"))
 			}
 
 			if token != "" && subtle.ConstantTimeCompare(
@@ -351,6 +363,8 @@ func main() {
 			http.Error(w, "forbidden", http.StatusForbidden)
 		})
 	}
+	adminOrRBAC := func(next http.Handler) http.Handler { return adminAuth(false, next) }
+	adminOrRBACQuery := func(next http.Handler) http.Handler { return adminAuth(true, next) }
 
 	mux := http.NewServeMux()
 	mux.Handle(
@@ -373,16 +387,14 @@ func main() {
 	// the credentials that everything else in the gateway trusts.
 	mux.Handle(
 		"/provision/user",
-		auth.AdminMiddleware(
-			adminToken,
+		adminOrRBAC(
 			handlers.ProvisionUser(provisioner),
 		),
 	)
 
 	mux.Handle(
 		"/admin/api-keys/revoke",
-		auth.AdminMiddleware(
-			adminToken,
+		adminOrRBAC(
 			handlers.RevokeAPIKey(apiKeyStore),
 		),
 	)
@@ -396,8 +408,7 @@ func main() {
 	)
 	mux.Handle(
 		"/admin/secrets/provider",
-		auth.AdminMiddleware(
-			adminToken,
+		adminOrRBAC(
 			handlers.StoreProviderSecret(),
 		),
 	)
@@ -406,13 +417,13 @@ func main() {
 	// deny-by-default, so a user must be granted a role (e.g. "member")
 	// before they can use the gateway.
 	mux.Handle("GET /admin/roles", adminOrRBAC(handlers.ListRoles(rbacStore)))
-	mux.Handle("POST /admin/roles", auth.AdminMiddleware(adminToken, handlers.CreateRole(rbacStore)))
-	mux.Handle("POST /admin/roles/{name}/permissions", auth.AdminMiddleware(adminToken, handlers.AddRolePermission(rbacStore)))
-	mux.Handle("DELETE /admin/roles/{name}/permissions/{permission}", auth.AdminMiddleware(adminToken, handlers.RemoveRolePermission(rbacStore)))
+	mux.Handle("POST /admin/roles", adminOrRBAC(handlers.CreateRole(rbacStore)))
+	mux.Handle("POST /admin/roles/{name}/permissions", adminOrRBAC(handlers.AddRolePermission(rbacStore)))
+	mux.Handle("DELETE /admin/roles/{name}/permissions/{permission}", adminOrRBAC(handlers.RemoveRolePermission(rbacStore)))
 	mux.Handle("GET /admin/users", adminOrRBAC(handlers.ListUsers(userStore, rbacStore)))
-	mux.Handle("GET /admin/users/{id}/roles", auth.AdminMiddleware(adminToken, handlers.ListUserRoles(rbacStore)))
-	mux.Handle("POST /admin/users/{id}/roles", auth.AdminMiddleware(adminToken, handlers.AssignUserRole(rbacStore)))
-	mux.Handle("DELETE /admin/users/{id}/roles/{role}", auth.AdminMiddleware(adminToken, handlers.RevokeUserRole(rbacStore)))
+	mux.Handle("GET /admin/users/{id}/roles", adminOrRBAC(handlers.ListUserRoles(rbacStore)))
+	mux.Handle("POST /admin/users/{id}/roles", adminOrRBAC(handlers.AssignUserRole(rbacStore)))
+	mux.Handle("DELETE /admin/users/{id}/roles/{role}", adminOrRBAC(handlers.RevokeUserRole(rbacStore)))
 	// Operator-only observability endpoints. All three require the admin
 	// token; the browser-facing /events and /dashboard also accept it via the
 	// "token" query parameter since EventSource and top-level navigation
@@ -456,14 +467,14 @@ func main() {
 		adminOrRBAC(routingAdmin.DisableRule()))
 	mux.Handle("DELETE /admin/routing-rules/{id}",
 		adminOrRBAC(routingAdmin.DeleteRule()))
-	mux.Handle("/events", auth.AdminMiddlewareQuery(adminToken, observability.SSEHandler(bus)))
+	mux.Handle("/events", adminOrRBACQuery(observability.SSEHandler(bus)))
 	if chURL != "" {
 		mux.Handle("/analytics/traces_count",
 			adminOrRBAC(handlers.AnalyticsHandler(chURL, "traces_count")))
 		mux.Handle("/admin/analytics",
 			adminOrRBAC(handlers.AnalyticsHandler(chURL, "")))
 	}
-	mux.Handle("/dashboard", auth.AdminMiddlewareQuery(adminToken, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/dashboard", adminOrRBACQuery(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(dashboard.HTML))
 	})))

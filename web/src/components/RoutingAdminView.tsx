@@ -155,7 +155,13 @@ function parseJSON(value: string, field: string): unknown {
   }
 }
 
-export default function RoutingAdminView() {
+export default function RoutingAdminView({
+  adminToken,
+  onAdminTokenChange
+}: {
+  adminToken?: string;
+  onAdminTokenChange?: (token: string) => void;
+}) {
   const [providers, setProviders] = useState<ProviderRecord[]>([]);
   const [rules, setRules] = useState<RoutingRuleRecord[]>([]);
   const [upstreams, setUpstreams] = useState<Record<string, UpstreamStatus>>({});
@@ -168,10 +174,16 @@ const [ruleForm, setRuleForm] = useState<RoutingRuleForm>(emptyRule);
   const [editingProvider, setEditingProvider] = useState<string | null>(null);
 
   const [editingRule, setEditingRule] = useState<string | null>(null);
-const [tokenInput, setTokenInput] = useState(getAdminToken());
+const [tokenInput, setTokenInput] = useState(adminToken ?? getAdminToken());
 const [tokenStatus, setTokenStatus] = useState<
   'unvalidated' | 'checking' | 'valid' | 'invalid'
 >('unvalidated');
+
+useEffect(() => {
+  if (adminToken !== undefined && adminToken !== tokenInput) {
+    setTokenInput(adminToken);
+  }
+}, [adminToken]);
 
 async function validateAdminToken() {
   const token = tokenInput.trim();
@@ -204,7 +216,11 @@ async function validateAdminToken() {
       return;
     }
 
-    setAdminToken(token);
+    if (onAdminTokenChange) {
+      onAdminTokenChange(token);
+    } else {
+      setAdminToken(token);
+    }
     setTokenStatus('valid');
     setError('');
   } catch {
@@ -214,7 +230,8 @@ async function validateAdminToken() {
 }
 
 function requireValidatedAdmin(): boolean {
-  if (tokenStatus === 'valid' && tokenInput.trim() === getAdminToken()) {
+  const activeToken = adminToken ?? getAdminToken();
+  if (tokenStatus === 'valid' && tokenInput.trim() === activeToken) {
     return true;
   }
 

@@ -91,8 +91,9 @@ export default function App() {
       (n) => setQueueDepth(n)
     );
     queueRef.current = queue;
+    queue.setMode(flowMode);
 
-    const es = new EventSource('/events?token=' + encodeURIComponent(getAdminToken()));
+    const es = new EventSource('/events?token=' + encodeURIComponent(adminToken));
     es.onopen = () => setStream((s) => streamConnected(s, true));
     es.onerror = () => setStream((s) => streamConnected(s, false));
     es.onmessage = (e) => {
@@ -112,7 +113,7 @@ export default function App() {
       queue.dispose();
       queueRef.current = undefined;
     };
-  }, []);
+  }, [adminToken]);
 
   const updateAdminToken = (v: string) => {
     setAdminTokenState(v);
@@ -270,7 +271,11 @@ export default function App() {
           )}
 
           {tab === 'routing' && (
-  <RoutingView stream={stream} />
+  <RoutingView
+    stream={stream}
+    adminToken={adminToken}
+    onAdminTokenChange={updateAdminToken}
+  />
 )}
 
           {tab === 'guardrails' && (

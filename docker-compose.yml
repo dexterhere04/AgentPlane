@@ -155,6 +155,19 @@ services:
     networks:
       - agentplane
 
+  web:
+    build:
+      context: ./web
+    container_name: agentplane-web
+    ports:
+      - "3000:80"
+    depends_on:
+      gateway:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - agentplane
+
 networks:
   agentplane:
 
