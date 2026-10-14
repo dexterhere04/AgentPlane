@@ -12,20 +12,20 @@ Copy `.env.example` to `.env` and fill in real values. The file is git-ignored.
 
 Required environment variables:
 
-| Variable | Purpose |
-|----------|---------|
-| `DATABASE_URL` | PostgreSQL connection string. Tables are created automatically on startup via embedded migrations. |
-| `API_KEY_PEPPER` | Server-side secret mixed into API-key hashes (`SHA-256(secret + pepper)`). |
-| `AGENTPLANE_ADMIN_TOKEN` | Bearer token that authorizes admin endpoints (`/provision/user`, `/admin/api-keys/revoke`). |
-| `OPENAI_API_KEY` | Upstream provider key (loaded via the configured secret store). |
+| Variable                 | Purpose                                                                                            |
+| ------------------------ | -------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`           | PostgreSQL connection string. Tables are created automatically on startup via embedded migrations. |
+| `API_KEY_PEPPER`         | Server-side secret mixed into API-key hashes (`SHA-256(secret + pepper)`).                         |
+| `AGENTPLANE_ADMIN_TOKEN` | Bearer token that authorizes admin endpoints (`/provision/user`, `/admin/api-keys/revoke`).        |
+| `OPENAI_API_KEY`         | Upstream provider key (loaded via the configured secret store).                                    |
 
 Optional:
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Upstream API base URL. |
-| `SECRET_STORE` | `vault` | Secret backend (`env`, `file`, `vault`, `aws`, `azure`, `chain`). |
-| `PORT` | `3001` | HTTP listen port. |
+| Variable          | Default                     | Purpose                                                           |
+| ----------------- | --------------------------- | ----------------------------------------------------------------- |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Upstream API base URL.                                            |
+| `SECRET_STORE`    | `vault`                     | Secret backend (`env`, `file`, `vault`, `aws`, `azure`, `chain`). |
+| `PORT`            | `3001`                      | HTTP listen port.                                                 |
 
 See `docs/secrets-backends.md` for the full secret-store configuration matrix.
 
@@ -89,8 +89,11 @@ Admin endpoints accept either the static admin token (`Bearer <AGENTPLANE_ADMIN_
 | POST | `/admin/secrets/provider` | Bearer admin token / admin-role key |
 | GET | `/admin/analytics` | Bearer admin token / admin-role key |
 | GET | `/admin/analytics/users` | Bearer admin token / admin-role key |
+| GET | `/analytics/traces_count` | Bearer admin token / admin-role key |
+| GET | `/api/observability/*` | Bearer admin token / admin-role key |
 | GET | `/events` | Bearer admin token / admin-role key (`?token=` allowed) |
 | GET | `/dashboard` | Bearer admin token / admin-role key (`?token=` allowed) |
+| GET | `/observability` | Bearer admin token / admin-role key (`?token=` allowed) |
 | GET | `/metrics` | Bearer admin token / admin-role key |
 
 Providers and routing rules are managed through the admin routes above; see `routing-admin.md` for schemas, and `api-reference.md` for full endpoint details. The in-app dashboard is served on port `3000`.

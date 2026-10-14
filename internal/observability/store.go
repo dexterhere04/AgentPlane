@@ -1,6 +1,7 @@
 package observability
 
 import (
+	"context"
 	"time"
 
 	"github.com/dexterhere04/AgentPlane/internal/config"
@@ -62,9 +63,9 @@ type GuardrailEvent struct {
 	RequestID string
 	Timestamp time.Time
 	Rule      string
+	Phase     string // "input" or "output"
 	Action    string
 	Details   string
-	Phase     string // "input" or "output"
 }
 
 type UsageEvent struct {
@@ -102,6 +103,17 @@ type Store interface {
 
 // DefaultStore is the package-level store used when configured.
 var DefaultStore Store
+
+type requestStartContextKey struct{}
+
+func WithRequestStart(ctx context.Context, start time.Time) context.Context {
+	return context.WithValue(ctx, requestStartContextKey{}, start)
+}
+
+func RequestStart(ctx context.Context) (time.Time, bool) {
+	start, ok := ctx.Value(requestStartContextKey{}).(time.Time)
+	return start, ok && !start.IsZero()
+}
 
 func SetStore(s Store) {
 	DefaultStore = s

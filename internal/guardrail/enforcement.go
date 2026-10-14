@@ -67,24 +67,22 @@ func (ep *EnforcementPoint) Evaluate(
 
 			result, err := g.Evaluate(ctx, dir, currentBody)
 			if err != nil {
-				if ep.metrics != nil {
-					ep.metrics.RecordError()
-				}
 				return ep.failClosed(requestID, g.Name(), dir, err)
 			}
 
-			if ep.metrics != nil {
-				ep.metrics.RecordEvaluation(result.Decision, time.Duration(0))
-			}
-
 			if result.Decision == DecisionPass {
+				if ep.metrics != nil {
+					ep.metrics.RecordEvaluation(result.Decision, time.Duration(0))
+				}
 				ep.publishEvent(requestID, g.Name(), dir, result)
 				continue
 			}
 
-			ep.publishEvent(requestID, g.Name(), dir, result)
-
 			effective := ep.resolve(strategy, result)
+			if ep.metrics != nil {
+				ep.metrics.RecordEvaluation(effective.Decision, time.Duration(0))
+			}
+			ep.publishEvent(requestID, g.Name(), dir, effective)
 
 			if effective.Decision == DecisionBlock {
 				ep.publishBlocked(requestID, effective)
@@ -116,22 +114,23 @@ func (ep *EnforcementPoint) Evaluate(
 				Guardrail: g.Name(),
 				Decision:  DecisionPass,
 				Message:   fmt.Sprintf("error: %v", err),
-			})
+			}, "error")
 			continue
 		}
 
-		if ep.metrics != nil {
-			ep.metrics.RecordEvaluation(result.Decision, latency)
-		}
-
 		if result.Decision == DecisionPass {
+			if ep.metrics != nil {
+				ep.metrics.RecordEvaluation(result.Decision, latency)
+			}
 			ep.publishEvent(requestID, g.Name(), dir, result)
 			continue
 		}
 
-		ep.publishEvent(requestID, g.Name(), dir, result)
-
 		effective := ep.resolve(strategy, result)
+		if ep.metrics != nil {
+			ep.metrics.RecordEvaluation(effective.Decision, latency)
+		}
+		ep.publishEvent(requestID, g.Name(), dir, effective)
 
 		if effective.Decision == DecisionBlock {
 			ep.publishBlocked(requestID, effective)
@@ -154,6 +153,10 @@ func (ep *EnforcementPoint) Evaluate(
 }
 
 func (ep *EnforcementPoint) failClosed(requestID, name string, dir Direction, err error) (*Result, error) {
+	if ep.metrics != nil {
+		ep.metrics.RecordError()
+		ep.metrics.RecordEvaluation(DecisionBlock, 0)
+	}
 	ep.publishEvent(requestID, name, dir, &Result{
 		Guardrail: name,
 		Decision:  DecisionBlock,
@@ -213,28 +216,27 @@ func (ep *EnforcementPoint) resolve(strategy Strategy, result *Result) *Result {
 	}
 }
 
-func (ep *EnforcementPoint) publishEvent(requestID, guardrail string, dir Direction, result *Result) {
+func (ep *EnforcementPoint) publishEvent(requestID, guardrail string, dir Direction, result *Result, actionOverride ...string) {
 	stage := observability.StageGuardrailInput
 	if dir == DirectionOutput {
 		stage = observability.StageGuardrailOutput
 	}
 
-	decision := result.Decision.String()
-
-	// Details may contain sensitive context and are persisted only to the
-	// configured observability store, never streamed on the bus.
-	captureMsg := result.Message
-	if result.Details != nil {
-		if detailsJSON, err := json.Marshal(result.Details); err == nil {
-			captureMsg = captureMsg + " " + string(detailsJSON)
-		}
+	phase := dir.String()
+	if phase != DirectionInput.String() && phase != DirectionOutput.String() {
+		phase = DirectionInput.String()
 	}
-
-	ep.captureGuardrail(requestID, guardrail, dir, result, captureMsg)
+	action := result.Decision.String()
+	if len(actionOverride) > 0 {
+		action = actionOverride[0]
+	}
+	ep.captureGuardrail(requestID, guardrail, phase, action)
 
 	if ep.bus == nil {
 		return
 	}
+
+	decision := result.Decision.String()
 
 	// The event bus is streamed unauthenticated: publish only a capped,
 	// details-free message and a sanitized projection of findings (no matched
@@ -293,7 +295,7 @@ func sanitizeFindings(findings []Finding) []map[string]any {
 
 // captureGuardrail persists the outcome to the configured observability store
 // (ClickHouse) without blocking the request path. No-op when unset.
-func (ep *EnforcementPoint) captureGuardrail(requestID, guardrail string, dir Direction, result *Result, msg string) {
+func (ep *EnforcementPoint) captureGuardrail(requestID, guardrail, phase, action string) {
 	if observability.DefaultStore == nil {
 		return
 	}
@@ -302,26 +304,10 @@ func (ep *EnforcementPoint) captureGuardrail(requestID, guardrail string, dir Di
 		RequestID: requestID,
 		Timestamp: time.Now(),
 		Rule:      guardrail,
-		Action:    guardrailActionString(result.Decision),
-		Details:   msg,
-		Phase:     dir.String(),
+		Phase:     phase,
+		Action:    action,
 	}
 	go observability.CaptureGuardrail(evt)
-}
-
-func guardrailActionString(d Decision) string {
-	switch d {
-	case DecisionBlock:
-		return "blocked"
-	case DecisionRedact:
-		return "redacted"
-	case DecisionWarn:
-		return "warn"
-	case DecisionLogOnly:
-		return "log_only"
-	default:
-		return "allowed"
-	}
 }
 
 func (ep *EnforcementPoint) publishBlocked(requestID string, result *Result) {
