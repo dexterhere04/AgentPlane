@@ -10,6 +10,7 @@ import (
 	"github.com/dexterhere04/AgentPlane/internal/policy"
 	"github.com/dexterhere04/AgentPlane/internal/policy/rbac"
 	"github.com/dexterhere04/AgentPlane/internal/proxy"
+	"github.com/google/uuid"
 	"io"
 	"log"
 	"net/http"
@@ -79,7 +80,7 @@ func chatWithRouting(
 	selector *proxy.WeightedSelector,
 ) {
 	bus := observability.DefaultBus
-	requestID := fmt.Sprintf("req-%d", time.Now().UnixNano())
+	requestID := "req-" + uuid.NewString()
 	startTime := time.Now()
 
 	defer func() {
@@ -172,7 +173,7 @@ func chatWithRouting(
 	// guardrails and authorization all evaluate the same request.
 	body = proxy.ApplyDefaultModel(body)
 
-	ctx := r.Context()
+	ctx := observability.WithRequestStart(r.Context(), startTime)
 
 	if user, ok := auth.UserFromContext(ctx); ok {
 		userID = user.ID.String()
@@ -247,13 +248,14 @@ func chatWithRouting(
 	if enforcement != nil && len(inputSet.Guards) > 0 {
 		result, err := enforcement.Evaluate(ctx, requestID, guardrail.DirectionInput, body, inputSet)
 		if err != nil {
-			log.Printf("guardrail input error: %v", err)
+			log.Printf("guardrail input evaluation failed (%T)", err)
 			writeGuardrailError(w, err, requestID)
 			return
 		}
 
 		switch result.Decision {
 		case guardrail.DecisionBlock:
+			recordGuardrailBlockedTrace(r, requestID, result, startTime)
 			bus.Publish(observability.NewMessageEvent(requestID, observability.StageGuardrailBlocked, "error", result.Message))
 			writeGuardrailBlock(w, result, requestID)
 			return
@@ -275,15 +277,17 @@ func chatWithRouting(
 	respBody, err = provider.Forward(ctx, body, requestID)
 	if err != nil {
 		status := forwardingStatus(err)
+		// Log the detailed cause server-side; never echo upstream error text to
+		// the client — it can contain credentials embedded in provider URLs.
 		log.Printf("error forwarding to provider (status %d): %v", status, err)
-		http.Error(w, err.Error(), status)
+		http.Error(w, "Upstream provider request failed", status)
 		return
 	}
 
 	if enforcement != nil && len(outputSet.Guards) > 0 {
 		result, err := enforcement.Evaluate(ctx, requestID, guardrail.DirectionOutput, respBody, outputSet)
 		if err != nil {
-			log.Printf("guardrail output error: %v", err)
+			log.Printf("guardrail output evaluation failed (%T)", err)
 			writeGuardrailError(w, err, requestID)
 			return
 		}
@@ -326,6 +330,21 @@ func forwardingStatus(err error) int {
 	}
 }
 
+func recordGuardrailBlockedTrace(r *http.Request, requestID string, result *guardrail.Result, start time.Time) {
+	userID := ""
+	username := ""
+	if user, ok := auth.UserFromContext(r.Context()); ok {
+		userID = user.ID.String()
+		username = user.Username
+	}
+	go observability.RecordTrace(observability.Trace{
+		TraceID: requestID, RequestID: requestID, Timestamp: start,
+		UserID: userID, Username: username,
+		LatencyMS: time.Since(start).Milliseconds(), Status: "guardrail_blocked",
+		GuardrailAction: result.Decision.String(), Route: "/chat",
+	})
+}
+
 func writeModelRequired(w http.ResponseWriter) {
 	errResp := map[string]interface{}{
 		"error": map[string]interface{}{
@@ -342,12 +361,23 @@ func writeGuardrailBlock(w http.ResponseWriter, result *guardrail.Result, reques
 	errResp := map[string]interface{}{
 		"error": map[string]interface{}{
 			"type":      "guardrail_blocked",
-			"message":   fmt.Sprintf("guardrail blocked: %s", result.Message),
+			"message":   "Request blocked by guardrail policy",
 			"guardrail": result.Guardrail,
 		},
 	}
 	if len(result.Findings) > 0 {
-		errResp["error"].(map[string]interface{})["findings"] = result.Findings
+		findings := make([]map[string]interface{}, 0, len(result.Findings))
+		for _, finding := range result.Findings {
+			findings = append(findings, map[string]interface{}{
+				"guardrail": finding.Guardrail,
+				"type":      finding.Type,
+				"severity":  finding.Severity,
+				"start":     finding.Start,
+				"end":       finding.End,
+				"entity":    finding.Entity,
+			})
+		}
+		errResp["error"].(map[string]interface{})["findings"] = findings
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusForbidden)

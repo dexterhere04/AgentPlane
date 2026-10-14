@@ -41,8 +41,10 @@ There is also a second executable, `cmd/keygeneration/main.go`, which generates 
 | `/admin/analytics` | `handlers.AnalyticsHandler(chURL, "")` wrapped in `adminOrRBAC` (registered only when `CH_URL`/ClickHouse is configured) | admin token / admin-role key |
 | `/admin/analytics/users` | `handlers.UserAnalyticsHandler` wrapped in `adminOrRBAC` | admin token / admin-role key |
 | `/analytics/traces_count` | `handlers.AnalyticsHandler(chURL, "traces_count")` wrapped in `adminOrRBAC` | admin token / admin-role key |
+| `/api/observability/*` | `handlers.NewObservabilityHandler` wrapped in `adminOrRBAC` | admin token / admin-role key |
 | `/events` | `observability.SSEHandler` wrapped in `adminOrRBACQuery` | admin token / admin-role key (`?token=` allowed) |
 | `/dashboard` | inline handler serving `dashboard.HTML` wrapped in `adminOrRBACQuery` | admin token / admin-role key (`?token=` allowed) |
+| `/observability` | inline handler serving `dashboard.ObservabilityHTML` wrapped in `adminOrRBACQuery` | admin token / admin-role key (`?token=` allowed) |
 | `/metrics` | `handlers.MetricsHandler` wrapped in `adminOrRBAC` | admin token / admin-role key |
 
 ## Functions
@@ -56,6 +58,7 @@ There is also a second executable, `cmd/keygeneration/main.go`, which generates 
 **Returns:** Does not return. Exits fatally on any startup error.
 
 **Must NOT:**
+
 - Call OpenAI directly
 - Read request bodies
 - Implement business logic

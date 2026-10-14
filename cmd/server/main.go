@@ -39,9 +39,6 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// Analytics queries are forwarded to ClickHouse's HTTP interface (see
-// handlers.AnalyticsHandler). The window bounds and HTTP client live there.
-
 func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Printf("No .env file loaded: %v", err)
@@ -77,9 +74,11 @@ func main() {
 
 	// ClickHouse observability store initialization (optional).
 	chCfg := clickhouse.LoadFromEnv()
+	// HTTP interface used by the admin analytics endpoint (default 8123).
 	var chURL string
+	// Typed analytics store backing the /api/observability/* dashboard API.
+	var analyticsStore observability.AnalyticsStore
 	if chCfg.Enabled {
-		// HTTP interface used by the analytics endpoint (default 8123).
 		chHTTPPort := 8123
 		if v := os.Getenv("CLICKHOUSE_HTTP_PORT"); v != "" {
 			if n, err := strconv.Atoi(v); err == nil {
@@ -96,6 +95,7 @@ func main() {
 				log.Printf("clickhouse adapter init error: %v", err)
 			} else {
 				observability.SetStore(adapter)
+				analyticsStore = observability.NewClickHouseAnalyticsStore(client)
 				log.Printf("ClickHouse observability enabled (host=%s port=%d)", chCfg.Host, chCfg.Port)
 			}
 		}
@@ -424,14 +424,15 @@ func main() {
 	mux.Handle("GET /admin/users/{id}/roles", adminOrRBAC(handlers.ListUserRoles(rbacStore)))
 	mux.Handle("POST /admin/users/{id}/roles", adminOrRBAC(handlers.AssignUserRole(rbacStore)))
 	mux.Handle("DELETE /admin/users/{id}/roles/{role}", adminOrRBAC(handlers.RevokeUserRole(rbacStore)))
-	// Operator-only observability endpoints. All three require the admin
-	// token; the browser-facing /events and /dashboard also accept it via the
-	// "token" query parameter since EventSource and top-level navigation
-	// cannot set request headers.
+
+	// Operator-only observability endpoints. These require the admin token or
+	// an API key belonging to an active user with the "admin" role. The
+	// browser-facing /events, /dashboard, and /observability also accept the
+	// admin token via the "token" query parameter since EventSource and
+	// top-level navigation cannot set request headers.
+
 	// Provider administration: allow the root admin token or an API key
 	// belonging to an active user with the "admin" role.
-
-	// Provider administration.
 	mux.Handle("GET /admin/providers",
 		adminOrRBAC(routingAdmin.ListProviders()))
 	mux.Handle("POST /admin/providers",
@@ -474,9 +475,20 @@ func main() {
 		mux.Handle("/admin/analytics",
 			adminOrRBAC(handlers.AnalyticsHandler(chURL, "")))
 	}
+
+	// Typed observability dashboard API (health, overview, series,
+	// breakdowns, traces, guardrails, user usage, prompt search).
+	analyticsHandler := handlers.NewObservabilityHandler(analyticsStore)
+	mux.Handle("/api/observability/", adminOrRBAC(analyticsHandler))
+
 	mux.Handle("/dashboard", adminOrRBACQuery(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(dashboard.HTML))
+	})))
+	mux.Handle("/observability", adminOrRBACQuery(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Write([]byte(dashboard.ObservabilityHTML))
 	})))
 
 	mux.Handle("/metrics", adminOrRBAC(handlers.MetricsHandler()))
@@ -485,6 +497,7 @@ func main() {
 	log.Printf("  Gateway   → http://localhost:%s/chat (%s)", port, provider.Name())
 	log.Printf("  Events    → http://localhost:%s/events", port)
 	log.Printf("  Dashboard → http://localhost:%s/dashboard", port)
+	log.Printf("  Observe   → http://localhost:%s/observability", port)
 	log.Printf("  Metrics   → http://localhost:%s/metrics", port)
 	log.Printf("  Mock API  → http://localhost:%s (set OPENAI_BASE_URL)", port)
 

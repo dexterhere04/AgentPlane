@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { fetchUserAnalytics, UserPromptRow, UserUsageRow } from '../api';
+import { fetchObservabilityPrompts, fetchObservabilityUsers, UserPromptRow, UserUsageRow } from '../api';
 import { Card, EmptyState, fmtNum } from './ui';
 import { Icon } from '../icons';
 
@@ -7,6 +7,10 @@ function fmtMoney(n: number): string {
   if (!n) return '$0';
   if (n < 0.001) return '$' + n.toExponential(2);
   return '$' + n.toFixed(4);
+}
+
+function rangeForHours(hours: number): string {
+  return hours >= 168 ? '7d' : '24h';
 }
 
 export default function UserAnalytics() {
@@ -27,16 +31,20 @@ export default function UserAnalytics() {
 
   useEffect(() => {
     let cancelled = false;
+    const range = rangeForHours(hours);
     (async () => {
       setLoading(true);
       setErr('');
-      const res = await fetchUserAnalytics({ hours, user, q: debouncedQ });
+      const [u, p] = await Promise.all([
+        fetchObservabilityUsers(range, 50),
+        fetchObservabilityPrompts({ range, user, q: debouncedQ, limit: 200 })
+      ]);
       if (cancelled) return;
-      if (res.ok) {
-        setUsers(res.users);
-        setPrompts(res.prompts);
+      if (u.ok && p.ok) {
+        setUsers(u.users);
+        setPrompts(p.prompts);
       } else {
-        setErr('HTTP ' + res.status + ' · analytics unavailable (is ClickHouse up?)');
+        setErr('HTTP ' + (u.ok ? p.status : u.status) + ' · analytics unavailable (is ClickHouse up?)');
       }
       setLoading(false);
     })();
@@ -52,13 +60,12 @@ export default function UserAnalytics() {
   return (
     <Card
       title="User analytics"
-      subtitle="GET /admin/analytics/users — per-user spend, token usage, and a searchable prompt log from ClickHouse."
+      subtitle="GET /api/observability/users & /api/observability/prompts — per-user spend, token usage, and a searchable prompt log from ClickHouse."
       right={
         <div className="row">
           <select className="select" value={hours} onChange={(e) => setHours(Number(e.target.value))}>
             <option value={24}>24h</option>
             <option value={168}>7d</option>
-            <option value={720}>30d</option>
           </select>
           <button className="btn ghost sm" onClick={() => setReload((n) => n + 1)} disabled={loading}>
             <Icon name="refresh" size={14} />
