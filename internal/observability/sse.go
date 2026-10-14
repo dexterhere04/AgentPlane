@@ -28,6 +28,7 @@ func SSEHandler(bus *EventBus) http.HandlerFunc {
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 		w.WriteHeader(http.StatusOK)
+		flusher.Flush()
 
 		filterID := r.URL.Query().Get("request_id")
 		subID, ch := bus.Subscribe(filterID)

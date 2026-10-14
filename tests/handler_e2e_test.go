@@ -2,6 +2,7 @@ package tests
 
 import (
 	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -723,12 +724,17 @@ func TestEdge_AllGuardrailsPassCleanInput(t *testing.T) {
 	assertPassed(t, w)
 }
 
-func TestEdge_EmptyBody(t *testing.T) {
+func TestEdge_EmptyBodyRequiresModel(t *testing.T) {
 	w := doChat([]byte(`{}`),
 		newRegexSecretsGuardForChat(),
 		guardpii.New(guardrail.Strategy{}),
 	)
-	assertPassed(t, w)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing model, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "model_required") {
+		t.Errorf("expected model_required error, got %s", w.Body.String())
+	}
 }
 
 func TestEdge_PIIInComplexJSON(t *testing.T) {

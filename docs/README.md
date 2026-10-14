@@ -17,6 +17,9 @@
 | [API Key Storage & DB](api-key-storage-db-integration.md) | Hash-only persistence and database integration |
 | [API Key Lifecycle](api-key-lifecycle.md) | Full lifecycle: provisioning → auth → revocation |
 | [Full Request Authentication](full-request-authentication.md) | Provisioning, authentication, revocation, usage tracking |
+| [Provider Routing & Router](provider-routing-and-router.md) | Routing rules, provider abstraction, registry, selection |
+| [Routing Administration](routing-admin.md) | Managing providers and routing rules via admin API + UI |
+| [Routing Metrics](routing-metrics.md) | In-process counters and ClickHouse routing analytics |
 | [Policy Layer & RBAC](policy-rbac.md) | Identity-based authorization: roles, permissions, enforcement |
 | [Future Roadmap](future-roadmap.md) | Planned pipeline stages and evolution |
 | [go.mod](go-mod.md) | Module definition and dependency management |

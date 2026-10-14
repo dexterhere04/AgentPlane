@@ -73,16 +73,30 @@ Brings up Vault (dev mode), `vault-init`, PostgreSQL, and the gateway. See `docs
 
 ## Endpoints
 
+Admin endpoints accept either the static admin token (`Bearer <AGENTPLANE_ADMIN_TOKEN>`) or an API key whose user holds the `admin` role.
+
 | Method | Path | Auth |
 |--------|------|------|
 | POST | `/chat` | Bearer API key |
-| POST | `/provision/user` | Bearer admin token |
-| POST | `/admin/api-keys/revoke` | Bearer admin token |
-| GET | `/events` | Bearer admin token (`?token=` allowed) |
-| GET | `/dashboard` | Bearer admin token (`?token=` allowed) |
-| GET | `/observability` | Bearer admin token (`?token=` allowed) |
-| GET | `/api/observability/*` | Bearer admin token |
-| GET | `/metrics` | Bearer admin token |
+| POST | `/provision/user` | Bearer admin token / admin-role key |
+| POST | `/admin/api-keys/revoke` | Bearer admin token / admin-role key |
+| GET | `/admin/api-keys` | Bearer admin token / admin-role key |
+| GET/POST | `/admin/roles` | Bearer admin token / admin-role key |
+| GET/POST | `/admin/users/{id}/roles` | Bearer admin token / admin-role key |
+| GET/POST/PUT/DELETE | `/admin/providers` `/admin/providers/{id}` | Bearer admin token / admin-role key |
+| GET | `/admin/upstreams` | Bearer admin token / admin-role key |
+| GET/POST/PUT/DELETE | `/admin/routing-rules` `/admin/routing-rules/{id}` | Bearer admin token / admin-role key |
+| POST | `/admin/secrets/provider` | Bearer admin token / admin-role key |
+| GET | `/admin/analytics` | Bearer admin token / admin-role key |
+| GET | `/admin/analytics/users` | Bearer admin token / admin-role key |
+| GET | `/analytics/traces_count` | Bearer admin token / admin-role key |
+| GET | `/api/observability/*` | Bearer admin token / admin-role key |
+| GET | `/events` | Bearer admin token / admin-role key (`?token=` allowed) |
+| GET | `/dashboard` | Bearer admin token / admin-role key (`?token=` allowed) |
+| GET | `/observability` | Bearer admin token / admin-role key (`?token=` allowed) |
+| GET | `/metrics` | Bearer admin token / admin-role key |
+
+Providers and routing rules are managed through the admin routes above; see `routing-admin.md` for schemas, and `api-reference.md` for full endpoint details. The in-app dashboard is served on port `3000`.
 
 ## Verify
 

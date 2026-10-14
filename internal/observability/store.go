@@ -27,6 +27,11 @@ type Trace struct {
 	EstimatedCost   float64
 	GuardrailAction string
 	Route           string
+	Upstream        string
+	Attempt         uint32
+	Failover        bool
+	FailoverFrom    string
+	FailoverTo      string
 }
 
 type Payload struct {
@@ -76,6 +81,12 @@ type UsageEvent struct {
 	ReasoningTokens   uint64
 	CachedInputTokens uint64
 	Cost              float64
+	Route             string
+	Upstream          string
+	Attempt           uint32
+	Failover          bool
+	FailoverFrom      string
+	FailoverTo        string
 }
 
 // Store is an interface for persisting observability events.

@@ -6,6 +6,22 @@ import { Icon } from '../icons';
 import ApiKeysView from './ApiKeysView';
 import ProvisionedKeysView from './ProvisionedKeysView';
 
+const PROVIDERS = [
+  'openai',
+  'azure_openai',
+  'anthropic',
+  'gemini',
+  'google',
+  'mistral',
+  'groq',
+  'together',
+  'openrouter',
+  'deepseek',
+  'xai',
+  'fireworks',
+  'perplexity'
+];
+
 export default function VaultView() {
   const [provider, setProvider] = useState('openai');
   const [apiKey, setApiKey] = useState('sk-demo-provider-key-1234567890');
@@ -38,7 +54,9 @@ export default function VaultView() {
           <div className="field">
             <label>provider</label>
             <select className="select" value={provider} onChange={(e) => setProvider(e.target.value)}>
-              <option value="openai">openai</option>
+              {PROVIDERS.map((slug) => (
+                <option key={slug} value={slug}>{slug}</option>
+              ))}
             </select>
           </div>
           <div className="field grow">

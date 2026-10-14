@@ -1,8 +1,19 @@
 import { useEffect, useState } from 'react';
 import { StreamState } from '../types';
-import { fetchMetrics, fetchObservabilityHealth } from '../api';
+import {
+  fetchMetrics,
+  fetchObservabilityHealth,
+  fetchRoutingErrorSummary,
+  fetchRoutingFailovers,
+  fetchRoutingMetrics,
+  fetchRoutingProviderTraffic,
+  RoutingErrorSummary,
+  RoutingFailoverSummary,
+  RoutingMetrics,
+  RoutingProviderTraffic
+} from '../api';
 import { Icon, IconName } from '../icons';
-import { Badge, Card, Metric, fmtNum } from './ui';
+import { Badge, Card, EmptyState, Metric, Stat, fmtNum } from './ui';
 import SetupChecklist from './SetupChecklist';
 
 interface MetricDef {
@@ -37,6 +48,7 @@ const TELEMETRY = [
 const SERVICES: { id: string; label: string; desc: string; icon: IconName }[] = [
   { id: 'chat', label: 'Playground', desc: 'Send a test prompt through the gateway', icon: 'play' },
   { id: 'pipeline', label: 'Pipeline', desc: 'Watch every stage of a request live', icon: 'route' },
+  { id: 'routing', label: 'Routing', desc: 'Configure routing rules and provider selection', icon: 'route' },
   { id: 'guardrails', label: 'Guardrails', desc: 'Test PII, secret and injection checks', icon: 'shield' },
   { id: 'events', label: 'Event Log', desc: 'Raw SSE events for every request', icon: 'list' },
   { id: 'keys', label: 'Keys & Vault', desc: 'Provider secrets and user API keys', icon: 'key' },
@@ -77,6 +89,10 @@ export default function Overview({
 }) {
   const [chOnline, setChOnline] = useState<boolean | null>(null);
   const [metrics, setMetrics] = useState<Record<string, number>>({});
+  const [routing, setRouting] = useState<RoutingMetrics | null>(null);
+  const [providerTraffic, setProviderTraffic] = useState<RoutingProviderTraffic[]>([]);
+  const [failover, setFailover] = useState<RoutingFailoverSummary | null>(null);
+  const [errorSummary, setErrorSummary] = useState<RoutingErrorSummary[]>([]);
 
   useEffect(() => {
     let mounted = true;
@@ -104,6 +120,45 @@ export default function Overview({
     };
     poll();
     const t = setInterval(poll, 3000);
+    return () => {
+      mounted = false;
+      clearInterval(t);
+    };
+  }, []);
+
+  // Live in-process routing counters from /metrics — DB-independent, so they
+  // refresh quickly and work even when ClickHouse tracing is disabled.
+  useEffect(() => {
+    let mounted = true;
+    const tick = async () => {
+      const result = await fetchRoutingMetrics();
+      if (mounted && result.ok) setRouting(result.metrics);
+    };
+    void tick();
+    const t = setInterval(tick, 5000);
+    return () => {
+      mounted = false;
+      clearInterval(t);
+    };
+  }, []);
+
+  // Historical routing analytics (ClickHouse-backed): provider traffic and
+  // failover / error summaries for the last 24 hours.
+  useEffect(() => {
+    let mounted = true;
+    const load = async () => {
+      const [traffic, fo, errs] = await Promise.all([
+        fetchRoutingProviderTraffic(24),
+        fetchRoutingFailovers(24),
+        fetchRoutingErrorSummary(24)
+      ]);
+      if (!mounted) return;
+      if (traffic.ok) setProviderTraffic(traffic.rows);
+      if (fo.ok) setFailover(fo.rows[0] ?? null);
+      if (errs.ok) setErrorSummary(errs.rows);
+    };
+    void load();
+    const t = setInterval(load, 15000);
     return () => {
       mounted = false;
       clearInterval(t);
@@ -156,6 +211,18 @@ export default function Overview({
     { label: 'In flight', icon: 'layers', value: fmtNum(stream.active), pct: stream.requests.length ? (stream.active / stream.requests.length) * 100 : 0, color: 'var(--amber)' },
     { label: 'Events emitted', icon: 'list', value: fmtNum(events), pct: 0, color: 'var(--accent)' }
   ];
+
+  const trafficTotal = providerTraffic.reduce((n, p) => n + num(p.request_count), 0);
+  const routingErrors = errorSummary.reduce(
+    (acc, row) => ({
+      errors: acc.errors + num(row.error_count),
+      total: acc.total + num(row.total_requests)
+    }),
+    { errors: 0, total: 0 }
+  );
+  const routingErrorRate = routingErrors.total
+    ? (routingErrors.errors / routingErrors.total) * 100
+    : 0;
 
   return (
     <div className="stack">
@@ -274,6 +341,114 @@ export default function Overview({
           </div>
         </Card>
       </div>
+
+      <Card
+        title="Routing"
+        subtitle="Provider selection, failover and traffic"
+        right={
+          <button className="btn ghost sm" onClick={() => onNavigate('routing')}>
+            View all <Icon name="chevron" size={13} />
+          </button>
+        }
+      >
+        <div className="stat-grid">
+          <Stat
+            label="Decisions"
+            value={fmtNum(routing?.decisions ?? 0)}
+            note="primary selections"
+            tone="accent"
+          />
+          <Stat
+            label="Failovers"
+            value={fmtNum(routing?.failovers ?? 0)}
+            note="provider switches"
+            tone={routing?.failovers ? 'amber' : 'green'}
+          />
+          <Stat
+            label="Retries"
+            value={fmtNum(routing?.retries ?? 0)}
+            note="same-provider"
+          />
+          <Stat
+            label="Breaker trips"
+            value={fmtNum(routing?.breaker_trips ?? 0)}
+            note={`${fmtNum(routing?.breaker_recoveries ?? 0)} recoveries`}
+            tone={routing?.breaker_trips ? 'red' : 'green'}
+          />
+          <Stat
+            label="No provider"
+            value={fmtNum(routing?.no_provider ?? 0)}
+            note="unroutable"
+            tone={routing?.no_provider ? 'amber' : undefined}
+          />
+          <Stat
+            label="Denied"
+            value={fmtNum(routing?.denied ?? 0)}
+            note="deny-rule requests"
+            tone={routing?.denied ? 'red' : undefined}
+          />
+        </div>
+
+        <div className="grid-2" style={{ marginTop: 16 }}>
+          <div>
+            <div className="card-sub" style={{ marginBottom: 8 }}>
+              Provider traffic · last 24h
+            </div>
+            {providerTraffic.length === 0 ? (
+              <EmptyState
+                icon={<Icon name="route" size={20} />}
+                text="No provider traffic recorded yet."
+              />
+            ) : (
+              <div className="stack">
+                {providerTraffic.slice(0, 6).map((p) => (
+                  <div className="bar-row" key={p.provider}>
+                    <span>{p.provider || 'unknown'}</span>
+                    <div className="bar-track">
+                      <div
+                        className="bar-fill"
+                        style={{
+                          width: `${Math.min(100, Math.max(0, num(p.traffic_percentage)))}%`
+                        }}
+                      />
+                    </div>
+                    <span>{fmtNum(num(p.traffic_percentage), 1)}%</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <div className="card-sub" style={{ marginBottom: 8 }}>
+              Failover &amp; errors · last 24h
+            </div>
+            <div className="stat-grid">
+              <Stat
+                label="Failover rate"
+                value={failover ? fmtNum(num(failover.failover_percentage), 1) + '%' : '—'}
+                note={
+                  failover
+                    ? `${fmtNum(num(failover.failover_count))} of ${fmtNum(num(failover.total_requests))}`
+                    : 'No data'
+                }
+                tone={num(failover?.failover_count) ? 'amber' : 'green'}
+              />
+              <Stat
+                label="Error rate"
+                value={routingErrors.total ? fmtNum(routingErrorRate, 1) + '%' : '—'}
+                note={routingErrors.total ? `${fmtNum(routingErrors.errors)} errors` : 'No data'}
+                tone={routingErrors.errors ? 'red' : 'green'}
+              />
+              <Stat
+                label="Traffic"
+                value={trafficTotal ? fmtNum(trafficTotal) : '—'}
+                note="requests (24h)"
+              />
+            </div>
+          </div>
+        </div>
+      </Card>
     </div>
   );
 }
