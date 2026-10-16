@@ -1,5 +1,12 @@
 # Policy Layer & RBAC
 
+> **Superseded by [IAM](iam.md).** AgentPlane now authorizes with an AWS-style
+> IAM layer (`internal/iam`) — JSON policy documents, explicit deny, roles,
+> groups, and permission boundaries. The RBAC tables (`roles`,
+> `role_permissions`, `user_roles`) were migrated and dropped in
+> `migrations/000010_migrate_rbac_to_iam`. This document is retained as the
+> historical design of the earlier layer.
+
 **Location:** `internal/policy/`, `internal/policy/rbac/`, `internal/handlers/roles.go`, `migrations/000003_create_rbac_tables.*`
 
 ## 1. Overview
