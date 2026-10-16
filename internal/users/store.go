@@ -1,7 +1,11 @@
-// Package users owns persistence for the users table: creating users and
-// mapping database rows to Go types. It mirrors internal/apikey_management's
-// structure (types + Store) and knows nothing about API keys, HTTP, or
-// anything outside the users table.
+// Package users owns persistence for the users table: creating users, mapping
+// database rows to Go types, and deleting a user together with the identities
+// bound to that user.
+//
+// It mirrors internal/apikey_management's structure (types + Store). Creates and
+// reads touch only the users table; DeleteUser is deliberately the one operation
+// that spans tables, because removing a user must atomically remove the rows
+// that reference it (API keys, IAM bindings) or leave orphans behind.
 package users
 
 import (
@@ -39,6 +43,9 @@ var ErrDuplicateUsername = errors.New("users: username already exists")
 
 // ErrDuplicateEmail is returned when the requested email is already in use.
 var ErrDuplicateEmail = errors.New("users: email already exists")
+
+// ErrUserNotFound is returned by DeleteUser when no user has the given ID.
+var ErrUserNotFound = errors.New("users: user not found")
 
 // User mirrors a row in the users table.
 type User struct {
@@ -161,7 +168,7 @@ func (s *Store) GetUserByID(ctx context.Context, id uuid.UUID) (*User, error) {
 // ListUsers returns every user, newest first. It is used by the admin
 // user-management surface and returns only user-table columns — callers that
 // need role assignments should query those separately (see
-// internal/policy/rbac).
+// internal/iam).
 func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 	const query = `
 		SELECT id, username, email, status, created_at, updated_at
@@ -195,6 +202,63 @@ func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 	}
 
 	return users, nil
+}
+
+// DeleteUser removes a user and everything bound to that identity:
+//
+//   - the user's API keys              (api_keys.user_id)
+//   - IAM policy attachments to them   (iam_policy_attachments)
+//   - IAM role assignments to them     (iam_role_assignments)
+//   - IAM group memberships            (iam_group_memberships)
+//
+// The whole operation runs in a single transaction, so a failure can never
+// leave a user partially removed. Group memberships would cascade at the
+// database level anyway; the IAM principal rows cannot (their principal_id is
+// polymorphic and carries no foreign key), so they are removed explicitly.
+//
+// Deleting a user permanently destroys their API keys, so those credentials
+// stop authenticating immediately. Callers should surface that to operators.
+//
+// It returns ErrUserNotFound when no user has the given ID, in which case
+// nothing is deleted.
+func (s *Store) DeleteUser(ctx context.Context, id uuid.UUID) error {
+	if id == uuid.Nil {
+		// A zero UUID never identifies a row. Report it as missing rather than
+		// as a server error, consistent with the other by-id resources.
+		return ErrUserNotFound
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("users: failed to begin delete: %w", err)
+	}
+	// A rollback after a successful commit is a no-op.
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Children first: rows that reference the user being removed.
+	for _, stmt := range []string{
+		`DELETE FROM api_keys WHERE user_id = $1`,
+		`DELETE FROM iam_policy_attachments WHERE principal_type = 'user' AND principal_id = $1`,
+		`DELETE FROM iam_role_assignments WHERE principal_type = 'user' AND principal_id = $1`,
+		`DELETE FROM iam_group_memberships WHERE user_id = $1`,
+	} {
+		if _, err := tx.Exec(ctx, stmt, id); err != nil {
+			return fmt.Errorf("users: failed to delete user bindings: %w", err)
+		}
+	}
+
+	tag, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("users: failed to delete user: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrUserNotFound
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("users: failed to commit delete: %w", err)
+	}
+	return nil
 }
 
 // validateCreateUserParams checks required fields and applies defaults. It
