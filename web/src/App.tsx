@@ -35,7 +35,7 @@ const SECTIONS: Record<string, SectionDef> = {
   usage: { id: 'usage', label: 'Usage', eyebrow: 'Per-key attribution', icon: 'activity' },
   observability: { id: 'observability', label: 'Analytics', eyebrow: 'Traces, tokens & cost', icon: 'chart' },
   keys: { id: 'keys', label: 'Keys & Vault', eyebrow: 'Provider secrets & API keys', icon: 'key' },
-  access: { id: 'access', label: 'Access Control', eyebrow: 'Roles & permissions', icon: 'users' }
+  access: { id: 'access', label: 'Access Control', eyebrow: 'Policies, roles & groups', icon: 'users' }
 };
 
 const NAV_GROUPS: { label: string; items: string[] }[] = [
@@ -314,8 +314,8 @@ export default function App() {
           )}
 
           {tab === 'access' && (
-            <Section id="access" eyebrow="Roles & permissions" title="Access Control"
-              description="Manage RBAC roles and permissions, and assign roles to users. Access is deny-by-default.">
+            <Section id="access" eyebrow="Policies, roles & groups" title="Access Control"
+              description="AWS-style IAM: author JSON policies, attach them to users, groups, and roles, and set permission boundaries. Access is deny-by-default, and an explicit Deny overrides any Allow.">
               <AccessControlView />
             </Section>
           )}
