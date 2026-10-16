@@ -95,6 +95,55 @@ Analytics requires the existing admin bearer token. The operator enters it into 
 
 The existing `/events` stream remains available to the live view and is unauthenticated; it does not emit CORS headers, strips structured event `data`, removes guardrail detail text, and suppresses upstream URLs while retaining lifecycle stage, safe summary, status, and request ID. The live event log HTML-escapes message text. The live chat widget accepts an API key in a password field and sends it only in the `/chat` Authorization header; it is not saved to browser storage or a URL.
 
+## Grafana deep-dive (optional)
+
+Alongside the native Analytics page, the stack can run Grafana for exploratory
+dashboards. It is optional and additive — the native page remains the primary
+surface.
+
+- **Service.** `grafana/grafana-oss` is defined in `docker-compose.yml` behind the
+  **`grafana` Compose profile**, so a plain `docker compose up -d` never blocks on
+  pulling it. Start it explicitly:
+  `docker compose --profile grafana up -d`. It is reachable only through the web
+  container at `/grafana/` (no host port is published); `nginx.conf` and
+  `serve.mjs` both proxy that sub-path, and Grafana runs with
+  `serve_from_sub_path = true` and a matching `root_url`.
+- **Datasource plugin.** The datasource needs the signed
+  `grafana-clickhouse-datasource` plugin. `GF_PLUGINS_PREINSTALL` installs it on
+  first start (requires egress to grafana.com; ~50 s, then cached in the
+  `grafanadata` volume). If the registry is unreachable, install it once with:
+  `docker exec agentplane-grafana grafana cli --homepath /usr/share/grafana plugins install grafana-clickhouse-datasource`
+  then restart the container.
+- **Auth.** Grafana keeps **its own login** (`GF_SECURITY_ADMIN_USER` /
+  `GF_SECURITY_ADMIN_PASSWORD`, default `admin` / `agentplane`). Anonymous auth is
+  disabled and embedding is not enabled, so it is **not** gated by
+  `AGENTPLANE_ADMIN_TOKEN` and is not iframe-embeddable. Set a real password
+  outside development.
+- **Data path.** Grafana queries ClickHouse directly through the official
+  `grafana-clickhouse-datasource` plugin (native protocol, `clickhouse:9000`),
+  provisioned from `grafana/provisioning/datasources/clickhouse.yml`. This
+  duplicates query logic that the Go analytics API owns; the API remains the
+  contract, and the native page should be treated as the source of truth.
+- **Read-only user.** The datasource uses `grafana_reader`, a SELECT-only
+  ClickHouse user created by `migrations/clickhouse/002_grafana_reader.sql`
+  (mounted into the ClickHouse image's init directory). The admin `default` user
+  should never be used by the datasource. Dev default password: `agentplane`
+  (`CLICKHOUSE_GRAFANA_PASSWORD`).
+- **Dashboards as code.** `grafana/dashboards/agentplane-overview.json` is
+  provisioned from `grafana/provisioning/dashboards/dashboards.yml` and covers
+  request volume, success/error rate, latency percentiles, tokens, cost, guardrail
+  outcomes, and provider/model tables against `agentplane.traces` and
+  `agentplane.guardrail_events`.
+- **Reaching it.** In the control plane open **Analytics** and click the
+  **Grafana** button in the page header (it opens in a new tab), or go straight to
+  `http://localhost:8080/grafana/` and sign in (`admin` / `agentplane` by
+  default). The provisioned dashboard lives in the **AgentPlane** folder.
+
+> Note: like the rest of the analytics stack, the provisioned dashboard queries
+> are not covered by a ClickHouse integration test in this repository; they are
+> validated as provisioned JSON and should be visually confirmed against a live
+> stack.
+
 ## Known Telemetry Limitations
 
 SSE is not an authorization mechanism: CORS is disabled for cross-origin browser clients, structured data and sensitive message details are stripped, but same-origin clients can still observe safe lifecycle summaries and request IDs.

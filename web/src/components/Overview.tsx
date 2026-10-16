@@ -54,7 +54,7 @@ const SERVICES: { id: string; label: string; desc: string; icon: IconName }[] = 
   { id: 'keys', label: 'Keys & Vault', desc: 'Provider secrets and user API keys', icon: 'key' },
   { id: 'usage', label: 'Usage', desc: 'Spend and tokens attributed to keys', icon: 'activity' },
   { id: 'observability', label: 'Analytics', desc: 'Traces, cost and models from ClickHouse', icon: 'chart' },
-  { id: 'access', label: 'Access Control', desc: 'Roles and permissions for your users', icon: 'users' }
+  { id: 'access', label: 'Access Control', desc: 'IAM policies, roles, and groups for your users', icon: 'users' }
 ];
 
 function ServiceGrid({ onNavigate }: { onNavigate: (tab: string) => void }) {

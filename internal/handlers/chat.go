@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"github.com/dexterhere04/AgentPlane/internal/auth"
 	"github.com/dexterhere04/AgentPlane/internal/guardrail"
+	"github.com/dexterhere04/AgentPlane/internal/iam"
 	"github.com/dexterhere04/AgentPlane/internal/observability"
 	"github.com/dexterhere04/AgentPlane/internal/policy"
-	"github.com/dexterhere04/AgentPlane/internal/policy/rbac"
 	"github.com/dexterhere04/AgentPlane/internal/proxy"
 	"github.com/google/uuid"
 	"io"
@@ -48,7 +48,7 @@ func ChatWithRouting(
 	inputSet guardrail.GuardrailSet,
 	outputSet guardrail.GuardrailSet,
 	provider proxy.Provider,
-	rbacStore *rbac.Store,
+	iamStore *iam.Store,
 	providerRegistry *proxy.Registry,
 	selector *proxy.WeightedSelector,
 ) {
@@ -61,7 +61,7 @@ func ChatWithRouting(
 		inputSet,
 		outputSet,
 		provider,
-		rbacStore,
+		iamStore,
 		providerRegistry,
 		selector,
 	)
@@ -75,7 +75,7 @@ func chatWithRouting(
 	inputSet guardrail.GuardrailSet,
 	outputSet guardrail.GuardrailSet,
 	provider proxy.Provider,
-	rbacStore *rbac.Store,
+	iamStore *iam.Store,
 	providerRegistry *proxy.Registry,
 	selector *proxy.WeightedSelector,
 ) {
@@ -179,15 +179,15 @@ func chatWithRouting(
 		userID = user.ID.String()
 		username = user.Username
 
-		if rbacStore != nil {
-			roles, err = rbacStore.ListUserRoles(ctx, user.ID)
+		if iamStore != nil {
+			roles, err = iamStore.UserRoles(ctx, user.ID)
 			if err != nil {
 				log.Printf("error loading roles for routing: %v", err)
 				http.Error(w, "routing unavailable", http.StatusServiceUnavailable)
 				return
 			}
 		}
-	} else if rbacStore != nil {
+	} else if iamStore != nil {
 		bus.Publish(observability.NewMessageEvent(
 			requestID,
 			observability.StageRequestReceived,
@@ -229,18 +229,21 @@ func chatWithRouting(
 		}
 
 		permission := "model:" + model
+		action := iam.ActionInvokeModel
+		resource := "arn:ap:model/" + model
 		decision, err := policyEP.Authorize(ctx, policy.Request{
-			UserID:     user.ID,
-			Permission: permission,
+			UserID:   user.ID,
+			Action:   action,
+			Resource: resource,
 		})
 		if err != nil {
 			bus.Publish(observability.NewMessageEvent(requestID, observability.StageRequestReceived, "error", "policy unavailable for "+permission))
-			policy.WriteUnavailable(w, permission)
+			policy.WriteUnavailable(w, action, resource)
 			return
 		}
 		if decision == policy.DecisionDeny {
 			bus.Publish(observability.NewMessageEvent(requestID, observability.StageRequestReceived, "error", "policy denied "+permission))
-			policy.WriteDenied(w, permission)
+			policy.WriteDenied(w, action, resource)
 			return
 		}
 	}

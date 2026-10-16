@@ -306,9 +306,31 @@ export async function fetchRoutingMetrics(): Promise<{ ok: boolean; metrics: Rou
 }
 
 export interface Role {
+  id: string;
   name: string;
   description: string;
-  permissions: string[];
+  policies: string[];
+}
+
+export interface Policy {
+  name: string;
+  description: string;
+  version: number;
+  is_builtin: boolean;
+  document: unknown;
+}
+
+export type PrincipalType = 'user' | 'group' | 'role';
+
+export interface PolicyAttachment {
+  principal_type: PrincipalType;
+  principal_id: string;
+}
+
+export interface Group {
+  id: string;
+  name: string;
+  description: string;
 }
 
 export interface AdminUser {
@@ -326,6 +348,8 @@ function adminHeaders(json = false): HeadersInit {
   return h;
 }
 
+// --- Roles -----------------------------------------------------------------
+
 export async function fetchRoles(): Promise<{ ok: boolean; status: number; roles: Role[] }> {
   const res = await fetch('/admin/roles', { headers: adminHeaders() });
   if (!res.ok) return { ok: false, status: res.status, roles: [] };
@@ -335,39 +359,188 @@ export async function fetchRoles(): Promise<{ ok: boolean; status: number; roles
 
 export async function createRole(
   name: string,
-  description: string,
-  permissions: string[]
+  description: string
 ): Promise<{ ok: boolean; status: number; body: unknown }> {
   const res = await fetch('/admin/roles', {
     method: 'POST',
     headers: adminHeaders(true),
-    body: JSON.stringify({ name, description, permissions })
+    body: JSON.stringify({ name, description })
   });
   return { ok: res.ok, status: res.status, body: await parseJSON(res) };
 }
 
-export async function addRolePermission(
+export async function deleteRole(role: string): Promise<{ ok: boolean; status: number; body: unknown }> {
+  const res = await fetch('/admin/roles/' + encodeURIComponent(role), {
+    method: 'DELETE',
+    headers: adminHeaders()
+  });
+  return { ok: res.ok, status: res.status, body: await parseJSON(res) };
+}
+
+export async function grantRole(
   role: string,
-  permission: string
+  principalType: PrincipalType,
+  principalId: string
 ): Promise<{ ok: boolean; status: number; body: unknown }> {
-  const res = await fetch('/admin/roles/' + encodeURIComponent(role) + '/permissions', {
+  const res = await fetch('/admin/roles/' + encodeURIComponent(role) + '/grant', {
     method: 'POST',
     headers: adminHeaders(true),
-    body: JSON.stringify({ permission })
+    body: JSON.stringify({ principal_type: principalType, principal_id: principalId })
   });
   return { ok: res.ok, status: res.status, body: await parseJSON(res) };
 }
 
-export async function removeRolePermission(
+export async function revokeRoleGrant(
   role: string,
-  permission: string
+  principalType: PrincipalType,
+  principalId: string
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  const res = await fetch('/admin/roles/' + encodeURIComponent(role) + '/revoke', {
+    method: 'POST',
+    headers: adminHeaders(true),
+    body: JSON.stringify({ principal_type: principalType, principal_id: principalId })
+  });
+  return { ok: res.ok, status: res.status, body: await parseJSON(res) };
+}
+
+export async function fetchRoleGrants(
+  role: string
+): Promise<{ ok: boolean; status: number; grants: PolicyAttachment[] }> {
+  const res = await fetch('/admin/roles/' + encodeURIComponent(role) + '/grants', { headers: adminHeaders() });
+  if (!res.ok) return { ok: false, status: res.status, grants: [] };
+  const body = (await parseJSON(res)) as { grants?: PolicyAttachment[] };
+  return { ok: true, status: res.status, grants: body?.grants ?? [] };
+}
+
+// --- Policies --------------------------------------------------------------
+
+export async function fetchPolicies(): Promise<{ ok: boolean; status: number; policies: Policy[] }> {
+  const res = await fetch('/admin/policies', { headers: adminHeaders() });
+  if (!res.ok) return { ok: false, status: res.status, policies: [] };
+  const body = (await parseJSON(res)) as { policies?: Policy[] };
+  return { ok: true, status: res.status, policies: body?.policies ?? [] };
+}
+
+export async function createPolicy(
+  name: string,
+  description: string,
+  document: unknown
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  const res = await fetch('/admin/policies', {
+    method: 'POST',
+    headers: adminHeaders(true),
+    body: JSON.stringify({ name, description, document })
+  });
+  return { ok: res.ok, status: res.status, body: await parseJSON(res) };
+}
+
+export async function deletePolicy(policy: string): Promise<{ ok: boolean; status: number; body: unknown }> {
+  const res = await fetch('/admin/policies/' + encodeURIComponent(policy), {
+    method: 'DELETE',
+    headers: adminHeaders()
+  });
+  return { ok: res.ok, status: res.status, body: await parseJSON(res) };
+}
+
+export async function attachPolicy(
+  policy: string,
+  principalType: PrincipalType,
+  principalId: string
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  const res = await fetch('/admin/policies/' + encodeURIComponent(policy) + '/attach', {
+    method: 'POST',
+    headers: adminHeaders(true),
+    body: JSON.stringify({ principal_type: principalType, principal_id: principalId })
+  });
+  return { ok: res.ok, status: res.status, body: await parseJSON(res) };
+}
+
+export async function detachPolicy(
+  policy: string,
+  principalType: PrincipalType,
+  principalId: string
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  const res = await fetch('/admin/policies/' + encodeURIComponent(policy) + '/detach', {
+    method: 'POST',
+    headers: adminHeaders(true),
+    body: JSON.stringify({ principal_type: principalType, principal_id: principalId })
+  });
+  return { ok: res.ok, status: res.status, body: await parseJSON(res) };
+}
+
+export async function fetchPolicyAttachments(
+  policy: string
+): Promise<{ ok: boolean; status: number; attachments: PolicyAttachment[] }> {
+  const res = await fetch('/admin/policies/' + encodeURIComponent(policy) + '/attachments', {
+    headers: adminHeaders()
+  });
+  if (!res.ok) return { ok: false, status: res.status, attachments: [] };
+  const body = (await parseJSON(res)) as { attachments?: PolicyAttachment[] };
+  return { ok: true, status: res.status, attachments: body?.attachments ?? [] };
+}
+
+// --- Groups ----------------------------------------------------------------
+
+export async function fetchGroups(): Promise<{ ok: boolean; status: number; groups: Group[] }> {
+  const res = await fetch('/admin/groups', { headers: adminHeaders() });
+  if (!res.ok) return { ok: false, status: res.status, groups: [] };
+  const body = (await parseJSON(res)) as { groups?: Group[] };
+  return { ok: true, status: res.status, groups: body?.groups ?? [] };
+}
+
+export async function createGroup(
+  name: string,
+  description: string
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  const res = await fetch('/admin/groups', {
+    method: 'POST',
+    headers: adminHeaders(true),
+    body: JSON.stringify({ name, description })
+  });
+  return { ok: res.ok, status: res.status, body: await parseJSON(res) };
+}
+
+export async function deleteGroup(group: string): Promise<{ ok: boolean; status: number; body: unknown }> {
+  const res = await fetch('/admin/groups/' + encodeURIComponent(group), {
+    method: 'DELETE',
+    headers: adminHeaders()
+  });
+  return { ok: res.ok, status: res.status, body: await parseJSON(res) };
+}
+
+export async function fetchGroupMembers(
+  group: string
+): Promise<{ ok: boolean; status: number; members: string[] }> {
+  const res = await fetch('/admin/groups/' + encodeURIComponent(group) + '/members', { headers: adminHeaders() });
+  if (!res.ok) return { ok: false, status: res.status, members: [] };
+  const body = (await parseJSON(res)) as { members?: string[] };
+  return { ok: true, status: res.status, members: body?.members ?? [] };
+}
+
+export async function addGroupMember(
+  group: string,
+  userId: string
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  const res = await fetch('/admin/groups/' + encodeURIComponent(group) + '/members', {
+    method: 'POST',
+    headers: adminHeaders(true),
+    body: JSON.stringify({ user_id: userId })
+  });
+  return { ok: res.ok, status: res.status, body: await parseJSON(res) };
+}
+
+export async function removeGroupMember(
+  group: string,
+  userId: string
 ): Promise<{ ok: boolean; status: number; body: unknown }> {
   const res = await fetch(
-    '/admin/roles/' + encodeURIComponent(role) + '/permissions/' + encodeURIComponent(permission),
+    '/admin/groups/' + encodeURIComponent(group) + '/members/' + encodeURIComponent(userId),
     { method: 'DELETE', headers: adminHeaders() }
   );
   return { ok: res.ok, status: res.status, body: await parseJSON(res) };
 }
+
+// --- User roles & permission boundary --------------------------------------
 
 export async function assignRole(
   userId: string,
@@ -389,6 +562,18 @@ export async function revokeRole(
     '/admin/users/' + encodeURIComponent(userId) + '/roles/' + encodeURIComponent(role),
     { method: 'DELETE', headers: adminHeaders() }
   );
+  return { ok: res.ok, status: res.status, body: await parseJSON(res) };
+}
+
+export async function setUserBoundary(
+  userId: string,
+  policy: string
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  const res = await fetch('/admin/users/' + encodeURIComponent(userId) + '/permissions-boundary', {
+    method: 'POST',
+    headers: adminHeaders(true),
+    body: JSON.stringify({ policy })
+  });
   return { ok: res.ok, status: res.status, body: await parseJSON(res) };
 }
 

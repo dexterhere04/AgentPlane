@@ -105,8 +105,11 @@ export default function RoutingView({ stream, adminToken, onAdminTokenChange }: 
     ]);
 
     const failed = results.some((result) => !result.ok);
+    const unauthorized = results.some((result) => result.status === 401);
 
-    if (failed) {
+    if (unauthorized) {
+      setError('HTTP 401 · unauthorized — open Settings (the ⚙ icon in the top bar) and paste your AGENTPLANE_ADMIN_TOKEN.');
+    } else if (failed) {
       setError('One or more routing analytics queries could not be loaded.');
     }
     setProviderTraffic(results[0].rows);

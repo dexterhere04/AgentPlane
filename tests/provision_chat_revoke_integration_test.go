@@ -36,7 +36,9 @@ func TestProvisionChatRevokeLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create database pool: %v", err)
 	}
-	defer pool.Close()
+	// Registered via t.Cleanup rather than defer: t.Cleanup callbacks are LIFO,
+	// so this close runs after the row cleanups instead of before them.
+	t.Cleanup(func() { pool.Close() })
 
 	userStore := users.NewStore(pool)
 	apiStore := api.NewStore(pool)

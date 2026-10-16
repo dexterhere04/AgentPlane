@@ -1,0 +1,222 @@
+{
+  "uid": "agentplane-overview",
+  "title": "AgentPlane — Gateway Overview",
+  "tags": ["agentplane", "gateway", "observability"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "editable": true,
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Requests",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "agentplane-clickhouse" },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "sql",
+          "format": 2,
+          "rawSql": "SELECT count() AS requests\nFROM agentplane.traces\nWHERE $__timeFilter(timestamp)"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none", "textMode": "auto" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Error rate",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "agentplane-clickhouse" },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "sql",
+          "format": 2,
+          "rawSql": "SELECT round(100 * countIf(status != 'success') / nullIf(count(), 0), 2) AS error_rate\nFROM agentplane.traces\nWHERE $__timeFilter(timestamp)"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none", "textMode": "auto" },
+      "fieldConfig": { "defaults": { "unit": "percent", "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 5 }, { "color": "red", "value": 10 } ] } }, "overrides": [] }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "p95 latency",
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "agentplane-clickhouse" },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "sql",
+          "format": 2,
+          "rawSql": "SELECT round(quantileTDigest(0.95)(latency_ms), 0) AS p95_ms\nFROM agentplane.traces\nWHERE $__timeFilter(timestamp)"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none", "textMode": "auto" },
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Estimated cost",
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "agentplane-clickhouse" },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "sql",
+          "format": 2,
+          "rawSql": "SELECT round(sum(estimated_cost), 4) AS cost\nFROM agentplane.traces\nWHERE $__timeFilter(timestamp)"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none", "textMode": "auto" },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD" }, "overrides": [] }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Requests over time",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "agentplane-clickhouse" },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT toStartOfInterval(timestamp, INTERVAL 5 MINUTE) AS time, count() AS requests\nFROM agentplane.traces\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time"
+        }
+      ],
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "bars", "fillOpacity": 60, "lineWidth": 1 } }, "overrides": [] }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Success / error rate",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "agentplane-clickhouse" },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT toStartOfInterval(timestamp, INTERVAL 5 MINUTE) AS time,\n       round(100 * countIf(status != 'success') / nullIf(count(), 0), 2) AS \"error rate %\"\nFROM agentplane.traces\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time"
+        }
+      ],
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "fieldConfig": { "defaults": { "unit": "percent", "custom": { "drawStyle": "line", "fillOpacity": 12, "lineWidth": 2 } }, "overrides": [] }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Latency percentiles",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "agentplane-clickhouse" },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT toStartOfInterval(timestamp, INTERVAL 5 MINUTE) AS time,\n       round(quantileTDigest(0.50)(latency_ms), 0) AS p50,\n       round(quantileTDigest(0.95)(latency_ms), 0) AS p95,\n       round(quantileTDigest(0.99)(latency_ms), 0) AS p99\nFROM agentplane.traces\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time"
+        }
+      ],
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "fieldConfig": { "defaults": { "unit": "ms", "custom": { "drawStyle": "line", "fillOpacity": 0, "lineWidth": 2 } }, "overrides": [] }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Tokens in / out",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "agentplane-clickhouse" },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT toStartOfInterval(timestamp, INTERVAL 5 MINUTE) AS time,\n       sum(input_tokens) AS input,\n       sum(output_tokens) AS output\nFROM agentplane.traces\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time"
+        }
+      ],
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "bars", "fillOpacity": 70, "lineWidth": 1, "stacking": { "mode": "normal" } } },
+        "overrides": []
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Estimated cost",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 21 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "agentplane-clickhouse" },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT toStartOfInterval(timestamp, INTERVAL 5 MINUTE) AS time, round(sum(estimated_cost), 4) AS cost\nFROM agentplane.traces\nWHERE $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time"
+        }
+      ],
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "custom": { "drawStyle": "line", "fillOpacity": 12, "lineWidth": 2 } }, "overrides": [] }
+    },
+    {
+      "id": 15,
+      "type": "table",
+      "title": "Guardrail outcomes",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 21 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "agentplane-clickhouse" },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "sql",
+          "format": 2,
+          "rawSql": "SELECT guardrail_name AS guardrail, phase, action, count() AS count\nFROM agentplane.guardrail_events\nWHERE $__timeFilter(created_at)\nGROUP BY guardrail, phase, action\nORDER BY count DESC"
+        }
+      ],
+      "options": { "showHeader": true },
+      "fieldConfig": { "defaults": {}, "overrides": [] }
+    },
+    {
+      "id": 20,
+      "type": "table",
+      "title": "By provider",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 29 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "agentplane-clickhouse" },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "sql",
+          "format": 2,
+          "rawSql": "SELECT provider,\n       count() AS requests,\n       countIf(status != 'success') AS errors,\n       round(100 * errors / nullIf(count(), 0), 2) AS \"error %\",\n       round(avg(latency_ms), 0) AS \"avg ms\",\n       sum(total_tokens) AS tokens,\n       round(sum(estimated_cost), 4) AS cost\nFROM agentplane.traces\nWHERE $__timeFilter(timestamp)\nGROUP BY provider\nORDER BY requests DESC"
+        }
+      ],
+      "options": { "showHeader": true },
+      "fieldConfig": { "defaults": {}, "overrides": [] }
+    },
+    {
+      "id": 21,
+      "type": "table",
+      "title": "By model",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 29 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "agentplane-clickhouse" },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "sql",
+          "format": 2,
+          "rawSql": "SELECT model,\n       count() AS requests,\n       countIf(status != 'success') AS errors,\n       round(100 * errors / nullIf(count(), 0), 2) AS \"error %\",\n       round(avg(latency_ms), 0) AS \"avg ms\",\n       sum(total_tokens) AS tokens,\n       round(sum(estimated_cost), 4) AS cost\nFROM agentplane.traces\nWHERE $__timeFilter(timestamp)\nGROUP BY model\nORDER BY requests DESC"
+        }
+      ],
+      "options": { "showHeader": true },
+      "fieldConfig": { "defaults": {}, "overrides": [] }
+    }
+  ]
+}

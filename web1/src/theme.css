@@ -1,0 +1,71 @@
+/* ==========================================================================
+   AgentPlane — Oat theme overrides
+   Only Oat CSS variables and a couple of typography defaults are redefined
+   here. Components are left untouched.
+   Aesthetic: quiet, technical, high-contrast neutral base with a single indigo
+   accent. Generous spacing, hairline borders, minimal shadow.
+   ========================================================================== */
+
+@layer theme {
+  :root {
+    color-scheme: light dark;
+
+    /* Surfaces — a slightly cool paper base, pure-white cards */
+    --background: light-dark(#f7f8fa, #0a0c12);
+    --foreground: light-dark(#10131c, #e8ebf2);
+    --card: light-dark(#ffffff, #11151f);
+    --card-foreground: light-dark(#10131c, #e8ebf2);
+    --faint: light-dark(#f2f4f7, #0f131d);
+    --faint-foreground: light-dark(#9aa3b2, #5d6984);
+    --muted: light-dark(#eef1f5, #1a2030);
+    --muted-foreground: light-dark(#5c6575, #97a1b6);
+
+    /* Brand accent (indigo) */
+    --primary: light-dark(#4f46e5, #818cf8);
+    --primary-foreground: light-dark(#ffffff, #0a0c12);
+    --secondary: light-dark(#eef1f5, #1e2434);
+    --secondary-foreground: light-dark(#384152, #cbd3e2);
+    --accent: light-dark(#eef1ff, #1c2138);
+    --ring: light-dark(#4f46e5, #a5b0fd);
+
+    /* Semantic */
+    --danger: light-dark(#d92d20, #f4767e);
+    --danger-foreground: light-dark(#ffffff, #0a0c12);
+    --success: light-dark(#07875a, #34d399);
+    --success-foreground: light-dark(#ffffff, #0a0c12);
+    --warning: light-dark(#b45309, #fbbf5c);
+    --warning-foreground: light-dark(#ffffff, #0a0c12);
+
+    /* Lines */
+    --border: light-dark(#e4e7ed, #232c40);
+    --input: light-dark(#d5d9e2, #2f3a52);
+
+    /* Shape — a touch softer than Oat's defaults, still restrained */
+    --radius-small: 0.3rem;
+    --radius-medium: 0.5rem;
+    --radius-large: 0.9rem;
+
+    /* Layout + type */
+    --sidebar-width: 15.5rem;
+    --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+    --shadow-small: light-dark(0 1px 2px rgb(16 19 28 / 0.04), 0 1px 2px rgb(0 0 0 / 0.4));
+    --shadow-medium: light-dark(0 1px 3px rgb(16 19 28 / 0.06), 0 2px 6px rgb(0 0 0 / 0.45));
+    --shadow-large: light-dark(0 8px 24px -8px rgb(16 19 28 / 0.18), 0 10px 30px -10px rgb(0 0 0 / 0.7));
+  }
+
+  /* Manual theme overrides (the toggle sets color-scheme, these are a fallback) */
+  :root[data-theme="light"] { color-scheme: light; }
+  :root[data-theme="dark"] { color-scheme: dark; }
+
+  body {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-7);
+  font-variant-ligatures: none;
+}

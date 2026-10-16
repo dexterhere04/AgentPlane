@@ -5,8 +5,8 @@
 //
 // The package is intentionally generic. A Policy answers a single question —
 // "is this principal allowed this permission?" — and an EnforcementPoint
-// runs a chain of policies, denying if any policy denies. RBAC
-// (internal/policy/rbac) is the first implementation; rate limits, quotas,
+// runs a chain of policies, denying if any policy denies. IAM
+// (internal/iam) is the current implementation; rate limits, quotas,
 // and attribute-based rules can be added as additional Policy values without
 // changing callers.
 package policy
@@ -39,14 +39,30 @@ func (d Decision) String() string {
 	}
 }
 
-// Request describes the access being attempted. Permission is an opaque
-// string of the form "<resource>:<action>" (e.g. "chat:invoke") or
-// "<resource>:<name>" (e.g. "model:gpt-4o").
+// Request describes the access being attempted.
+//
+// The IAM policy implementation (internal/iam) evaluates Action and Resource
+// independently, mirroring AWS. Permission is the earlier, coarser form (an
+// opaque "<resource>:<action>" string such as "chat:invoke") retained so the
+// legacy matcher and existing callers keep working during the migration; new
+// code should populate Action and Resource.
 type Request struct {
 	// UserID is the authenticated principal.
 	UserID uuid.UUID
 
-	// Permission is the capability being requested.
+	// Action is the concrete action being attempted, e.g. "ap:InvokeModel".
+	Action string
+
+	// Resource is the concrete resource the action targets, e.g.
+	// "arn:ap:model/gpt-4o".
+	Resource string
+
+	// Context carries attribute values for condition evaluation. Unused in
+	// v1; reserved for IAM conditions.
+	Context map[string]any
+
+	// Permission is the legacy capability form. Deprecated: use Action and
+	// Resource.
 	Permission string
 }
 

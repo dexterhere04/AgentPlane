@@ -63,7 +63,8 @@ agentplane/
 │   ├── db/              # Postgres pool + embedded migrations
 │   ├── api/             # API-key generation + persistence
 │   ├── auth/            # API-key authentication + middleware
-│   ├── policy/          # identity-based authorization (RBAC roles/permissions)
+│   ├── iam/             # AWS-style IAM (policies, roles, groups, boundaries)
+│   ├── policy/          # generic authorization spine (EnforcementPoint)
 │   ├── users/           # user persistence
 │   ├── provisioning/    # user + API-key provisioning flow
 │   ├── handlers/        # HTTP handlers (chat, provision, revoke, metrics)
@@ -438,7 +439,8 @@ Each package owns exactly one concern.
 | `config`     | Configuration management |
 | `handlers`   | HTTP request handling    |
 | `auth`       | API-key authentication   |
-| `policy`     | Authorization (RBAC)     |
+| `iam`        | Authorization (IAM)      |
+| `policy`     | Authorization spine      |
 | `users`      | User persistence         |
 | `api`        | API-key lifecycle        |
 | `provisioning` | User + key provisioning |
@@ -456,9 +458,11 @@ Because responsibilities are isolated, changing one package should not require c
 # Authentication & Database
 
 AgentPlane authenticates callers with API keys and persists users and keys in
-PostgreSQL. Requests are then authorized through a deny-by-default RBAC policy
-layer: a user must be assigned a role before they can use the gateway. See
-`docs/policy-rbac.md`.
+PostgreSQL. Requests are then authorized through an AWS-style IAM policy layer:
+JSON policy documents with Allow/Deny effects, explicit-deny-wins evaluation,
+roles, groups, and permission boundaries. Access is deny-by-default — a user
+must be granted a policy or role before they can use the gateway. See
+`docs/iam.md`.
 
 ## Endpoints
 
@@ -515,7 +519,7 @@ Incoming Request
 Authentication
         │
         ▼
-Authorization (RBAC)
+Authorization (IAM)
         │
         ▼
 Rate Limiting

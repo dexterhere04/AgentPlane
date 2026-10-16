@@ -1,0 +1,14 @@
+# Grafana dashboard provisioning (loaded at startup, reloaded on file change).
+apiVersion: 1
+
+providers:
+  - name: AgentPlane
+    orgId: 1
+    folder: AgentPlane
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

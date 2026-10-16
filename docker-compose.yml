@@ -94,9 +94,16 @@ services:
     environment:
       CLICKHOUSE_USER: default
       CLICKHOUSE_PASSWORD: agentplane
+      # Allow the default user to CREATE USER/GRANT so the init script below can
+      # create the read-only grafana_reader account.
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
     ports:
       - "8123:8123"
       - "9000:9000"
+    volumes:
+      # Runs once, on first boot with an empty data directory, and creates the
+      # SELECT-only grafana_reader user used by the Grafana datasource.
+      - ./migrations/clickhouse/002_grafana_reader.sql:/docker-entrypoint-initdb.d/002_grafana_reader.sql:ro
     healthcheck:
       test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
       interval: 3s
@@ -157,14 +164,65 @@ services:
 
   web:
     build:
-      context: ./web
+      context: ./web1
     container_name: agentplane-web
     ports:
-      - "3000:80"
+      - "8080:80"
     depends_on:
       gateway:
         condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     restart: unless-stopped
+    networks:
+      - agentplane
+
+  # Grafana deep-dive dashboards. Reachable only through the web container at
+  # http://localhost:8080/grafana/ (no host port is published). It keeps its own
+  # login — it is NOT gated by AGENTPLANE_ADMIN_TOKEN — so set a real password
+  # outside development.
+  #
+  # Opt-in via the "grafana" profile so a plain `docker compose up -d` never
+  # blocks on pulling this image (or on the ClickHouse plugin it downloads on
+  # first boot). Start it with:
+  #   docker compose --profile grafana up -d
+  grafana:
+    image: grafana/grafana-oss:11.5.0
+    profiles: ["grafana"]
+    container_name: agentplane-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-agentplane}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      # The ClickHouse datasource is a signed Grafana plugin that must be
+      # installed before the datasource can be used. Grafana fetches it from
+      # grafana.com on first start (needs egress; it is then cached in the
+      # grafanadata volume). If the registry is unreachable, install it once:
+      #   docker exec agentplane-grafana \
+      #     grafana cli --homepath /usr/share/grafana \
+      #     plugins install grafana-clickhouse-datasource
+      GF_PLUGINS_PREINSTALL: grafana-clickhouse-datasource
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:8080/grafana/}
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      # Matches migrations/clickhouse/002_grafana_reader.sql and the provisioned
+      # datasource. Change both together for non-development deployments.
+      CLICKHOUSE_GRAFANA_PASSWORD: ${CLICKHOUSE_GRAFANA_PASSWORD:-agentplane}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    depends_on:
+      clickhouse:
+        condition: service_healthy
     networks:
       - agentplane
 
@@ -174,3 +232,4 @@ networks:
 volumes:
   vault-creds:
   pgdata:
+  grafanadata:

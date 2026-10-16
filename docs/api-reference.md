@@ -368,6 +368,18 @@ Remove a role from a user.
 {"user_id": "8b0f...", "role": "member"}
 ```
 
+### `DELETE /admin/users/{id}`
+
+Delete a user together with every identity bound to that user: their API keys,
+IAM policy attachments, role assignments and group memberships. The deletion is
+atomic and final — the user's API keys stop authenticating immediately.
+
+Requires `ap:DeleteUser`. Only the built-in `APAdmin` policy grants it by
+default (it matches `ap:*`); `ap:ReadOnly` does not.
+
+Response — `204 No Content`. Returns `404` when the user does not exist and
+`400` for a malformed id.
+
 ---
 
 ## `GET /events`

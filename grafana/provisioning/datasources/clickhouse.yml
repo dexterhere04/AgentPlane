@@ -1,0 +1,27 @@
+# Grafana data source provisioning (loaded at startup).
+#
+# The ClickHouse plug-in is provisioned against `grafana_reader`, a SELECT-only
+# user created by migrations/clickhouse/002_grafana_reader.sql. The password is
+# supplied by the `CLICKHOUSE_GRAFANA_PASSWORD` environment variable on the
+# grafana service (see docker-compose.yml).
+apiVersion: 1
+
+datasources:
+  - name: ClickHouse
+    uid: agentplane-clickhouse
+    type: grafana-clickhouse-datasource
+    access: proxy
+    isDefault: true
+    editable: false
+    jsonData:
+      host: clickhouse
+      port: 9000
+      protocol: native
+      username: grafana_reader
+      defaultDatabase: agentplane
+      secure: false
+      dialTimeout: 10
+      queryTimeout: 30
+      validateSql: true
+    secureJsonData:
+      password: ${CLICKHOUSE_GRAFANA_PASSWORD}

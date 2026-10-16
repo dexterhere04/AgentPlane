@@ -29,9 +29,9 @@ import (
 	guardsecrets "github.com/dexterhere04/AgentPlane/internal/guardrail/providers/secrets"
 	guardzscaler "github.com/dexterhere04/AgentPlane/internal/guardrail/providers/zscaler"
 	"github.com/dexterhere04/AgentPlane/internal/handlers"
+	"github.com/dexterhere04/AgentPlane/internal/iam"
 	"github.com/dexterhere04/AgentPlane/internal/observability"
 	"github.com/dexterhere04/AgentPlane/internal/policy"
-	"github.com/dexterhere04/AgentPlane/internal/policy/rbac"
 	"github.com/dexterhere04/AgentPlane/internal/provisioning"
 	"github.com/dexterhere04/AgentPlane/internal/proxy"
 	"github.com/dexterhere04/AgentPlane/internal/users"
@@ -122,10 +122,16 @@ func main() {
 		pepper,
 	)
 
-	// Policy layer: RBAC is the first (and currently only) policy. Access is
-	// deny-by-default — a user with no assigned role is permitted nothing.
-	rbacStore := rbac.NewStore(pool)
-	policyEP := policy.NewEnforcementPoint(rbac.New(rbacStore))
+	// Policy layer: IAM is the authorization implementation. Access is
+	// deny-by-default and an explicit Deny overrides any Allow. The built-in
+	// policies and the admin/member roles are seeded idempotently here so a
+	// fresh install and an upgraded install converge on the same state.
+	iamStore := iam.NewStore(pool)
+	policyEP := policy.NewEnforcementPoint(iam.New(iamStore))
+
+	if err := iamStore.SeedBuiltins(ctx); err != nil {
+		log.Fatalf("seed IAM builtins: %v", err)
+	}
 
 	routingStore := proxy.NewRoutingRuleStore(pool)
 
@@ -306,16 +312,15 @@ func main() {
 	if err := enforcement.ValidateSet(mandatoryOutput); err != nil {
 		log.Fatalf("mandatory output guardrails: %v", err)
 	}
-	// adminAuth authorizes a request that carries either the static root admin
-	// token (AGENTPLANE_ADMIN_TOKEN) or a database-backed API key whose user
-	// holds the "admin" role. This lets an admin key provisioned through the
-	// control plane operate the whole gateway, not just the endpoints that
-	// happened to use adminOrRBAC.
+	// authorize wraps an admin handler so it is reachable by either the static
+	// root admin token (AGENTPLANE_ADMIN_TOKEN) or a database-backed API key
+	// whose user is permitted the given IAM action. The root token is the
+	// bootstrap superuser and always bypasses policy evaluation.
 	//
 	// allowQuery additionally accepts the token via the "token" query
 	// parameter, for browser clients (EventSource, top-level navigation) that
 	// cannot set an Authorization header.
-	adminAuth := func(allowQuery bool, next http.Handler) http.Handler {
+	authorize := func(action string, allowQuery bool, next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Preserve root admin-token access.
 			const bearerPrefix = "Bearer "
@@ -347,34 +352,39 @@ func main() {
 				return
 			}
 
-			roles, err := rbacStore.ListUserRoles(r.Context(), user.ID)
+			decision, err := policyEP.Authorize(r.Context(), policy.Request{
+				UserID:   user.ID,
+				Action:   action,
+				Resource: "arn:ap:*",
+			})
 			if err != nil {
-				http.Error(w, "authorization failed", http.StatusInternalServerError)
+				// Fail closed on an authorization outage (503, not 403).
+				http.Error(w, "authorization failed", http.StatusServiceUnavailable)
 				return
 			}
-
-			for _, role := range roles {
-				if role == "admin" {
-					next.ServeHTTP(w, r)
-					return
-				}
+			if decision != policy.DecisionAllow {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
 			}
-
-			http.Error(w, "forbidden", http.StatusForbidden)
+			next.ServeHTTP(w, r)
 		})
 	}
-	adminOrRBAC := func(next http.Handler) http.Handler { return adminAuth(false, next) }
-	adminOrRBACQuery := func(next http.Handler) http.Handler { return adminAuth(true, next) }
+	adminOrRBAC := func(action string) func(http.Handler) http.Handler {
+		return func(next http.Handler) http.Handler { return authorize(action, false, next) }
+	}
+	adminOrRBACQuery := func(action string) func(http.Handler) http.Handler {
+		return func(next http.Handler) http.Handler { return authorize(action, true, next) }
+	}
 
 	mux := http.NewServeMux()
 	mux.Handle(
 		"/chat",
 		authenticator.Middleware(
-			policyEP.Require("chat:invoke")(
+			policyEP.Require(iam.ActionInvokeChat, "arn:ap:*")(
 				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					handlers.ChatWithRouting(
 						w, r, enforcement, policyEP, mandatoryInput, mandatoryOutput,
-						router, rbacStore, providerRegistry, selector,
+						router, iamStore, providerRegistry, selector,
 					)
 				}),
 			),
@@ -387,111 +397,132 @@ func main() {
 	// the credentials that everything else in the gateway trusts.
 	mux.Handle(
 		"/provision/user",
-		adminOrRBAC(
+		adminOrRBAC(iam.ActionProvisionUser)(
 			handlers.ProvisionUser(provisioner),
 		),
 	)
 
 	mux.Handle(
 		"/admin/api-keys/revoke",
-		adminOrRBAC(
+		adminOrRBAC(iam.ActionRevokeApiKey)(
 			handlers.RevokeAPIKey(apiKeyStore),
 		),
 	)
 	mux.Handle(
 		"/admin/api-keys",
-		adminOrRBAC(handlers.ListAPIKeys(apiKeyStore)),
+		adminOrRBAC(iam.ActionListApiKeys)(handlers.ListAPIKeys(apiKeyStore)),
 	)
 	mux.Handle(
 		"/admin/analytics/users",
-		adminOrRBAC(handlers.UserAnalyticsHandler()),
+		adminOrRBAC(iam.ActionViewMetrics)(handlers.UserAnalyticsHandler()),
 	)
 	mux.Handle(
 		"/admin/secrets/provider",
-		adminOrRBAC(
+		adminOrRBAC(iam.ActionManageSecrets)(
 			handlers.StoreProviderSecret(),
 		),
 	)
 
-	// RBAC role administration. Roles are assigned to users; access is
-	// deny-by-default, so a user must be granted a role (e.g. "member")
-	// before they can use the gateway.
-	mux.Handle("GET /admin/roles", adminOrRBAC(handlers.ListRoles(rbacStore)))
-	mux.Handle("POST /admin/roles", adminOrRBAC(handlers.CreateRole(rbacStore)))
-	mux.Handle("POST /admin/roles/{name}/permissions", adminOrRBAC(handlers.AddRolePermission(rbacStore)))
-	mux.Handle("DELETE /admin/roles/{name}/permissions/{permission}", adminOrRBAC(handlers.RemoveRolePermission(rbacStore)))
-	mux.Handle("GET /admin/users", adminOrRBAC(handlers.ListUsers(userStore, rbacStore)))
-	mux.Handle("GET /admin/users/{id}/roles", adminOrRBAC(handlers.ListUserRoles(rbacStore)))
-	mux.Handle("POST /admin/users/{id}/roles", adminOrRBAC(handlers.AssignUserRole(rbacStore)))
-	mux.Handle("DELETE /admin/users/{id}/roles/{role}", adminOrRBAC(handlers.RevokeUserRole(rbacStore)))
+	// IAM administration. Access is deny-by-default and an explicit Deny
+	// overrides any Allow; a user must be permitted the relevant action (via a
+	// policy granting e.g. ap:ManageIAM, or the APAdmin policy) to operate
+	// these endpoints. The built-in admin role carries APAdmin.
+	mux.Handle("GET /admin/policies", adminOrRBAC(iam.ActionListPolicies)(handlers.ListPolicies(iamStore)))
+	mux.Handle("POST /admin/policies", adminOrRBAC(iam.ActionCreatePolicy)(handlers.CreatePolicy(iamStore)))
+	mux.Handle("GET /admin/policies/{name}", adminOrRBAC(iam.ActionGetPolicy)(handlers.GetPolicy(iamStore)))
+	mux.Handle("PUT /admin/policies/{name}", adminOrRBAC(iam.ActionUpdatePolicy)(handlers.UpdatePolicy(iamStore)))
+	mux.Handle("DELETE /admin/policies/{name}", adminOrRBAC(iam.ActionDeletePolicy)(handlers.DeletePolicy(iamStore)))
+	mux.Handle("POST /admin/policies/{name}/attach", adminOrRBAC(iam.ActionAttachPolicy)(handlers.AttachPolicy(iamStore)))
+	mux.Handle("POST /admin/policies/{name}/detach", adminOrRBAC(iam.ActionDetachPolicy)(handlers.DetachPolicy(iamStore)))
+	mux.Handle("GET /admin/policies/{name}/attachments", adminOrRBAC(iam.ActionGetPolicy)(handlers.PolicyAttachments(iamStore)))
 
-	// Operator-only observability endpoints. These require the admin token or
-	// an API key belonging to an active user with the "admin" role. The
+	mux.Handle("GET /admin/groups", adminOrRBAC(iam.ActionListGroups)(handlers.ListGroups(iamStore)))
+	mux.Handle("POST /admin/groups", adminOrRBAC(iam.ActionCreateGroup)(handlers.CreateGroup(iamStore)))
+	mux.Handle("DELETE /admin/groups/{name}", adminOrRBAC(iam.ActionDeleteGroup)(handlers.DeleteGroup(iamStore)))
+	mux.Handle("GET /admin/groups/{name}/members", adminOrRBAC(iam.ActionGetGroup)(handlers.ListGroupMembers(iamStore)))
+	mux.Handle("POST /admin/groups/{name}/members", adminOrRBAC(iam.ActionAddUserToGroup)(handlers.AddGroupMember(iamStore)))
+	mux.Handle("DELETE /admin/groups/{name}/members/{id}", adminOrRBAC(iam.ActionRemoveUserFromGroup)(handlers.RemoveGroupMember(iamStore)))
+
+	mux.Handle("GET /admin/roles", adminOrRBAC(iam.ActionListRoles)(handlers.ListRoles(iamStore)))
+	mux.Handle("POST /admin/roles", adminOrRBAC(iam.ActionCreateRole)(handlers.CreateRole(iamStore)))
+	mux.Handle("DELETE /admin/roles/{name}", adminOrRBAC(iam.ActionDeleteRole)(handlers.DeleteRole(iamStore)))
+	mux.Handle("GET /admin/roles/{name}/grants", adminOrRBAC(iam.ActionListRoles)(handlers.RoleGrants(iamStore)))
+	mux.Handle("POST /admin/roles/{name}/grant", adminOrRBAC(iam.ActionGrantRole)(handlers.GrantRole(iamStore)))
+	mux.Handle("POST /admin/roles/{name}/revoke", adminOrRBAC(iam.ActionRevokeRole)(handlers.RevokeRole(iamStore)))
+
+	mux.Handle("GET /admin/users", adminOrRBAC(iam.ActionListUsers)(handlers.ListUsers(userStore, iamStore)))
+	mux.Handle("GET /admin/users/{id}/roles", adminOrRBAC(iam.ActionListRoles)(handlers.ListUserRoles(iamStore)))
+	mux.Handle("POST /admin/users/{id}/roles", adminOrRBAC(iam.ActionGrantRole)(handlers.AssignUserRole(iamStore)))
+	mux.Handle("DELETE /admin/users/{id}/roles/{role}", adminOrRBAC(iam.ActionRevokeRole)(handlers.RevokeUserRole(iamStore)))
+	mux.Handle("POST /admin/users/{id}/permissions-boundary", adminOrRBAC(iam.ActionSetPermissionsBoundary)(handlers.SetUserPermissionsBoundary(iamStore)))
+	mux.Handle("DELETE /admin/users/{id}", adminOrRBAC(iam.ActionDeleteUser)(handlers.DeleteUser(userStore)))
+
+	// Operator-only observability endpoints. These require the root admin
+	// token or an API key whose user is permitted ap:ViewMetrics. The
 	// browser-facing /events, /dashboard, and /observability also accept the
 	// admin token via the "token" query parameter since EventSource and
 	// top-level navigation cannot set request headers.
 
-	// Provider administration: allow the root admin token or an API key
-	// belonging to an active user with the "admin" role.
+	// Provider administration.
 	mux.Handle("GET /admin/providers",
-		adminOrRBAC(routingAdmin.ListProviders()))
+		adminOrRBAC(iam.ActionListProviders)(routingAdmin.ListProviders()))
 	mux.Handle("POST /admin/providers",
-		adminOrRBAC(routingAdmin.CreateProvider()))
+		adminOrRBAC(iam.ActionCreateProvider)(routingAdmin.CreateProvider()))
 	mux.Handle("GET /admin/providers/{id}",
-		adminOrRBAC(routingAdmin.GetProvider()))
+		adminOrRBAC(iam.ActionListProviders)(routingAdmin.GetProvider()))
 	mux.Handle("PUT /admin/providers/{id}",
-		adminOrRBAC(routingAdmin.UpdateProvider()))
+		adminOrRBAC(iam.ActionUpdateProvider)(routingAdmin.UpdateProvider()))
 	mux.Handle("POST /admin/providers/{id}/enable",
-		adminOrRBAC(routingAdmin.EnableProvider()))
+		adminOrRBAC(iam.ActionEnableProvider)(routingAdmin.EnableProvider()))
 	mux.Handle("POST /admin/providers/{id}/disable",
-		adminOrRBAC(routingAdmin.DisableProvider()))
+		adminOrRBAC(iam.ActionDisableProvider)(routingAdmin.DisableProvider()))
 	mux.Handle("DELETE /admin/providers/{id}",
-		adminOrRBAC(routingAdmin.DeleteProvider()))
+		adminOrRBAC(iam.ActionDeleteProvider)(routingAdmin.DeleteProvider()))
 
 	// Live upstream / circuit-breaker status. Read-only snapshot of the
 	// runtime registry, separate from the persisted provider records above.
 	mux.Handle("GET /admin/upstreams",
-		adminOrRBAC(routingAdmin.ListUpstreams()))
+		adminOrRBAC(iam.ActionListProviders)(routingAdmin.ListUpstreams()))
 
 	// Routing-rule administration.
 	mux.Handle("GET /admin/routing-rules",
-		adminOrRBAC(routingAdmin.ListRules()))
+		adminOrRBAC(iam.ActionListRoutingRules)(routingAdmin.ListRules()))
 	mux.Handle("POST /admin/routing-rules",
-		adminOrRBAC(routingAdmin.CreateRule()))
+		adminOrRBAC(iam.ActionCreateRoutingRule)(routingAdmin.CreateRule()))
 	mux.Handle("GET /admin/routing-rules/{id}",
-		adminOrRBAC(routingAdmin.GetRule()))
+		adminOrRBAC(iam.ActionListRoutingRules)(routingAdmin.GetRule()))
 	mux.Handle("PUT /admin/routing-rules/{id}",
-		adminOrRBAC(routingAdmin.UpdateRule()))
+		adminOrRBAC(iam.ActionUpdateRoutingRule)(routingAdmin.UpdateRule()))
 	mux.Handle("POST /admin/routing-rules/{id}/enable",
-		adminOrRBAC(routingAdmin.EnableRule()))
+		adminOrRBAC(iam.ActionEnableRoutingRule)(routingAdmin.EnableRule()))
 	mux.Handle("POST /admin/routing-rules/{id}/disable",
-		adminOrRBAC(routingAdmin.DisableRule()))
+		adminOrRBAC(iam.ActionDisableRoutingRule)(routingAdmin.DisableRule()))
 	mux.Handle("DELETE /admin/routing-rules/{id}",
-		adminOrRBAC(routingAdmin.DeleteRule()))
-	mux.Handle("/events", adminOrRBACQuery(observability.SSEHandler(bus)))
+		adminOrRBAC(iam.ActionDeleteRoutingRule)(routingAdmin.DeleteRule()))
+	mux.Handle("/events", adminOrRBACQuery(iam.ActionViewMetrics)(observability.SSEHandler(bus)))
 	if chURL != "" {
 		mux.Handle("/analytics/traces_count",
-			adminOrRBAC(handlers.AnalyticsHandler(chURL, "traces_count")))
+			adminOrRBAC(iam.ActionViewMetrics)(handlers.AnalyticsHandler(chURL, "traces_count")))
 		mux.Handle("/admin/analytics",
-			adminOrRBAC(handlers.AnalyticsHandler(chURL, "")))
+			adminOrRBAC(iam.ActionViewMetrics)(handlers.AnalyticsHandler(chURL, "")))
 	}
 
 	// Typed observability dashboard API (health, overview, series,
 	// breakdowns, traces, guardrails, user usage, prompt search).
 	analyticsHandler := handlers.NewObservabilityHandler(analyticsStore)
-	mux.Handle("/api/observability/", adminOrRBAC(analyticsHandler))
+	mux.Handle("/api/observability/", adminOrRBAC(iam.ActionViewMetrics)(analyticsHandler))
 
-	mux.Handle("/dashboard", adminOrRBACQuery(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/dashboard", adminOrRBACQuery(iam.ActionViewMetrics)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(dashboard.HTML))
 	})))
-	mux.Handle("/observability", adminOrRBACQuery(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/observability", adminOrRBACQuery(iam.ActionViewMetrics)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		w.Write([]byte(dashboard.ObservabilityHTML))
 	})))
 
-	mux.Handle("/metrics", adminOrRBAC(handlers.MetricsHandler()))
+	mux.Handle("/metrics", adminOrRBAC(iam.ActionViewMetrics)(handlers.MetricsHandler()))
 
 	log.Printf("AgentPlane Dev Mode")
 	log.Printf("  Gateway   → http://localhost:%s/chat (%s)", port, provider.Name())
