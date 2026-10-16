@@ -164,13 +164,19 @@ services:
 
   web:
     build:
-      context: ./web
+      context: ./web1
     container_name: agentplane-web
     ports:
-      - "3000:80"
+      - "8080:80"
     depends_on:
       gateway:
         condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     restart: unless-stopped
     networks:
       - agentplane
