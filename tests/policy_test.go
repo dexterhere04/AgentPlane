@@ -11,25 +11,60 @@ import (
 	"github.com/dexterhere04/AgentPlane/internal/auth"
 	"github.com/dexterhere04/AgentPlane/internal/guardrail"
 	"github.com/dexterhere04/AgentPlane/internal/handlers"
+	"github.com/dexterhere04/AgentPlane/internal/iam"
 	"github.com/dexterhere04/AgentPlane/internal/observability"
 	"github.com/dexterhere04/AgentPlane/internal/policy"
-	"github.com/dexterhere04/AgentPlane/internal/policy/rbac"
 	"github.com/dexterhere04/AgentPlane/internal/users"
 	"github.com/google/uuid"
 )
 
-type stubPermissions struct {
-	permissions []string
+// stubPolicies is an in-memory iam.PolicyLoader. The model list is expressed as
+// resource patterns: "gpt-4o" grants arn:ap:model/gpt-4o, "*" grants
+// arn:ap:model/*.
+type stubPolicies struct {
+	models []string
 }
 
-func (s stubPermissions) LoadPermissions(context.Context, uuid.UUID) ([]string, error) {
-	return s.permissions, nil
+func (s stubPolicies) LoadPrincipalPolicies(context.Context, uuid.UUID) ([]*iam.PolicyDocument, error) {
+	if len(s.models) == 0 {
+		// A user with nothing granted: only an unrelated allow, so the model
+		// check still fails closed.
+		return []*iam.PolicyDocument{{
+			Version: iam.DefaultVersion,
+			Statement: []iam.Statement{{
+				Effect:   iam.EffectAllow,
+				Action:   iam.StringOrSlice{iam.ActionInvokeChat},
+				Resource: iam.StringOrSlice{"*"},
+			}},
+		}}, nil
+	}
+
+	resources := make([]string, 0, len(s.models))
+	for _, m := range s.models {
+		if m == "*" {
+			resources = append(resources, "arn:ap:model/*")
+		} else {
+			resources = append(resources, "arn:ap:model/"+m)
+		}
+	}
+	return []*iam.PolicyDocument{{
+		Version: iam.DefaultVersion,
+		Statement: []iam.Statement{{
+			Effect:   iam.EffectAllow,
+			Action:   iam.StringOrSlice{iam.ActionInvokeModel},
+			Resource: iam.StringOrSlice(resources),
+		}},
+	}}, nil
 }
 
-func chatWithPolicy(t *testing.T, permissions []string, body []byte) *httptest.ResponseRecorder {
+func (stubPolicies) LoadPermissionsBoundary(context.Context, uuid.UUID) (*iam.PolicyDocument, error) {
+	return nil, nil
+}
+
+func chatWithPolicy(t *testing.T, models []string, body []byte) *httptest.ResponseRecorder {
 	t.Helper()
 
-	engine := rbac.New(stubPermissions{permissions: permissions})
+	engine := iam.New(stubPolicies{models: models})
 	policyEP := policy.NewEnforcementPoint(engine)
 
 	cfg := guardrail.Config{Strategies: make(map[string]guardrail.Strategy)}
@@ -52,7 +87,7 @@ func chatWithPolicy(t *testing.T, permissions []string, body []byte) *httptest.R
 func TestChatPolicy_AllowedModel(t *testing.T) {
 	body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`)
 
-	rec := chatWithPolicy(t, []string{"chat:invoke", "model:gpt-4o"}, body)
+	rec := chatWithPolicy(t, []string{"gpt-4o"}, body)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -62,7 +97,7 @@ func TestChatPolicy_AllowedModel(t *testing.T) {
 func TestChatPolicy_DeniedModel(t *testing.T) {
 	body := []byte(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`)
 
-	rec := chatWithPolicy(t, []string{"chat:invoke", "model:gpt-4o"}, body)
+	rec := chatWithPolicy(t, []string{"gpt-4o"}, body)
 
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
@@ -75,8 +110,8 @@ func TestChatPolicy_DeniedModel(t *testing.T) {
 	if resp["error"]["type"] != "policy_denied" {
 		t.Fatalf("expected policy_denied, got %v", resp["error"]["type"])
 	}
-	if resp["error"]["permission"] != "model:gpt-4o-mini" {
-		t.Fatalf("expected denied permission model:gpt-4o-mini, got %v", resp["error"]["permission"])
+	if resp["error"]["resource"] != "arn:ap:model/gpt-4o-mini" {
+		t.Fatalf("expected denied resource arn:ap:model/gpt-4o-mini, got %v", resp["error"]["resource"])
 	}
 }
 
@@ -86,14 +121,14 @@ func TestChatPolicy_NoPermissionsDenies(t *testing.T) {
 	rec := chatWithPolicy(t, nil, body)
 
 	if rec.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for user with no roles, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected 403 for user with no grants, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
 func TestChatPolicy_WildcardModelAllows(t *testing.T) {
 	body := []byte(`{"model":"some-future-model","messages":[{"role":"user","content":"hi"}]}`)
 
-	rec := chatWithPolicy(t, []string{"chat:invoke", "model:*"}, body)
+	rec := chatWithPolicy(t, []string{"*"}, body)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -104,7 +139,7 @@ func TestChatPolicy_MissingModelRejected(t *testing.T) {
 	t.Setenv("DEFAULT_MODEL", "")
 	body := []byte(`{"messages":[{"role":"user","content":"hi"}]}`)
 
-	rec := chatWithPolicy(t, []string{"chat:invoke", "model:*"}, body)
+	rec := chatWithPolicy(t, []string{"*"}, body)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
@@ -123,7 +158,7 @@ func TestChatPolicy_DefaultModelDenied(t *testing.T) {
 	t.Setenv("DEFAULT_MODEL", "gpt-4o-mini")
 	body := []byte(`{"messages":[{"role":"user","content":"hi"}]}`)
 
-	rec := chatWithPolicy(t, []string{"chat:invoke", "model:gpt-4o"}, body)
+	rec := chatWithPolicy(t, []string{"gpt-4o"}, body)
 
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
@@ -133,8 +168,8 @@ func TestChatPolicy_DefaultModelDenied(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("invalid JSON response: %v", err)
 	}
-	if resp["error"]["permission"] != "model:gpt-4o-mini" {
-		t.Fatalf("expected denied permission model:gpt-4o-mini, got %v", resp["error"]["permission"])
+	if resp["error"]["resource"] != "arn:ap:model/gpt-4o-mini" {
+		t.Fatalf("expected denied resource arn:ap:model/gpt-4o-mini, got %v", resp["error"]["resource"])
 	}
 }
 
@@ -142,7 +177,7 @@ func TestChatPolicy_DefaultModelAllowed(t *testing.T) {
 	t.Setenv("DEFAULT_MODEL", "gpt-4o")
 	body := []byte(`{"messages":[{"role":"user","content":"hi"}]}`)
 
-	rec := chatWithPolicy(t, []string{"chat:invoke", "model:gpt-4o"}, body)
+	rec := chatWithPolicy(t, []string{"gpt-4o"}, body)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())

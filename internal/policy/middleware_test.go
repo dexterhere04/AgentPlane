@@ -19,7 +19,7 @@ func TestRequire_NoUserInContext(t *testing.T) {
 	ep := NewEnforcementPoint(fakePolicy{name: "a", decision: DecisionAllow})
 
 	called := false
-	handler := ep.Require("chat:invoke")(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	handler := ep.Require("ap:InvokeChat", "arn:ap:*")(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		called = true
 	}))
 
@@ -38,7 +38,7 @@ func TestRequire_Allow(t *testing.T) {
 	ep := NewEnforcementPoint(fakePolicy{name: "a", decision: DecisionAllow})
 
 	called := false
-	handler := ep.Require("chat:invoke")(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := ep.Require("ap:InvokeChat", "arn:ap:*")(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -61,7 +61,7 @@ func TestRequire_DenyReturns403(t *testing.T) {
 	ep := NewEnforcementPoint(fakePolicy{name: "a", decision: DecisionDeny})
 
 	called := false
-	handler := ep.Require("chat:invoke")(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	handler := ep.Require("ap:InvokeChat", "arn:ap:*")(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		called = true
 	}))
 
@@ -83,7 +83,7 @@ func TestRequire_ErrorReturns503(t *testing.T) {
 	ep := NewEnforcementPoint(fakePolicy{name: "a", err: errors.New("store down")})
 
 	called := false
-	handler := ep.Require("chat:invoke")(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	handler := ep.Require("ap:InvokeChat", "arn:ap:*")(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		called = true
 	}))
 

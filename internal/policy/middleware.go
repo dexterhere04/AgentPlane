@@ -8,15 +8,19 @@ import (
 )
 
 // Require returns middleware that authorizes the authenticated user for the
-// given permission. It must be mounted *after* auth.Authenticator.Middleware
-// so the user is present in the request context.
+// given action on the given resource. It must be mounted *after*
+// auth.Authenticator.Middleware so the user is present in the request context.
+//
+// The action and resource are IAM identifiers (e.g. "ap:InvokeChat" and
+// "arn:ap:*"). The enforcement point's policies decide the outcome; with the
+// IAM engine this is a deny-by-default, deny-wins evaluation.
 //
 // Responses:
 //
 //	401 — no authenticated user in context
-//	403 — the user is authenticated but not permitted (explicit deny)
+//	403 — the user is authenticated but not permitted (explicit or implicit deny)
 //	503 — a policy could not be evaluated (fail-closed)
-func (ep *EnforcementPoint) Require(permission string) func(http.Handler) http.Handler {
+func (ep *EnforcementPoint) Require(action, resource string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			user, ok := auth.UserFromContext(r.Context())
@@ -26,15 +30,16 @@ func (ep *EnforcementPoint) Require(permission string) func(http.Handler) http.H
 			}
 
 			decision, err := ep.Authorize(r.Context(), Request{
-				UserID:     user.ID,
-				Permission: permission,
+				UserID:   user.ID,
+				Action:   action,
+				Resource: resource,
 			})
 			if err != nil {
-				WriteUnavailable(w, permission)
+				WriteUnavailable(w, action, resource)
 				return
 			}
 			if decision == DecisionDeny {
-				WriteDenied(w, permission)
+				WriteDenied(w, action, resource)
 				return
 			}
 
@@ -43,17 +48,18 @@ func (ep *EnforcementPoint) Require(permission string) func(http.Handler) http.H
 	}
 }
 
-// WriteDenied writes a 403 for an explicit policy denial. It is exported so
-// handlers that authorize dynamic resources (e.g. per-model access) can
-// return the same response shape as the middleware.
-func WriteDenied(w http.ResponseWriter, permission string) {
+// WriteDenied writes a 403 for a policy denial (explicit deny or deny-by-default).
+// It is exported so handlers that authorize dynamic resources (e.g. per-model
+// access) can return the same response shape as the middleware.
+func WriteDenied(w http.ResponseWriter, action, resource string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusForbidden)
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"error": map[string]any{
-			"type":       "policy_denied",
-			"message":    "not permitted to perform this action",
-			"permission": permission,
+			"type":     "policy_denied",
+			"message":  "not permitted to perform this action",
+			"action":   action,
+			"resource": resource,
 		},
 	})
 }
@@ -61,14 +67,15 @@ func WriteDenied(w http.ResponseWriter, permission string) {
 // WriteUnavailable writes a 503 when a policy could not be evaluated. This
 // is distinct from a 403 so an authorization outage fails closed without
 // masquerading as a policy violation.
-func WriteUnavailable(w http.ResponseWriter, permission string) {
+func WriteUnavailable(w http.ResponseWriter, action, resource string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusServiceUnavailable)
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"error": map[string]any{
-			"type":       "policy_unavailable",
-			"message":    "authorization could not be evaluated",
-			"permission": permission,
+			"type":     "policy_unavailable",
+			"message":  "authorization could not be evaluated",
+			"action":   action,
+			"resource": resource,
 		},
 	})
 }
