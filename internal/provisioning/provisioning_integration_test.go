@@ -46,7 +46,7 @@ func TestProvisionUserWithAPIKey_Integration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to connect to database: %v", err)
 	}
-	defer pool.Close()
+	t.Cleanup(func() { pool.Close() })
 
 	usersStore := users.NewStore(pool)
 	apiKeyStore := api.NewStore(pool)
@@ -69,10 +69,10 @@ func TestProvisionUserWithAPIKey_Integration(t *testing.T) {
 		// Best-effort cleanup so reruns don't accumulate test data.
 		// api_keys first, since it has a FK to users.
 		if result.APIKeyRecord != nil {
-			_, _ = pool.Exec(ctx, `DELETE FROM api_keys WHERE key_id = $1`, result.APIKeyRecord.KeyID)
+			_, _ = pool.Exec(context.Background(), `DELETE FROM api_keys WHERE key_id = $1`, result.APIKeyRecord.KeyID)
 		}
 		if result.User != nil {
-			_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, result.User.ID)
+			_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, result.User.ID)
 		}
 	})
 
