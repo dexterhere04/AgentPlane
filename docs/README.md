@@ -10,6 +10,7 @@
 | [API Reference](api-reference.md) | Endpoint specifications |
 | [Request Flow](request-flow.md) | Step-by-step request lifecycle |
 | [Setup & Running](setup.md) | Build, configure, and run the server |
+| [Demo Data Seeding](seed.md) | Seed a realistic demo organization into Postgres + ClickHouse |
 | [Secrets Backends](secrets-backends.md) | Secret-store configuration (env, file, Vault, AWS, Azure, chain) |
 | [Docker & AppRole](docker-approle.md) | Docker image and Vault AppRole bootstrap flow |
 | [API Key Design](api-key-design.md) | Key format design evaluation and decision |
