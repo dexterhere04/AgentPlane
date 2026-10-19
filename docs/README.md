@@ -23,6 +23,7 @@
 | [Routing Metrics](routing-metrics.md) | In-process counters and ClickHouse routing analytics |
 | [Policy Layer & RBAC](policy-rbac.md) | *(superseded by IAM)* earlier identity-based authorization: roles, flat permissions |
 | [IAM](iam.md) | AWS-style authorization: policy documents, explicit deny, roles, groups, permission boundaries |
+| [Database Design](database-design.md) | ER diagrams, table reference, indexes, migrations, and Postgres/ClickHouse split |
 | [Future Roadmap](future-roadmap.md) | Planned pipeline stages and evolution |
 | [go.mod](go-mod.md) | Module definition and dependency management |
 | [.gitignore](gitignore.md) | Version control exclusion rules |
